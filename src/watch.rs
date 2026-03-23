@@ -18,7 +18,7 @@ pub fn watch_and_rebuild(root: &Path, use_default_excludes: bool) -> Result<()> 
     let meta = writer::build_index(&root, use_default_excludes, DEFAULT_MAX_FILE_SIZE)?;
     eprintln!(
         "Indexed {} files, {} trigrams. Watching for changes...",
-        meta.file_count, meta.trigram_count
+        meta.file_count, meta.ngram_count
     );
 
     let (tx, rx) = mpsc::channel();
@@ -60,7 +60,7 @@ pub fn watch_and_rebuild(root: &Path, use_default_excludes: bool) -> Result<()> 
                             eprintln!(
                                 "Rebuilt: {} files, {} trigrams in {:.0}ms",
                                 meta.file_count,
-                                meta.trigram_count,
+                                meta.ngram_count,
                                 start.elapsed().as_secs_f64() * 1000.0,
                             );
                         }

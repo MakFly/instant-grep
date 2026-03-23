@@ -5,11 +5,11 @@ use anyhow::{Context, Result};
 use memmap2::Mmap;
 
 use crate::index::metadata::IndexMetadata;
+use crate::index::ngram::NgramKey;
 use crate::index::postings::{self, DocId};
-use crate::index::trigram::Trigram;
-use crate::query::plan::TrigramQuery;
+use crate::query::plan::NgramQuery;
 
-const LEXICON_ENTRY_SIZE: usize = 12;
+const LEXICON_ENTRY_SIZE: usize = 16; // u64 key + u32 offset + u32 length
 
 pub struct IndexReader {
     pub metadata: IndexMetadata,
@@ -19,13 +19,8 @@ pub struct IndexReader {
 }
 
 impl IndexReader {
-    /// Open an existing index from the .ig directory.
     pub fn open(ig_dir: &Path) -> Result<Self> {
-        let metadata_path = ig_dir.join("metadata.json");
-        let metadata: IndexMetadata = serde_json::from_reader(
-            File::open(&metadata_path).context("open metadata.json")?,
-        )
-        .context("parse metadata.json")?;
+        let metadata = IndexMetadata::load_from(ig_dir).context("load metadata")?;
 
         let lexicon_file =
             File::open(ig_dir.join("lexicon.bin")).context("open lexicon.bin")?;
@@ -47,14 +42,14 @@ impl IndexReader {
         })
     }
 
-    /// Look up a single trigram in the hash table, return matching doc IDs.
-    pub fn lookup_trigram(&self, tri: Trigram) -> Vec<DocId> {
+    /// Look up a single n-gram key in the hash table.
+    pub fn lookup_ngram(&self, key: NgramKey) -> Vec<DocId> {
         if self.table_size == 0 {
             return Vec::new();
         }
 
-        let stored_tri = tri + 1; // +1 encoding (0 = empty)
-        let mut slot = (stored_tri as usize) % self.table_size;
+        let stored_key = key + 1; // sentinel: 0 = empty
+        let mut slot = (stored_key as usize) % self.table_size;
 
         loop {
             let base = slot * LEXICON_ENTRY_SIZE;
@@ -62,32 +57,35 @@ impl IndexReader {
                 return Vec::new();
             }
 
-            let entry_tri = u32::from_le_bytes([
+            let entry_key = u64::from_le_bytes([
                 self.lexicon[base],
                 self.lexicon[base + 1],
                 self.lexicon[base + 2],
                 self.lexicon[base + 3],
+                self.lexicon[base + 4],
+                self.lexicon[base + 5],
+                self.lexicon[base + 6],
+                self.lexicon[base + 7],
             ]);
 
-            if entry_tri == 0 {
+            if entry_key == 0 {
                 return Vec::new();
             }
 
-            if entry_tri == stored_tri {
+            if entry_key == stored_key {
                 let offset = u32::from_le_bytes([
-                    self.lexicon[base + 4],
-                    self.lexicon[base + 5],
-                    self.lexicon[base + 6],
-                    self.lexicon[base + 7],
-                ]) as usize;
-                let length = u32::from_le_bytes([
                     self.lexicon[base + 8],
                     self.lexicon[base + 9],
                     self.lexicon[base + 10],
                     self.lexicon[base + 11],
                 ]) as usize;
+                let length = u32::from_le_bytes([
+                    self.lexicon[base + 12],
+                    self.lexicon[base + 13],
+                    self.lexicon[base + 14],
+                    self.lexicon[base + 15],
+                ]) as usize;
 
-                // Read posting list directly from mmap'd postings
                 let byte_len = length * 4;
                 let end = offset + byte_len;
                 if end > self.postings.len() {
@@ -107,11 +105,11 @@ impl IndexReader {
         }
     }
 
-    /// Resolve a full TrigramQuery into candidate doc IDs.
-    pub fn resolve(&self, query: &TrigramQuery) -> Vec<DocId> {
+    /// Resolve a full NgramQuery into candidate doc IDs.
+    pub fn resolve(&self, query: &NgramQuery) -> Vec<DocId> {
         match query {
-            TrigramQuery::Trigram(tri) => self.lookup_trigram(*tri),
-            TrigramQuery::And(children) => {
+            NgramQuery::Ngram(key) => self.lookup_ngram(*key),
+            NgramQuery::And(children) => {
                 if children.is_empty() {
                     return Vec::new();
                 }
@@ -129,7 +127,7 @@ impl IndexReader {
                 }
                 result
             }
-            TrigramQuery::Or(children) => {
+            NgramQuery::Or(children) => {
                 if children.is_empty() {
                     return Vec::new();
                 }
@@ -140,13 +138,12 @@ impl IndexReader {
                 }
                 result
             }
-            TrigramQuery::All => {
+            NgramQuery::All => {
                 (0..self.metadata.file_count).collect()
             }
         }
     }
 
-    /// Get the relative path for a doc ID.
     pub fn file_path(&self, doc_id: DocId) -> &str {
         &self.metadata.files[doc_id as usize].path
     }

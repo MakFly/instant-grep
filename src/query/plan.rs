@@ -1,20 +1,19 @@
-use crate::index::trigram::Trigram;
+use crate::index::ngram::NgramKey;
 
 #[derive(Debug, Clone)]
-pub enum TrigramQuery {
-    /// All trigrams must be present (intersection)
-    And(Vec<TrigramQuery>),
-    /// Any trigram branch can match (union)
-    Or(Vec<TrigramQuery>),
-    /// A single trigram to look up
-    Trigram(Trigram),
-    /// Cannot extract trigrams — must scan all files
+pub enum NgramQuery {
+    /// All n-grams must be present (intersection)
+    And(Vec<NgramQuery>),
+    /// Any n-gram branch can match (union)
+    Or(Vec<NgramQuery>),
+    /// A single n-gram key to look up
+    Ngram(NgramKey),
+    /// Cannot extract n-grams — must scan all files
     All,
 }
 
-impl TrigramQuery {
-    /// Returns true if this query requires scanning all files.
+impl NgramQuery {
     pub fn is_all(&self) -> bool {
-        matches!(self, TrigramQuery::All)
+        matches!(self, NgramQuery::All)
     }
 }

@@ -2,18 +2,14 @@ use anyhow::{Context, Result};
 use regex_syntax::hir::literal::{ExtractKind, Extractor};
 use regex_syntax::Parser;
 
-use crate::index::trigram::{pack_trigram, Trigram};
-use crate::query::plan::TrigramQuery;
+use crate::index::ngram::{extract_covering_ngrams, DEFAULT_MAX_NGRAM_LEN};
+use crate::query::plan::NgramQuery;
 
-/// Convert a regex pattern into a TrigramQuery.
+/// Convert a regex pattern into an NgramQuery using sparse n-grams.
 ///
-/// Uses regex-syntax's literal Extractor to pull prefix literals from the pattern,
-/// then converts those literals into trigram AND/OR queries.
-///
-/// Returns TrigramQuery::All if the pattern cannot be optimized with trigrams.
-pub fn regex_to_query(pattern: &str, case_insensitive: bool) -> Result<TrigramQuery> {
-    // For case-insensitive, parse without (?i) to get clean literals,
-    // then lowercase them for trigram lookup.
+/// Uses regex-syntax's Extractor to pull prefix/suffix literals from the pattern,
+/// then applies the covering algorithm to extract sparse n-gram keys.
+pub fn regex_to_query(pattern: &str, case_insensitive: bool) -> Result<NgramQuery> {
     let hir = Parser::new()
         .parse(pattern)
         .context("invalid regex pattern")?;
@@ -22,15 +18,12 @@ pub fn regex_to_query(pattern: &str, case_insensitive: bool) -> Result<TrigramQu
     extractor.limit_total(256);
     extractor.limit_class(10);
 
-    // Try prefix extraction first
     extractor.kind(ExtractKind::Prefix);
     let prefix_seq = extractor.extract(&hir);
 
-    // Also try suffix extraction
     extractor.kind(ExtractKind::Suffix);
     let suffix_seq = extractor.extract(&hir);
 
-    // Pick the more specific one (fewest literals, or longest literals)
     let seq = match (prefix_seq.literals(), suffix_seq.literals()) {
         (Some(p), Some(s)) => {
             let p_quality = literal_quality(p);
@@ -43,16 +36,16 @@ pub fn regex_to_query(pattern: &str, case_insensitive: bool) -> Result<TrigramQu
         }
         (Some(_), None) => prefix_seq,
         (None, Some(_)) => suffix_seq,
-        (None, None) => return Ok(TrigramQuery::All),
+        (None, None) => return Ok(NgramQuery::All),
     };
 
     if !seq.is_finite() {
-        return Ok(TrigramQuery::All);
+        return Ok(NgramQuery::All);
     }
 
     let literals = match seq.literals() {
         Some(lits) if !lits.is_empty() => lits,
-        _ => return Ok(TrigramQuery::All),
+        _ => return Ok(NgramQuery::All),
     };
 
     let mut or_branches = Vec::new();
@@ -60,8 +53,6 @@ pub fn regex_to_query(pattern: &str, case_insensitive: bool) -> Result<TrigramQu
     for lit in literals {
         let bytes = lit.as_bytes();
 
-        // For case-insensitive: lowercase the literal bytes before trigram extraction.
-        // This way we can still extract trigrams even with -i flag.
         let working_bytes: Vec<u8> = if case_insensitive {
             bytes.iter().map(|b| b.to_ascii_lowercase()).collect()
         } else {
@@ -69,18 +60,18 @@ pub fn regex_to_query(pattern: &str, case_insensitive: bool) -> Result<TrigramQu
         };
 
         if working_bytes.len() < 3 {
-            return Ok(TrigramQuery::All);
+            return Ok(NgramQuery::All);
         }
 
-        let trigrams: Vec<Trigram> = working_bytes
-            .windows(3)
-            .map(|w| pack_trigram(w[0], w[1], w[2]))
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
-            .collect();
+        // Use covering algorithm for sparse n-grams
+        let ngram_keys = extract_covering_ngrams(&working_bytes, DEFAULT_MAX_NGRAM_LEN);
 
-        let and_query = TrigramQuery::And(
-            trigrams.into_iter().map(TrigramQuery::Trigram).collect(),
+        if ngram_keys.is_empty() {
+            return Ok(NgramQuery::All);
+        }
+
+        let and_query = NgramQuery::And(
+            ngram_keys.into_iter().map(NgramQuery::Ngram).collect(),
         );
         or_branches.push(and_query);
     }
@@ -88,11 +79,10 @@ pub fn regex_to_query(pattern: &str, case_insensitive: bool) -> Result<TrigramQu
     if or_branches.len() == 1 {
         Ok(or_branches.pop().unwrap())
     } else {
-        Ok(TrigramQuery::Or(or_branches))
+        Ok(NgramQuery::Or(or_branches))
     }
 }
 
-/// Score the quality of extracted literals. Higher = better filtering.
 fn literal_quality(literals: &[regex_syntax::hir::literal::Literal]) -> usize {
     if literals.is_empty() {
         return 0;
@@ -110,8 +100,8 @@ mod tests {
     fn test_literal_pattern() {
         let query = regex_to_query("foo_bar", false).unwrap();
         match query {
-            TrigramQuery::And(children) => {
-                assert!(children.len() >= 5);
+            NgramQuery::And(children) => {
+                assert!(!children.is_empty());
             }
             _ => panic!("expected And query, got {:?}", query),
         }
@@ -121,7 +111,7 @@ mod tests {
     fn test_alternation_pattern() {
         let query = regex_to_query("foo|bar", false).unwrap();
         match query {
-            TrigramQuery::Or(branches) => {
+            NgramQuery::Or(branches) => {
                 assert_eq!(branches.len(), 2);
             }
             _ => panic!("expected Or query, got {:?}", query),
@@ -141,9 +131,22 @@ mod tests {
     }
 
     #[test]
-    fn test_case_insensitive_extracts_trigrams() {
-        // With case_insensitive=true, we should still get trigrams (not All)
+    fn test_case_insensitive_extracts_ngrams() {
         let query = regex_to_query("FooBar", true).unwrap();
-        assert!(!query.is_all(), "case-insensitive should still produce trigrams");
+        assert!(!query.is_all());
+    }
+
+    #[test]
+    fn test_covering_produces_fewer_keys() {
+        // A long literal should produce fewer covering n-grams than trigrams
+        let query = regex_to_query("fetchSellerListingsAction", false).unwrap();
+        match query {
+            NgramQuery::And(children) => {
+                // Covering should produce ~3-6 n-grams instead of ~23 trigrams
+                assert!(children.len() < 15,
+                    "covering should produce fewer keys, got {}", children.len());
+            }
+            _ => panic!("expected And query"),
+        }
     }
 }

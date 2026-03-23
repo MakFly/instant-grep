@@ -114,7 +114,7 @@ fn main() -> Result<()> {
             eprintln!(
                 "Indexed {} files, {} trigrams in {:.1}s ({:.1} MB)",
                 meta.file_count,
-                meta.trigram_count,
+                meta.ngram_count,
                 elapsed.as_secs_f64(),
                 size as f64 / 1_048_576.0,
             );
@@ -126,13 +126,12 @@ fn main() -> Result<()> {
         Commands::Status { path } => {
             let root = resolve_root(path.as_deref());
             let ig = ig_dir(&root);
-            if !ig.join("metadata.json").exists() {
+            if !index::metadata::IndexMetadata::exists(&ig) {
                 eprintln!("No index found at {}", ig.display());
                 eprintln!("Run `ig index` to build one.");
                 std::process::exit(1);
             }
-            let meta: index::metadata::IndexMetadata =
-                serde_json::from_reader(std::fs::File::open(ig.join("metadata.json"))?)?;
+            let meta = index::metadata::IndexMetadata::load_from(&ig)?;
             let size = dir_size(&ig);
             let age_secs = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -150,7 +149,7 @@ fn main() -> Result<()> {
             eprintln!(
                 "Index: {} files, {} trigrams, {:.1} MB, built {}",
                 meta.file_count,
-                meta.trigram_count,
+                meta.ngram_count,
                 size as f64 / 1_048_576.0,
                 format_age(age_secs),
             );
@@ -199,14 +198,11 @@ fn main() -> Result<()> {
 /// Ensure the index exists and is up to date.
 fn ensure_index(root: &std::path::Path, use_excludes: bool, max_size: u64) -> Result<()> {
     let ig = ig_dir(root);
-    let needs_build = if !ig.join("metadata.json").exists() {
+    let needs_build = if !index::metadata::IndexMetadata::exists(&ig) {
         true
     } else {
-        match std::fs::File::open(ig.join("metadata.json")) {
-            Ok(f) => match serde_json::from_reader::<_, index::metadata::IndexMetadata>(f) {
-                Ok(meta) => meta.version != INDEX_VERSION,
-                Err(_) => true,
-            },
+        match index::metadata::IndexMetadata::load_from(&ig) {
+            Ok(meta) => meta.version != INDEX_VERSION,
             Err(_) => true,
         }
     };
@@ -216,7 +212,7 @@ fn ensure_index(root: &std::path::Path, use_excludes: bool, max_size: u64) -> Re
         let meta = writer::build_index(root, use_excludes, max_size).context("building index")?;
         eprintln!(
             "Indexed {} files, {} trigrams",
-            meta.file_count, meta.trigram_count
+            meta.file_count, meta.ngram_count
         );
     }
     Ok(())

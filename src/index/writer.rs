@@ -10,14 +10,15 @@ use anyhow::{Context, Result};
 use rayon::prelude::*;
 
 use crate::index::metadata::{IndexMetadata, IndexedFile, INDEX_VERSION};
+use crate::index::ngram::{extract_sparse_ngrams, NgramKey};
 use crate::index::postings::DocId;
-use crate::index::trigram::{extract_trigrams, Trigram};
 use crate::util::{ig_dir, is_binary};
 use crate::walk::walk_files;
 
-const LEXICON_ENTRY_SIZE: usize = 12;
+/// Lexicon entry: 16 bytes on disk (u64 key + u32 offset + u32 length).
+const LEXICON_ENTRY_SIZE: usize = 16;
 
-/// Build or incrementally update the trigram index for a directory.
+/// Build or incrementally update the index.
 pub fn build_index(
     root: &Path,
     use_default_excludes: bool,
@@ -26,7 +27,6 @@ pub fn build_index(
     let root = root.canonicalize().context("canonicalize root")?;
     let ig = ig_dir(&root);
 
-    // Check if we can do an incremental build
     let existing_meta = load_existing_metadata(&ig);
     let current_git_commit = get_git_head(&root);
 
@@ -34,32 +34,19 @@ pub fn build_index(
         if meta.version == INDEX_VERSION {
             let changed = detect_changed_files(&root, meta, &current_git_commit);
             if let Some(changed_paths) = changed {
-                if !changed_paths.is_empty() {
-                    eprintln!(
-                        "Incremental: {} files changed",
-                        changed_paths.len()
-                    );
-                    return incremental_rebuild(
-                        &root,
-                        meta,
-                        &changed_paths,
-                        use_default_excludes,
-                        max_file_size,
-                        &current_git_commit,
-                    );
-                } else {
+                if changed_paths.is_empty() {
                     eprintln!("Index is up to date");
                     return Ok(meta.clone());
+                } else {
+                    eprintln!("Incremental: {} files changed", changed_paths.len());
                 }
             }
         }
     }
 
-    // Full rebuild
     full_rebuild(&root, use_default_excludes, max_file_size, &current_git_commit)
 }
 
-/// Full index build from scratch.
 fn full_rebuild(
     root: &Path,
     use_default_excludes: bool,
@@ -72,13 +59,12 @@ fn full_rebuild(
 
     let file_data: Vec<_> = paths
         .par_iter()
-        .enumerate()
-        .filter_map(|(_idx, path)| {
+        .filter_map(|path| {
             let bytes = fs::read(path).ok()?;
             if is_binary(&bytes) {
                 return None;
             }
-            let trigrams = extract_trigrams(&bytes);
+            let ngrams = extract_sparse_ngrams(&bytes);
             let mtime = fs::metadata(path)
                 .and_then(|m| m.modified())
                 .ok()?
@@ -86,47 +72,31 @@ fn full_rebuild(
                 .ok()?
                 .as_secs();
             let rel_path = path.strip_prefix(root).ok()?.to_string_lossy().to_string();
-            Some((rel_path, bytes.len() as u64, mtime, trigrams))
+            Some((rel_path, bytes.len() as u64, mtime, ngrams))
         })
         .collect();
 
     write_index(root, &ig, &file_data, git_commit)
 }
 
-/// Incremental rebuild: re-index only changed files, keep everything else.
-fn incremental_rebuild(
-    root: &Path,
-    _old_meta: &IndexMetadata,
-    _changed_paths: &[String],
-    use_default_excludes: bool,
-    max_file_size: u64,
-    git_commit: &Option<String>,
-) -> Result<IndexMetadata> {
-    // For now, incremental means: we detected changes, so we do a full rebuild
-    // but only when changes are detected (vs always rebuilding).
-    // Future optimization: only re-read changed files and merge with cached trigrams.
-    full_rebuild(root, use_default_excludes, max_file_size, git_commit)
-}
-
-/// Write the index files to disk from file data.
 fn write_index(
     root: &Path,
     ig: &Path,
-    file_data: &[(String, u64, u64, Vec<Trigram>)],
+    file_data: &[(String, u64, u64, Vec<NgramKey>)],
     git_commit: &Option<String>,
 ) -> Result<IndexMetadata> {
-    let mut postings_map: AHashMap<Trigram, Vec<DocId>> = AHashMap::new();
+    let mut postings_map: AHashMap<NgramKey, Vec<DocId>> = AHashMap::new();
     let mut files = Vec::with_capacity(file_data.len());
 
-    for (new_id, (rel_path, size, mtime, trigrams)) in file_data.iter().enumerate() {
+    for (new_id, (rel_path, size, mtime, ngrams)) in file_data.iter().enumerate() {
         files.push(IndexedFile {
             path: rel_path.clone(),
             mtime: *mtime,
             size: *size,
         });
 
-        for &tri in trigrams {
-            postings_map.entry(tri).or_default().push(new_id as DocId);
+        for &key in ngrams {
+            postings_map.entry(key).or_default().push(new_id as DocId);
         }
     }
 
@@ -143,18 +113,18 @@ fn write_index(
     let mut postings_writer =
         BufWriter::new(File::create(&postings_path).context("create postings.bin")?);
 
-    let mut trigrams_sorted: Vec<(Trigram, &Vec<DocId>)> = postings_map
+    let mut ngrams_sorted: Vec<(NgramKey, &Vec<DocId>)> = postings_map
         .iter()
-        .map(|(&tri, list)| (tri, list))
+        .map(|(&key, list)| (key, list))
         .collect();
-    trigrams_sorted.sort_unstable_by_key(|(tri, _)| *tri);
+    ngrams_sorted.sort_unstable_by_key(|(key, _)| *key);
 
-    let mut offset_map: HashMap<Trigram, (u32, u32)> = HashMap::new();
+    let mut offset_map: HashMap<NgramKey, (u32, u32)> = HashMap::new();
     let mut current_offset: u32 = 0;
 
-    for (tri, list) in &trigrams_sorted {
+    for (key, list) in &ngrams_sorted {
         let length = list.len() as u32;
-        offset_map.insert(*tri, (current_offset, length));
+        offset_map.insert(*key, (current_offset, length));
         for &doc_id in *list {
             postings_writer.write_all(&doc_id.to_le_bytes())?;
         }
@@ -162,25 +132,29 @@ fn write_index(
     }
     postings_writer.flush()?;
 
-    let trigram_count = trigrams_sorted.len();
-    let table_size = next_prime((trigram_count as f64 * 1.3) as usize);
+    let ngram_count = ngrams_sorted.len();
+    let table_size = next_prime((ngram_count as f64 * 1.3) as usize);
     let mut table = vec![0u8; table_size * LEXICON_ENTRY_SIZE];
 
-    for (tri, (offset, length)) in &offset_map {
-        let stored_tri = *tri + 1;
-        let mut slot = (stored_tri as usize) % table_size;
+    for (key, (offset, length)) in &offset_map {
+        let stored_key = *key + 1; // sentinel: 0 = empty
+        let mut slot = (stored_key as usize) % table_size;
         loop {
             let base = slot * LEXICON_ENTRY_SIZE;
-            let existing = u32::from_le_bytes([
+            let existing = u64::from_le_bytes([
                 table[base],
                 table[base + 1],
                 table[base + 2],
                 table[base + 3],
+                table[base + 4],
+                table[base + 5],
+                table[base + 6],
+                table[base + 7],
             ]);
             if existing == 0 {
-                table[base..base + 4].copy_from_slice(&stored_tri.to_le_bytes());
-                table[base + 4..base + 8].copy_from_slice(&offset.to_le_bytes());
-                table[base + 8..base + 12].copy_from_slice(&length.to_le_bytes());
+                table[base..base + 8].copy_from_slice(&stored_key.to_le_bytes());
+                table[base + 8..base + 12].copy_from_slice(&offset.to_le_bytes());
+                table[base + 12..base + 16].copy_from_slice(&length.to_le_bytes());
                 break;
             }
             slot = (slot + 1) % table_size;
@@ -197,15 +171,12 @@ fn write_index(
             .as_secs(),
         root: root.to_string_lossy().to_string(),
         file_count: files.len() as u32,
-        trigram_count: trigram_count as u32,
+        ngram_count: ngram_count as u32,
         files,
         git_commit: git_commit.clone(),
     };
 
-    let metadata_path = ig.join("metadata.json");
-    let metadata_file = File::create(&metadata_path).context("create metadata.json")?;
-    serde_json::to_writer_pretty(BufWriter::new(metadata_file), &metadata)
-        .context("write metadata.json")?;
+    metadata.write_to(ig).context("write metadata")?;
 
     // Auto-add .ig/ to .gitignore
     let gitignore = root.join(".gitignore");
@@ -221,14 +192,10 @@ fn write_index(
     Ok(metadata)
 }
 
-/// Load existing metadata from .ig/metadata.json if it exists.
 fn load_existing_metadata(ig: &Path) -> Option<IndexMetadata> {
-    let path = ig.join("metadata.json");
-    let file = File::open(path).ok()?;
-    serde_json::from_reader(file).ok()
+    IndexMetadata::load_from(ig).ok()
 }
 
-/// Get the current git HEAD commit SHA.
 fn get_git_head(root: &Path) -> Option<String> {
     let output = Command::new("git")
         .args(["rev-parse", "HEAD"])
@@ -242,9 +209,6 @@ fn get_git_head(root: &Path) -> Option<String> {
     }
 }
 
-/// Detect which files have changed since the last index build.
-/// Returns None if we can't determine changes (should do full rebuild).
-/// Returns Some(vec) with list of changed relative paths.
 fn detect_changed_files(
     root: &Path,
     meta: &IndexMetadata,
@@ -252,14 +216,12 @@ fn detect_changed_files(
 ) -> Option<Vec<String>> {
     let mut changed = Vec::new();
 
-    // Strategy 1: if git commits differ, use git diff
     if let (Some(old_commit), Some(new_commit)) = (&meta.git_commit, current_commit) {
         if old_commit != new_commit {
             return detect_git_diff_files(root, old_commit, new_commit);
         }
     }
 
-    // Strategy 2: compare mtime of each indexed file
     for file in &meta.files {
         let full_path = root.join(&file.path);
         match fs::metadata(&full_path) {
@@ -275,18 +237,14 @@ fn detect_changed_files(
                 }
             }
             Err(_) => {
-                // File was deleted
                 changed.push(file.path.clone());
             }
         }
     }
 
-    // Also check for new files (not in old index)
-    // This is expensive without git, so only do mtime-based for now
     Some(changed)
 }
 
-/// Use git diff to find changed files between two commits.
 fn detect_git_diff_files(root: &Path, old: &str, new: &str) -> Option<Vec<String>> {
     let output = Command::new("git")
         .args(["diff", "--name-only", &format!("{}..{}", old, new)])
@@ -303,7 +261,6 @@ fn detect_git_diff_files(root: &Path, old: &str, new: &str) -> Option<Vec<String
         .map(|l| l.to_string())
         .collect();
 
-    // Also add any uncommitted changes
     let status_output = Command::new("git")
         .args(["status", "--porcelain", "--no-renames"])
         .current_dir(root)
@@ -311,8 +268,7 @@ fn detect_git_diff_files(root: &Path, old: &str, new: &str) -> Option<Vec<String
         .ok()?;
 
     if status_output.status.success() {
-        let mut all_files: std::collections::HashSet<String> =
-            files.into_iter().collect();
+        let mut all_files: std::collections::HashSet<String> = files.into_iter().collect();
         for line in String::from_utf8_lossy(&status_output.stdout).lines() {
             if line.len() > 3 {
                 all_files.insert(line[3..].to_string());
