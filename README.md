@@ -47,17 +47,46 @@ AI agents (Claude Code, Codex, Cursor) call grep constantly. On large codebases,
 
 ## Installation
 
+### One-liner (recommended)
+
+Download the prebuilt binary for your platform (Linux x86_64, macOS x86_64, macOS ARM):
+
 ```bash
-# Clone and build
+curl -fsSL https://raw.githubusercontent.com/MakFly/instant-grep/main/install.sh | bash
+```
+
+This installs `ig` to `~/.local/bin/`. Set a custom directory with `IG_INSTALL_DIR`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MakFly/instant-grep/main/install.sh | IG_INSTALL_DIR=/usr/local/bin bash
+```
+
+### Download binary manually
+
+Grab the latest binary from [Releases](https://github.com/MakFly/instant-grep/releases):
+
+| Platform                | Binary             |
+| ----------------------- | ------------------ |
+| Linux x86_64            | `ig-linux-x86_64`  |
+| macOS x86_64            | `ig-macos-x86_64`  |
+| macOS ARM (M1/M2/M3/M4) | `ig-macos-aarch64` |
+
+```bash
+# Example: Linux
+curl -fsSL https://github.com/MakFly/instant-grep/releases/latest/download/ig-linux-x86_64 -o ~/.local/bin/ig
+chmod +x ~/.local/bin/ig
+```
+
+### Build from source
+
+Requires Rust 1.75+ (tested on 1.94):
+
+```bash
 git clone https://github.com/MakFly/instant-grep.git
 cd instant-grep
 cargo build --release
-
-# Install to PATH
 cp target/release/ig ~/.local/bin/
 ```
-
-Requires Rust 1.75+ (tested on 1.94).
 
 ## Usage
 
