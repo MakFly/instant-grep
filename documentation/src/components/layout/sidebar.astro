@@ -57,11 +57,11 @@ function isActive(href: string) {
                 class={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all ${
                   isActive(link.href)
                     ? "sidebar-active font-medium"
-                    : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                    : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
                 }`}
               >
                 {isActive(link.href) && (
-                  <span class="w-1 h-1 rounded-full bg-[#FF6B00] flex-shrink-0"></span>
+                  <span class="w-1 h-1 rounded-full bg-primary flex-shrink-0"></span>
                 )}
                 {link.label}
               </a>
@@ -72,11 +72,11 @@ function isActive(href: string) {
     ))}
 
     <div class="px-3 pt-4 border-t border-border/30">
-      <div class="p-3 rounded-lg bg-[rgba(255,107,0,0.05)] border border-[rgba(255,107,0,0.15)]">
-        <p class="text-xs text-[#FF9500] font-mono font-medium mb-1">Chakra Status</p>
+      <div class="p-3 rounded-lg chakra-widget border border-border">
+        <p class="text-xs chakra-label font-mono font-medium mb-1">Chakra Status</p>
         <div class="flex items-center gap-2">
-          <div class="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
-            <div class="h-full w-[92%] rounded-full bg-gradient-to-r from-[#FF6B00] to-[#FFD700] animate-chakra-pulse"></div>
+          <div class="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
+            <div class="h-full w-[92%] rounded-full bg-gradient-to-r from-primary to-amber-400 animate-chakra-pulse"></div>
           </div>
           <span class="text-xs text-muted-foreground font-mono">92%</span>
         </div>
@@ -85,3 +85,11 @@ function isActive(href: string) {
     </div>
   </nav>
 </aside>
+
+<style>
+  .chakra-widget { background: color-mix(in oklch, var(--primary) 5%, transparent); }
+  .chakra-label { color: var(--primary); }
+
+  :global(.dark) .chakra-widget { background: rgba(255,107,0,0.05); border-color: rgba(255,107,0,0.15); }
+  :global(.dark) .chakra-label { color: #FF9500; }
+</style>

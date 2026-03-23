@@ -6,8 +6,7 @@ const features = [
     subtitle: "Rasengan Algorithm",
     description:
       "Variable-length energy spheres that concentrate query power. Port of GitHub Blackbird's sparse_ngrams — orders of magnitude better than naive trigrams.",
-    color: "#FF6B00",
-    glow: "rgba(255,107,0,0.15)",
+    cls: "feat-orange",
   },
   {
     icon: "👥",
@@ -15,8 +14,7 @@ const features = [
     subtitle: "Sage Mode",
     description:
       "Unix socket daemon keeps the index warm in memory. Sub-millisecond queries without disk I/O — like entering Sage Mode for permanent power access.",
-    color: "#00B4FF",
-    glow: "rgba(0,180,255,0.15)",
+    cls: "feat-blue",
   },
   {
     icon: "📦",
@@ -24,8 +22,7 @@ const features = [
     subtitle: "Scroll of Knowledge",
     description:
       "Structured JSON output for AI agents. Pipe results to Claude, Codex, or any tool without regex parsing. 35x fewer tokens than file content.",
-    color: "#FFD700",
-    glow: "rgba(255,215,0,0.15)",
+    cls: "feat-gold",
   },
   {
     icon: "🛡️",
@@ -33,8 +30,7 @@ const features = [
     subtitle: "Barrier Jutsu",
     description:
       "Automatically excludes node_modules, target, vendor, .git, and 34 more noise directories. Search only what matters — like a perfect barrier jutsu.",
-    color: "#FF0000",
-    glow: "rgba(255,0,0,0.15)",
+    cls: "feat-red",
   },
   {
     icon: "🔄",
@@ -42,8 +38,7 @@ const features = [
     subtitle: "Continuous Chakra",
     description:
       "ig search auto-builds the index on first run. Watch mode rebuilds on file changes. Your index is always fresh — chakra flows uninterrupted.",
-    color: "#FF6B00",
-    glow: "rgba(255,107,0,0.15)",
+    cls: "feat-orange",
   },
   {
     icon: "🎯",
@@ -51,8 +46,7 @@ const features = [
     subtitle: "Sharingan Precision",
     description:
       "Full regex support via the Rust regex crate. The index filters candidates, full regex verifies. Every match is exact — no false positives escape.",
-    color: "#00B4FF",
-    glow: "rgba(0,180,255,0.15)",
+    cls: "feat-blue",
   },
 ]
 ---
@@ -60,8 +54,8 @@ const features = [
 <section class="py-20 px-6">
   <div class="max-w-6xl mx-auto">
     <div class="text-center mb-16">
-      <p class="text-xs font-mono uppercase tracking-widest text-[#FF6B00] mb-3">Techniques</p>
-      <h2 class="text-3xl sm:text-4xl font-mono font-bold text-white mb-4">
+      <p class="text-xs font-mono uppercase tracking-widest feat-orange mb-3">Techniques</p>
+      <h2 class="text-3xl sm:text-4xl font-mono font-bold text-foreground mb-4">
         Forbidden jutsu built into the CLI
       </h2>
       <p class="text-muted-foreground max-w-xl mx-auto">
@@ -71,26 +65,18 @@ const features = [
 
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
       {features.map((feature) => (
-        <div
-          class="energy-card rounded-xl p-6 bg-card/50 flex flex-col gap-4"
-        >
+        <div class="energy-card rounded-xl p-6 bg-card/50 flex flex-col gap-4">
           <div class="flex items-start justify-between">
-            <div
-              class="w-12 h-12 rounded-xl flex items-center justify-center text-2xl"
-              style={`background: ${feature.glow}; border: 1px solid ${feature.color}30;`}
-            >
+            <div class={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl feat-icon-bg ${feature.cls}`}>
               {feature.icon}
             </div>
-            <span
-              class="text-xs font-mono px-2 py-1 rounded-full"
-              style={`color: ${feature.color}; background: ${feature.glow}; border: 1px solid ${feature.color}20;`}
-            >
+            <span class={`text-xs font-mono px-2 py-1 rounded-full feat-badge ${feature.cls}`}>
               {feature.subtitle}
             </span>
           </div>
 
           <div>
-            <h3 class="font-mono font-bold text-white text-lg mb-2">{feature.title}</h3>
+            <h3 class="font-mono font-bold text-foreground text-lg mb-2">{feature.title}</h3>
             <p class="text-sm text-muted-foreground leading-relaxed">{feature.description}</p>
           </div>
         </div>
@@ -98,3 +84,29 @@ const features = [
     </div>
   </div>
 </section>
+
+<style>
+  /* Color classes */
+  .feat-orange { color: var(--primary); }
+  .feat-blue { color: var(--accent); }
+  .feat-gold { color: oklch(0.55 0.14 80); }
+  .feat-red { color: oklch(0.55 0.2 25); }
+  .feat-green { color: oklch(0.52 0.14 155); }
+
+  :global(.dark) .feat-orange { color: #FF9500; }
+  :global(.dark) .feat-blue { color: #00B4FF; }
+  :global(.dark) .feat-gold { color: #FFD700; }
+  :global(.dark) .feat-red { color: #FF6B5A; }
+
+  /* Icon background */
+  .feat-icon-bg {
+    background: color-mix(in oklch, currentColor 15%, transparent);
+    border: 1px solid color-mix(in oklch, currentColor 30%, transparent);
+  }
+
+  /* Badge */
+  .feat-badge {
+    background: color-mix(in oklch, currentColor 15%, transparent);
+    border: 1px solid color-mix(in oklch, currentColor 20%, transparent);
+  }
+</style>

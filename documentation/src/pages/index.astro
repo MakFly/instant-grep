@@ -16,14 +16,12 @@ import KonamiCode from "@/components/easter-eggs/konami"
 
   <!-- CTA section -->
   <section class="py-24 px-6 text-center relative overflow-hidden">
-    <div class="absolute inset-0 opacity-[0.02]"
-      style="background-image: radial-gradient(circle, rgba(255,107,0,0.8) 1px, transparent 1px); background-size: 40px 40px;">
-    </div>
+    <div class="absolute inset-0 cta-dot-pattern opacity-[0.02]"></div>
     <div class="relative z-10 max-w-2xl mx-auto">
       <h2 class="text-4xl sm:text-5xl font-mono font-black mb-6">
         <span class="gradient-text">Ready to awaken</span>
         <br />
-        <span class="text-white/90">your search power?</span>
+        <span class="text-foreground/90">your search power?</span>
       </h2>
       <p class="text-muted-foreground mb-10 text-lg">
         One command to index. One command to search. Sub-millisecond results.
@@ -33,14 +31,13 @@ import KonamiCode from "@/components/easter-eggs/konami"
       <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
         <a
           href="/docs/getting-started"
-          class="inline-flex items-center gap-2 px-10 py-4 rounded-xl font-mono font-bold text-black transition-all hover:scale-105"
-          style="background: linear-gradient(135deg, #FF6B00, #FF9500); box-shadow: 0 0 30px rgba(255,107,0,0.4);"
+          class="cta-primary inline-flex items-center gap-2 px-10 py-4 rounded-xl font-mono font-bold text-black transition-all hover:scale-105"
         >
           Start your training →
         </a>
         <a
           href="/docs/performance"
-          class="inline-flex items-center gap-2 px-8 py-4 rounded-xl font-mono font-bold text-[#00B4FF] border border-[rgba(0,180,255,0.3)] hover:bg-[rgba(0,180,255,0.05)] transition-all"
+          class="cta-secondary inline-flex items-center gap-2 px-8 py-4 rounded-xl font-mono font-bold transition-all"
         >
           View benchmarks
         </a>
@@ -53,3 +50,38 @@ import KonamiCode from "@/components/easter-eggs/konami"
   <!-- Easter egg: Konami Code -->
   <KonamiCode client:load />
 </MainLayout>
+
+<style>
+  .cta-dot-pattern {
+    background-image: radial-gradient(circle, oklch(0.5 0.15 45 / 0.8) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .cta-primary {
+    background: linear-gradient(135deg, var(--primary), color-mix(in oklch, var(--primary) 80%, oklch(0.7 0.15 60)));
+    box-shadow: 0 0 30px color-mix(in oklch, var(--primary) 40%, transparent);
+  }
+
+  .cta-secondary {
+    color: var(--accent);
+    border: 1px solid color-mix(in oklch, var(--accent) 30%, transparent);
+  }
+  .cta-secondary:hover {
+    background: color-mix(in oklch, var(--accent) 5%, transparent);
+  }
+
+  :global(.dark) .cta-dot-pattern {
+    background-image: radial-gradient(circle, rgba(255,107,0,0.8) 1px, transparent 1px);
+  }
+  :global(.dark) .cta-primary {
+    background: linear-gradient(135deg, #FF6B00, #FF9500);
+    box-shadow: 0 0 30px rgba(255,107,0,0.4);
+  }
+  :global(.dark) .cta-secondary {
+    color: #00B4FF;
+    border-color: rgba(0,180,255,0.3);
+  }
+  :global(.dark) .cta-secondary:hover {
+    background: rgba(0,180,255,0.05);
+  }
+</style>
