@@ -6,47 +6,61 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* ===== LIGHT MODE (default when no .dark class) ===== */
+/* ===== LIGHT MODE — "Konoha Scroll" ===== */
 :root {
-  --background: oklch(0.97 0.01 75);
-  --foreground: oklch(0.18 0.02 250);
-  --card: oklch(0.99 0.008 75);
-  --card-foreground: oklch(0.18 0.02 250);
-  --popover: oklch(0.99 0.008 75);
-  --popover-foreground: oklch(0.18 0.02 250);
-  --primary: oklch(0.62 0.22 45);
-  --primary-foreground: oklch(0.99 0.005 80);
-  --secondary: oklch(0.93 0.015 75);
-  --secondary-foreground: oklch(0.18 0.02 250);
-  --muted: oklch(0.93 0.015 75);
-  --muted-foreground: oklch(0.45 0.04 250);
-  --accent: oklch(0.5 0.2 220);
-  --accent-foreground: oklch(0.99 0.005 80);
-  --destructive: oklch(0.55 0.25 25);
-  --border: oklch(0 0 0 / 12%);
-  --input: oklch(0 0 0 / 8%);
-  --ring: oklch(0.62 0.22 45);
-  --chart-1: oklch(0.62 0.22 45);
-  --chart-2: oklch(0.5 0.2 220);
-  --chart-3: oklch(0.75 0.2 90);
-  --chart-4: oklch(0.55 0.25 25);
-  --chart-5: oklch(0.6 0.18 155);
-  --radius: 0.75rem;
-  --sidebar: oklch(0.95 0.012 75);
-  --sidebar-foreground: oklch(0.18 0.02 250);
-  --sidebar-primary: oklch(0.62 0.22 45);
-  --sidebar-primary-foreground: oklch(0.99 0.005 80);
-  --sidebar-accent: oklch(0.91 0.015 75);
-  --sidebar-accent-foreground: oklch(0.18 0.02 250);
-  --sidebar-border: oklch(0 0 0 / 10%);
-  --sidebar-ring: oklch(0.62 0.22 45);
+  /* Backgrounds: clean white with micro warm tint */
+  --background: oklch(0.988 0.002 90);       /* #FAFAF8 */
+  --foreground: oklch(0.13 0.01 75);          /* #1A1A1A near-black */
+  --card: oklch(1 0 0);                       /* pure white */
+  --card-foreground: oklch(0.13 0.01 75);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.13 0.01 75);
 
-  /* Anime custom colors */
-  --orange: #FF6B00;
-  --orange-bright: #FF9500;
-  --chakra-blue: #00B4FF;
-  --sharingan-red: #FF0000;
-  --saiyan-gold: #FFD700;
+  /* Primary: burnt orange — high contrast on white */
+  --primary: oklch(0.52 0.16 35);             /* #C4500A */
+  --primary-foreground: oklch(0.99 0 0);      /* white */
+
+  /* Secondary: light warm gray */
+  --secondary: oklch(0.96 0.004 75);          /* #F2F1EF */
+  --secondary-foreground: oklch(0.25 0.01 75);
+
+  /* Muted: warm grays */
+  --muted: oklch(0.96 0.004 75);
+  --muted-foreground: oklch(0.44 0.02 75);    /* #6B6B6B */
+
+  /* Accent: deep blue — readable on white */
+  --accent: oklch(0.45 0.12 250);             /* #1E60A0 */
+  --accent-foreground: oklch(0.99 0 0);
+
+  --destructive: oklch(0.52 0.2 25);          /* dark red */
+  --border: oklch(0.88 0.005 75);             /* #E0DFDD warm gray border */
+  --input: oklch(0.88 0.005 75);
+  --ring: oklch(0.52 0.16 35);
+
+  --chart-1: oklch(0.52 0.16 35);
+  --chart-2: oklch(0.45 0.12 250);
+  --chart-3: oklch(0.65 0.15 90);
+  --chart-4: oklch(0.52 0.2 25);
+  --chart-5: oklch(0.55 0.12 155);
+
+  --radius: 0.75rem;
+
+  /* Sidebar: very subtle warm gray */
+  --sidebar: oklch(0.975 0.003 75);           /* #F7F6F4 */
+  --sidebar-foreground: oklch(0.13 0.01 75);
+  --sidebar-primary: oklch(0.52 0.16 35);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.94 0.005 75);
+  --sidebar-accent-foreground: oklch(0.13 0.01 75);
+  --sidebar-border: oklch(0.88 0.005 75);
+  --sidebar-ring: oklch(0.52 0.16 35);
+
+  /* Anime accent colors — toned down for light */
+  --orange: #C4500A;
+  --orange-bright: #E06500;
+  --chakra-blue: #1E60A0;
+  --sharingan-red: #CC2200;
+  --saiyan-gold: #B8860B;
 }
 
 /* ===== DARK MODE ===== */
@@ -84,7 +98,6 @@
   --sidebar-border: oklch(1 0 0 / 8%);
   --sidebar-ring: oklch(0.72 0.22 45);
 
-  /* Anime custom colors */
   --orange: #FF6B00;
   --orange-bright: #FF9500;
   --chakra-blue: #00B4FF;
@@ -145,64 +158,74 @@
   }
   html {
     @apply font-sans;
+    transition: background-color 0.2s ease, color 0.2s ease;
   }
 }
 
 /* ===== ANIME THEME CUSTOM STYLES ===== */
 
-/* Gradient text utility */
+/* Gradient text — adapts to theme via CSS vars */
 .gradient-text {
-  background: linear-gradient(135deg, #FF6B00 0%, #FFD700 50%, #FF9500 100%);
+  background: linear-gradient(135deg, var(--orange) 0%, var(--saiyan-gold) 50%, var(--orange-bright) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
 .gradient-text-blue {
-  background: linear-gradient(135deg, #00B4FF 0%, #0070FF 100%);
+  background: linear-gradient(135deg, var(--chakra-blue) 0%, oklch(0.4 0.15 250) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
-/* Ki/Chakra glow effects */
+/* Ki/Chakra glow effects — use current vars */
 .glow-orange {
-  box-shadow: 0 0 20px rgba(255, 107, 0, 0.4), 0 0 40px rgba(255, 107, 0, 0.15);
+  box-shadow: 0 0 20px color-mix(in oklch, var(--orange) 40%, transparent),
+              0 0 40px color-mix(in oklch, var(--orange) 15%, transparent);
 }
 
 .glow-blue {
-  box-shadow: 0 0 20px rgba(0, 180, 255, 0.4), 0 0 40px rgba(0, 180, 255, 0.15);
+  box-shadow: 0 0 20px color-mix(in oklch, var(--chakra-blue) 40%, transparent),
+              0 0 40px color-mix(in oklch, var(--chakra-blue) 15%, transparent);
 }
 
 .glow-gold {
-  box-shadow: 0 0 20px rgba(255, 215, 0, 0.4), 0 0 40px rgba(255, 215, 0, 0.15);
+  box-shadow: 0 0 20px color-mix(in oklch, var(--saiyan-gold) 40%, transparent),
+              0 0 40px color-mix(in oklch, var(--saiyan-gold) 15%, transparent);
 }
 
 .text-glow-orange {
-  text-shadow: 0 0 20px rgba(255, 107, 0, 0.8), 0 0 40px rgba(255, 107, 0, 0.4);
+  text-shadow: 0 0 20px color-mix(in oklch, var(--orange) 60%, transparent),
+               0 0 40px color-mix(in oklch, var(--orange) 30%, transparent);
 }
 
 .text-glow-blue {
-  text-shadow: 0 0 20px rgba(0, 180, 255, 0.8), 0 0 40px rgba(0, 180, 255, 0.4);
+  text-shadow: 0 0 20px color-mix(in oklch, var(--chakra-blue) 60%, transparent),
+               0 0 40px color-mix(in oklch, var(--chakra-blue) 30%, transparent);
 }
 
-/* Animated glow pulse (power-up effect) */
+/* Light mode: disable glow/text-shadow entirely (clean look) */
+html:not(.dark) .glow-orange,
+html:not(.dark) .glow-blue,
+html:not(.dark) .glow-gold {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+html:not(.dark) .text-glow-orange,
+html:not(.dark) .text-glow-blue {
+  text-shadow: none;
+}
+
+/* Animated glow pulse */
 @keyframes chakra-pulse {
-  0%, 100% {
-    box-shadow: 0 0 10px rgba(255, 107, 0, 0.3), 0 0 20px rgba(255, 107, 0, 0.1);
-  }
-  50% {
-    box-shadow: 0 0 30px rgba(255, 107, 0, 0.6), 0 0 60px rgba(255, 107, 0, 0.3), 0 0 100px rgba(255, 107, 0, 0.1);
-  }
+  0%, 100% { box-shadow: 0 0 10px rgba(255, 107, 0, 0.3), 0 0 20px rgba(255, 107, 0, 0.1); }
+  50% { box-shadow: 0 0 30px rgba(255, 107, 0, 0.6), 0 0 60px rgba(255, 107, 0, 0.3); }
 }
 
 @keyframes ki-pulse {
-  0%, 100% {
-    box-shadow: 0 0 10px rgba(0, 180, 255, 0.3), 0 0 20px rgba(0, 180, 255, 0.1);
-  }
-  50% {
-    box-shadow: 0 0 30px rgba(0, 180, 255, 0.6), 0 0 60px rgba(0, 180, 255, 0.3), 0 0 100px rgba(0, 180, 255, 0.1);
-  }
+  0%, 100% { box-shadow: 0 0 10px rgba(0, 180, 255, 0.3), 0 0 20px rgba(0, 180, 255, 0.1); }
+  50% { box-shadow: 0 0 30px rgba(0, 180, 255, 0.6), 0 0 60px rgba(0, 180, 255, 0.3); }
 }
 
 @keyframes power-flash {
@@ -228,31 +251,20 @@
   50% { transform: translateY(-8px); }
 }
 
-@keyframes scan-line {
-  0% { transform: translateY(-100%); }
-  100% { transform: translateY(100vh); }
-}
-
 @keyframes terminal-cursor {
   0%, 49% { opacity: 1; }
   50%, 100% { opacity: 0; }
 }
 
-@keyframes type-reveal {
-  from { width: 0; }
-  to { width: 100%; }
-}
+.animate-chakra-pulse { animation: chakra-pulse 2s ease-in-out infinite; }
+.animate-ki-pulse { animation: ki-pulse 2s ease-in-out infinite; }
+.animate-float { animation: float 3s ease-in-out infinite; }
 
-.animate-chakra-pulse {
-  animation: chakra-pulse 2s ease-in-out infinite;
-}
-
-.animate-ki-pulse {
-  animation: ki-pulse 2s ease-in-out infinite;
-}
-
-.animate-float {
-  animation: float 3s ease-in-out infinite;
+/* Light mode: no pulse animation, just subtle shadow */
+html:not(.dark) .animate-chakra-pulse,
+html:not(.dark) .animate-ki-pulse {
+  animation: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
 }
 
 .terminal-cursor::after {
@@ -263,7 +275,8 @@
 /* Card with energy border */
 .energy-card {
   position: relative;
-  border: 1px solid rgba(255, 107, 0, 0.2);
+  border: 1px solid var(--border);
+  background: var(--card);
   transition: all 0.3s ease;
 }
 
@@ -273,7 +286,7 @@
   inset: -1px;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, rgba(255, 107, 0, 0.4), rgba(0, 180, 255, 0.2), rgba(255, 215, 0, 0.3));
+  background: linear-gradient(135deg, color-mix(in oklch, var(--orange) 40%, transparent), color-mix(in oklch, var(--chakra-blue) 20%, transparent));
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
@@ -281,14 +294,19 @@
   transition: opacity 0.3s ease;
 }
 
-.energy-card:hover::before {
-  opacity: 1;
-}
+.energy-card:hover::before { opacity: 1; }
 
 .energy-card:hover {
-  border-color: rgba(255, 107, 0, 0.4);
-  box-shadow: 0 0 30px rgba(255, 107, 0, 0.15);
   transform: translateY(-2px);
+}
+
+/* Dark: glow on hover. Light: shadow on hover */
+.dark .energy-card:hover {
+  box-shadow: 0 0 30px rgba(255, 107, 0, 0.15);
+}
+
+html:not(.dark) .energy-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
 }
 
 /* Kaioken power-up overlay */
@@ -312,12 +330,12 @@
   font-size: clamp(2rem, 8vw, 6rem);
   font-weight: 900;
   color: #FFD700;
-  text-shadow: 0 0 40px #FF6B00, 0 0 80px #FF6B00, 0 0 120px rgba(255, 107, 0, 0.5);
+  text-shadow: 0 0 40px #FF6B00, 0 0 80px #FF6B00;
   animation: kaioken-text 2s ease forwards;
   letter-spacing: 0.05em;
 }
 
-/* Scroll/parchment hover effect for nav links */
+/* Scroll/parchment hover for nav links */
 .scroll-link {
   position: relative;
   transition: color 0.2s ease;
@@ -330,22 +348,31 @@
   left: 0;
   width: 0;
   height: 2px;
-  background: linear-gradient(90deg, #FF6B00, #FFD700);
+  background: linear-gradient(90deg, var(--orange), var(--saiyan-gold));
   transition: width 0.3s ease;
+}
+
+.dark .scroll-link::after {
   box-shadow: 0 0 8px rgba(255, 107, 0, 0.6);
 }
 
-.scroll-link:hover::after {
-  width: 100%;
-}
+.scroll-link:hover::after { width: 100%; }
 
-/* Code block neon feel */
+/* Code block — ALWAYS dark background in both modes */
 .code-block {
-  background: oklch(0.06 0.01 250);
-  border: 1px solid rgba(0, 180, 255, 0.15);
+  background: oklch(0.08 0.01 250) !important;
+  color: oklch(0.9 0.01 80);
   border-radius: 0.5rem;
   position: relative;
   overflow: hidden;
+}
+
+.dark .code-block {
+  border: 1px solid rgba(0, 180, 255, 0.15);
+}
+
+html:not(.dark) .code-block {
+  border: 1px solid oklch(0.85 0.005 75);
 }
 
 .code-block::before {
@@ -355,14 +382,50 @@
   left: 0;
   right: 0;
   height: 1px;
+}
+
+.dark .code-block::before {
   background: linear-gradient(90deg, transparent, rgba(0, 180, 255, 0.5), transparent);
+}
+
+html:not(.dark) .code-block::before {
+  background: linear-gradient(90deg, transparent, rgba(196, 80, 10, 0.3), transparent);
+}
+
+/* pre/code always dark */
+pre {
+  background: oklch(0.08 0.01 250) !important;
+  color: oklch(0.9 0.01 80) !important;
+}
+
+/* Inline code */
+.dark code:not(pre code) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #FF9500;
+  border-radius: 0.25rem;
+  padding: 0.1em 0.35em;
+}
+
+html:not(.dark) code:not(pre code) {
+  background: oklch(0.94 0.005 75);
+  color: oklch(0.4 0.12 35);
+  border-radius: 0.25rem;
+  padding: 0.1em 0.35em;
 }
 
 /* Sidebar active item */
 .sidebar-active {
+  border-left: 2px solid var(--primary);
+}
+
+.dark .sidebar-active {
   color: #FF9500;
   background: rgba(255, 107, 0, 0.1);
-  border-left: 2px solid #FF6B00;
+}
+
+html:not(.dark) .sidebar-active {
+  color: oklch(0.45 0.14 35);
+  background: oklch(0.96 0.01 40);
 }
 
 /* Jutsu tooltip */
@@ -376,19 +439,29 @@
   bottom: calc(100% + 8px);
   left: 50%;
   transform: translateX(-50%);
-  background: oklch(0.08 0.015 250);
-  border: 1px solid rgba(255, 107, 0, 0.4);
   border-radius: 0.5rem;
   padding: 0.5rem 1rem;
   font-size: 0.75rem;
   white-space: nowrap;
-  color: #FF9500;
-  box-shadow: 0 0 20px rgba(255, 107, 0, 0.3);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease;
   z-index: 100;
   font-family: 'JetBrains Mono Variable', monospace;
+}
+
+.dark .jutsu-tooltip .tooltip-content {
+  background: oklch(0.08 0.015 250);
+  border: 1px solid rgba(255, 107, 0, 0.4);
+  color: #FF9500;
+  box-shadow: 0 0 20px rgba(255, 107, 0, 0.3);
+}
+
+html:not(.dark) .jutsu-tooltip .tooltip-content {
+  background: white;
+  border: 1px solid oklch(0.85 0.005 75);
+  color: oklch(0.45 0.14 35);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .jutsu-tooltip .tooltip-content::after {
@@ -398,161 +471,84 @@
   left: 50%;
   transform: translateX(-50%);
   border: 6px solid transparent;
+}
+
+.dark .jutsu-tooltip .tooltip-content::after {
   border-top-color: rgba(255, 107, 0, 0.4);
 }
 
-.jutsu-tooltip:hover .tooltip-content {
-  opacity: 1;
+html:not(.dark) .jutsu-tooltip .tooltip-content::after {
+  border-top-color: oklch(0.85 0.005 75);
 }
 
-/* ===== LIGHT MODE OVERRIDES ===== */
+.jutsu-tooltip:hover .tooltip-content { opacity: 1; }
 
-/* In light mode, the hover/background for sidebar links needs contrast */
-html:not(.dark) .sidebar-active {
-  color: #D45800;
-  background: rgba(255, 107, 0, 0.08);
-  border-left: 2px solid #FF6B00;
-}
+/* ===== LIGHT MODE TEXT FIXES ===== */
 
-/* Energy card in light mode: warm shadow instead of glow */
-html:not(.dark) .energy-card {
-  border: 1px solid rgba(180, 80, 0, 0.15);
-}
-
-html:not(.dark) .energy-card:hover {
-  border-color: rgba(255, 107, 0, 0.35);
-  box-shadow: 0 4px 20px rgba(255, 107, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
-}
-
-/* Code blocks always dark regardless of theme */
-.code-block {
-  background: oklch(0.06 0.01 250);
-  border: 1px solid rgba(0, 180, 255, 0.15);
-  border-radius: 0.5rem;
-  position: relative;
-  overflow: hidden;
-}
-
-/* Force dark on pre/code inside code blocks in light mode */
-html:not(.dark) pre,
-html:not(.dark) .code-block pre {
-  background: oklch(0.06 0.01 250) !important;
-  color: rgba(255, 255, 255, 0.85);
-}
-
-/* Inline code in light mode */
-html:not(.dark) code:not(.code-block code) {
-  background: rgba(180, 80, 0, 0.08);
-  color: #C45000;
-  border-radius: 0.25rem;
-  padding: 0.1em 0.35em;
-}
-
-/* Glow effects: more subtle in light mode */
-html:not(.dark) .glow-orange {
-  box-shadow: 0 0 12px rgba(255, 107, 0, 0.2), 0 0 24px rgba(255, 107, 0, 0.08);
-}
-
-html:not(.dark) .glow-blue {
-  box-shadow: 0 0 12px rgba(0, 180, 255, 0.2), 0 0 24px rgba(0, 180, 255, 0.08);
-}
-
-html:not(.dark) .glow-gold {
-  box-shadow: 0 0 12px rgba(255, 215, 0, 0.2), 0 0 24px rgba(255, 215, 0, 0.08);
-}
-
-html:not(.dark) .text-glow-orange {
-  text-shadow: 0 0 10px rgba(255, 107, 0, 0.4), 0 0 20px rgba(255, 107, 0, 0.15);
-}
-
-html:not(.dark) .text-glow-blue {
-  text-shadow: 0 0 10px rgba(0, 180, 255, 0.4), 0 0 20px rgba(0, 180, 255, 0.15);
-}
-
-html:not(.dark) .animate-chakra-pulse {
-  animation: chakra-pulse-light 2s ease-in-out infinite;
-}
-
-@keyframes chakra-pulse-light {
-  0%, 100% {
-    box-shadow: 0 0 6px rgba(255, 107, 0, 0.2), 0 0 12px rgba(255, 107, 0, 0.08);
-  }
-  50% {
-    box-shadow: 0 0 16px rgba(255, 107, 0, 0.35), 0 0 32px rgba(255, 107, 0, 0.15);
-  }
-}
-
-/* Tooltip in light mode */
-html:not(.dark) .jutsu-tooltip .tooltip-content {
-  background: oklch(0.97 0.01 75);
-  border: 1px solid rgba(255, 107, 0, 0.35);
-  color: #C45000;
-  box-shadow: 0 4px 16px rgba(255, 107, 0, 0.15);
-}
-
-/* Scrollbar in light mode */
-html:not(.dark) ::-webkit-scrollbar-track {
-  background: oklch(0.95 0.012 75);
-}
-
-html:not(.dark) ::-webkit-scrollbar-thumb {
-  background: rgba(255, 107, 0, 0.25);
-}
-
-html:not(.dark) ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 107, 0, 0.45);
-}
-
-/* text-white in light mode should be dark text */
+/* text-white classes: use foreground in light mode */
 html:not(.dark) .text-white {
-  color: oklch(0.15 0.02 250) !important;
+  color: var(--foreground) !important;
 }
 
 html:not(.dark) .text-white\/90 {
-  color: oklch(0.18 0.02 250) !important;
+  color: var(--foreground) !important;
 }
 
-/* Heading colors in light mode for doc pages */
-html:not(.dark) .prose h2 {
-  color: oklch(0.18 0.02 250);
+html:not(.dark) .text-white\/80 {
+  color: var(--muted-foreground) !important;
 }
 
-html:not(.dark) .prose h3 {
-  color: oklch(0.22 0.02 250);
+html:not(.dark) .text-white\/70 {
+  color: var(--muted-foreground) !important;
 }
 
-/* Card backgrounds in light mode */
-html:not(.dark) .bg-card\/50 {
-  background-color: oklch(0.98 0.008 75 / 0.8);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+html:not(.dark) .text-white\/60 {
+  color: var(--muted-foreground) !important;
 }
 
-/* white/5 hovers need to adapt in light mode */
+/* bg-white/5 hovers → subtle gray in light */
 html:not(.dark) .hover\:bg-white\/5:hover {
-  background-color: rgba(0, 0, 0, 0.04);
+  background-color: var(--secondary);
 }
 
-/* Astro-specific scrollbar */
+html:not(.dark) .bg-white\/5 {
+  background-color: var(--secondary);
+}
+
+html:not(.dark) .bg-white\/10 {
+  background-color: oklch(0.95 0.004 75);
+}
+
+/* border-white overrides for light */
+html:not(.dark) .border-white\/10 {
+  border-color: var(--border);
+}
+
+html:not(.dark) .border-white\/5 {
+  border-color: var(--border);
+}
+
+/* ===== SCROLLBAR ===== */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
-::-webkit-scrollbar-track {
-  background: oklch(0.08 0.015 250);
-}
+.dark ::-webkit-scrollbar-track { background: oklch(0.08 0.015 250); }
+.dark ::-webkit-scrollbar-thumb { background: rgba(255, 107, 0, 0.3); border-radius: 3px; }
+.dark ::-webkit-scrollbar-thumb:hover { background: rgba(255, 107, 0, 0.6); }
 
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 107, 0, 0.3);
-  border-radius: 3px;
-}
+html:not(.dark) ::-webkit-scrollbar-track { background: oklch(0.96 0.003 75); }
+html:not(.dark) ::-webkit-scrollbar-thumb { background: oklch(0.8 0.01 75); border-radius: 3px; }
+html:not(.dark) ::-webkit-scrollbar-thumb:hover { background: oklch(0.7 0.02 75); }
 
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 107, 0, 0.6);
-}
-
-/* Selection color */
-::selection {
+/* Selection */
+.dark ::selection {
   background: rgba(255, 107, 0, 0.3);
   color: #FFD700;
+}
+
+html:not(.dark) ::selection {
+  background: oklch(0.85 0.08 40);
+  color: oklch(0.15 0.01 75);
 }
