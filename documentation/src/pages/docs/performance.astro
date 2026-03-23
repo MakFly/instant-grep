@@ -2,90 +2,51 @@
 import DocsLayout from "@/layouts/docs.astro"
 
 const benchmarks = [
-  {
-    version: "V1",
-    tool: "ig (V1 — naive trigrams)",
-    latency: "18ms",
-    notes: "Baseline — full trigram scan",
-    color: "#FF3B30",
-    highlight: false,
-    goku: false,
-  },
-  {
-    version: "V2",
-    tool: "ig (V2 — index + verification)",
-    latency: "8ms",
-    notes: "Index lookup + regex verify",
-    color: "#FF9500",
-    highlight: false,
-    goku: false,
-  },
-  {
-    version: "V3",
-    tool: "ig (V3 — sparse n-grams)",
-    latency: "3ms",
-    notes: "Rasengan Algorithm introduced",
-    color: "#FFD700",
-    highlight: false,
-    goku: false,
-  },
-  {
-    version: "V4",
-    tool: "ig (V4 — covering set + mmap)",
-    latency: "1.4ms",
-    notes: "Shadow Clone Selection + mmap",
-    color: "#00B4FF",
-    highlight: false,
-    goku: false,
-  },
-  {
-    version: "V5",
-    tool: "ig (V5 — parallel verify)",
-    latency: "0.9ms",
-    notes: "Rayon parallel regex verification",
-    color: "#34C759",
-    highlight: true,
-    goku: false,
-  },
-  {
-    version: "daemon",
-    tool: "ig (daemon mode)",
-    latency: "0.3ms",
-    notes: "Sage Mode — index in process memory",
-    color: "#FF6B00",
-    highlight: true,
-    goku: false,
-  },
-  {
-    version: "cursor",
-    tool: "Cursor built-in search",
-    latency: "5.4ms",
-    notes: "Baseline for comparison",
-    color: "#888",
-    highlight: false,
-    goku: false,
-  },
-  {
-    version: "goku",
-    tool: "Goku (Instant Transmission)",
-    latency: "0.00ms",
-    notes: "Teleports to any ki signature instantly",
-    color: "#FFD700",
-    highlight: false,
-    goku: true,
-  },
+  { version: "V1", tool: "ig (V1 — naive trigrams)", latency: "18ms", notes: "Baseline — full trigram scan", cls: "perf-red", highlight: false, goku: false },
+  { version: "V2", tool: "ig (V2 — index + verification)", latency: "8ms", notes: "Index lookup + regex verify", cls: "perf-orange", highlight: false, goku: false },
+  { version: "V3", tool: "ig (V3 — sparse n-grams)", latency: "3ms", notes: "Rasengan Algorithm introduced", cls: "perf-gold", highlight: false, goku: false },
+  { version: "V4", tool: "ig (V4 — covering set + mmap)", latency: "1.4ms", notes: "Shadow Clone Selection + mmap", cls: "perf-blue", highlight: false, goku: false },
+  { version: "V5", tool: "ig (V5 — parallel verify)", latency: "0.9ms", notes: "Rayon parallel regex verification", cls: "perf-green", highlight: true, goku: false },
+  { version: "daemon", tool: "ig (daemon mode)", latency: "0.3ms", notes: "Sage Mode — index in process memory", cls: "perf-orange", highlight: true, goku: false },
+  { version: "cursor", tool: "Cursor built-in search", latency: "5.4ms", notes: "Baseline for comparison", cls: "perf-muted", highlight: false, goku: false },
+  { version: "goku", tool: "Goku (Instant Transmission)", latency: "0.00ms", notes: "Teleports to any ki signature instantly", cls: "perf-gold", highlight: false, goku: true },
+]
+
+const timeline = [
+  { label: "V1 — Naive trigrams", ms: 18, cls: "perf-red", note: "18ms" },
+  { label: "V2 — Index + verify", ms: 8, cls: "perf-orange", note: "8ms" },
+  { label: "V3 — Sparse n-grams", ms: 3, cls: "perf-gold", note: "3ms" },
+  { label: "V4 — Covering + mmap", ms: 1.4, cls: "perf-blue", note: "1.4ms" },
+  { label: "V5 — Parallel verify", ms: 0.9, cls: "perf-green", note: "0.9ms" },
+  { label: "Daemon mode", ms: 0.3, cls: "perf-orange", note: "0.3ms" },
+]
+
+const heroStats = [
+  { value: "20x", label: "Faster than V1", cls: "perf-orange" },
+  { value: "6x", label: "Faster than Cursor", cls: "perf-blue" },
+  { value: "0.9ms", label: "p50 latency", cls: "perf-gold" },
+  { value: "0.3ms", label: "Daemon mode", cls: "perf-green" },
+]
+
+const daemonSteps = [
+  { step: "Unix socket read (query)", time: "~0.02ms", cls: "perf-blue" },
+  { step: "N-gram extraction from regex", time: "~0.05ms", cls: "perf-orange" },
+  { step: "Hash table lookup (lexicon in memory)", time: "~0.03ms", cls: "perf-gold" },
+  { step: "Posting list intersection", time: "~0.05ms", cls: "perf-green" },
+  { step: "Parallel regex verification", time: "~0.10ms", cls: "perf-orange" },
+  { step: "Unix socket write (results)", time: "~0.05ms", cls: "perf-blue" },
 ]
 ---
 
 <DocsLayout title="Performance" description="Benchmarks, optimization history, and why sparse n-grams win">
-  <div class="prose prose-invert max-w-none">
+  <div class="max-w-none">
     <!-- Page header -->
     <div class="mb-10">
-      <div class="flex items-center gap-2 text-xs font-mono uppercase tracking-widest mb-3" style="color: #FFD700;">
+      <div class="flex items-center gap-2 text-xs font-mono uppercase tracking-widest mb-3 perf-gold">
         <span>📊</span>
         <span>Power Level Chart — Over 9000</span>
       </div>
-      <h1 class="text-4xl font-mono font-black mb-4" style="background: linear-gradient(135deg, #FFD700, #FF6B00); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
+      <h1 class="text-4xl font-mono font-black mb-4 gradient-text">
         Performance
       </h1>
       <p class="text-muted-foreground text-lg leading-relaxed">
@@ -96,14 +57,9 @@ const benchmarks = [
 
     <!-- Hero stats -->
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-12">
-      {[
-        { value: "20x", label: "Faster than V1", color: "#FF6B00" },
-        { value: "6x", label: "Faster than Cursor", color: "#00B4FF" },
-        { value: "0.9ms", label: "p50 latency", color: "#FFD700" },
-        { value: "0.3ms", label: "Daemon mode", color: "#34C759" },
-      ].map((stat) => (
-        <div class="text-center p-5 rounded-xl energy-card bg-card/50">
-          <div class="font-mono text-3xl font-black mb-1" style={`color: ${stat.color}; text-shadow: 0 0 20px ${stat.color}60;`}>
+      {heroStats.map((stat) => (
+        <div class="text-center p-5 rounded-xl energy-card">
+          <div class={`font-mono text-3xl font-black mb-1 ${stat.cls}`}>
             {stat.value}
           </div>
           <div class="text-xs text-muted-foreground font-mono">{stat.label}</div>
@@ -113,49 +69,44 @@ const benchmarks = [
 
     <!-- Benchmark table -->
     <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-white mb-4 flex items-center gap-2">
-        <span style="color: #FFD700;">⚡</span>
+      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
+        <span class="perf-gold">⚡</span>
         Benchmark Table
       </h2>
       <p class="text-sm text-muted-foreground mb-5">
-        Measured on a 1,247 file Rust project. Pattern: <code class="font-mono" style="color: #FFD700;">"async fn"</code>.
+        Measured on a 1,247 file Rust project. Pattern: <code class="font-mono">"async fn"</code>.
         Hardware: AMD Ryzen 9, NVMe SSD, 32GB RAM. p50 latency (10 runs).
       </p>
 
-      <div class="overflow-x-auto rounded-xl border border-border/30">
+      <div class="overflow-x-auto rounded-xl border border-border">
         <table class="w-full text-sm border-collapse">
           <thead>
-            <tr class="border-b border-border/30 bg-white/3">
-              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Version</th>
-              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Tool / Mode</th>
-              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Latency (p50)</th>
-              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider hidden sm:table-cell">Notes</th>
+            <tr class="border-b border-border bg-secondary/50">
+              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Version</th>
+              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Tool / Mode</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Latency (p50)</th>
+              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider hidden sm:table-cell">Notes</th>
             </tr>
           </thead>
           <tbody class="font-mono text-xs">
             {benchmarks.map((row) => (
-              <tr
-                class={`border-b border-border/20 transition-colors ${row.highlight ? "bg-white/3" : "hover:bg-white/2"} ${row.goku ? "opacity-60 hover:opacity-80" : ""}`}
-              >
+              <tr class={`border-b border-border/50 transition-colors hover:bg-secondary/30 ${row.goku ? "opacity-50 hover:opacity-70" : ""}`}>
                 <td class="py-3 px-4">
-                  <span
-                    class="px-2 py-0.5 rounded text-xs"
-                    style={`color: ${row.color}; background: ${row.color}15; border: 1px solid ${row.color}20;`}
-                  >
+                  <span class={`px-2 py-0.5 rounded text-xs font-semibold ${row.cls} perf-badge-${row.cls}`}>
                     {row.version}
                   </span>
                 </td>
-                <td class="py-3 px-4 text-white/80">
+                <td class="py-3 px-4 text-foreground/80">
                   {row.goku ? (
                     <span class="flex items-center gap-2">
                       {row.tool}
-                      <span class="text-xs opacity-60" style="color: #FFD700;">[easter egg]</span>
+                      <span class="text-xs text-muted-foreground italic">[easter egg]</span>
                     </span>
                   ) : row.tool}
                 </td>
-                <td class={`py-3 px-4 text-right font-bold ${row.highlight ? "text-[#34C759]" : row.goku ? "text-[#FFD700]" : "text-muted-foreground"}`}>
+                <td class={`py-3 px-4 text-right font-bold ${row.highlight ? "perf-green" : row.goku ? "perf-gold" : "text-foreground/70"}`}>
                   {row.latency}
-                  {row.highlight && <span class="ml-1.5 opacity-60" style="color: #34C759;">✓</span>}
+                  {row.highlight && <span class="ml-1.5 perf-green opacity-70">✓</span>}
                 </td>
                 <td class="py-3 px-4 text-muted-foreground hidden sm:table-cell">
                   {row.goku ? (
@@ -168,36 +119,29 @@ const benchmarks = [
         </table>
       </div>
 
-      <p class="text-xs text-muted-foreground/40 mt-3 font-mono italic">
+      <p class="text-xs text-muted-foreground/60 mt-3 font-mono italic">
         * Goku row is a tribute. ig does not yet support ki-based teleportation.
       </p>
     </section>
 
     <!-- Visual speedometer -->
     <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-white mb-6 flex items-center gap-2">
-        <span style="color: #FF6B00;">📈</span>
+      <h2 class="text-2xl font-mono font-bold text-foreground mb-6 flex items-center gap-2">
+        <span class="perf-orange">📈</span>
         Optimization Timeline
       </h2>
 
       <div class="space-y-4">
-        {[
-          { label: "V1 — Naive trigrams", ms: 18, max: 18, color: "#FF3B30", note: "18ms" },
-          { label: "V2 — Index + verify", ms: 8, max: 18, color: "#FF9500", note: "8ms" },
-          { label: "V3 — Sparse n-grams", ms: 3, max: 18, color: "#FFD700", note: "3ms" },
-          { label: "V4 — Covering + mmap", ms: 1.4, max: 18, color: "#00B4FF", note: "1.4ms" },
-          { label: "V5 — Parallel verify", ms: 0.9, max: 18, color: "#34C759", note: "0.9ms" },
-          { label: "Daemon mode", ms: 0.3, max: 18, color: "#FF6B00", note: "0.3ms" },
-        ].map((item) => (
+        {timeline.map((item) => (
           <div class="flex items-center gap-4">
-            <div class="w-44 text-xs font-mono text-muted-foreground/70 text-right flex-shrink-0">{item.label}</div>
-            <div class="flex-1 h-6 rounded-full bg-white/5 overflow-hidden">
+            <div class="w-44 text-xs font-mono text-muted-foreground text-right flex-shrink-0">{item.label}</div>
+            <div class="flex-1 h-6 rounded-full bg-secondary overflow-hidden">
               <div
-                class="h-full rounded-full transition-all"
-                style={`width: ${(item.ms / item.max) * 100}%; background: linear-gradient(90deg, ${item.color}80, ${item.color}); box-shadow: 0 0 10px ${item.color}60;`}
+                class={`h-full rounded-full perf-bar-${item.cls}`}
+                style={`width: ${(item.ms / 18) * 100}%;`}
               ></div>
             </div>
-            <div class="w-14 text-xs font-mono font-bold text-right flex-shrink-0" style={`color: ${item.color}`}>{item.note}</div>
+            <div class={`w-14 text-xs font-mono font-bold text-right flex-shrink-0 ${item.cls}`}>{item.note}</div>
           </div>
         ))}
       </div>
@@ -205,28 +149,28 @@ const benchmarks = [
 
     <!-- Why sparse n-grams -->
     <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-white mb-4 flex items-center gap-2">
+      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
         <span>🌀</span>
         Why Sparse N-grams Beat Trigrams
       </h2>
 
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-6">
-        <div class="p-5 rounded-xl border" style="background: rgba(255,107,0,0.05); border-color: rgba(255,107,0,0.15);">
-          <div class="text-2xl font-mono font-black mb-2" style="color: #FF6B00;">Selectivity</div>
+        <div class="p-5 rounded-xl energy-card">
+          <div class="text-2xl font-mono font-black mb-2 perf-orange">Selectivity</div>
           <p class="text-sm text-muted-foreground">
-            Longer n-grams appear in fewer files. A 7-gram like <code class="font-mono" style="color: #FFD700;">"async f"</code>
+            Longer n-grams appear in fewer files. A 7-gram like <code class="font-mono">"async f"</code>
             eliminates 99% of files immediately. Trigrams are too common.
           </p>
         </div>
-        <div class="p-5 rounded-xl border" style="background: rgba(0,180,255,0.05); border-color: rgba(0,180,255,0.15);">
-          <div class="text-2xl font-mono font-black mb-2" style="color: #00B4FF;">Index Size</div>
+        <div class="p-5 rounded-xl energy-card">
+          <div class="text-2xl font-mono font-black mb-2 perf-blue">Index Size</div>
           <p class="text-sm text-muted-foreground">
             Fewer, more selective n-grams per file → smaller posting lists → smaller index.
             ig's index is typically 2-3MB for a 1000+ file project.
           </p>
         </div>
-        <div class="p-5 rounded-xl border" style="background: rgba(255,215,0,0.05); border-color: rgba(255,215,0,0.15);">
-          <div class="text-2xl font-mono font-black mb-2" style="color: #FFD700;">Intersection</div>
+        <div class="p-5 rounded-xl energy-card">
+          <div class="text-2xl font-mono font-black mb-2 perf-gold">Intersection</div>
           <p class="text-sm text-muted-foreground">
             Fewer candidates to intersect means less time in the merge step.
             Shadow Clone Selection picks the most selective n-grams automatically.
@@ -235,40 +179,62 @@ const benchmarks = [
       </div>
 
       <div class="code-block rounded-xl p-5">
-        <div class="text-xs font-mono text-muted-foreground/60 mb-3">Selectivity comparison for "async fn":</div>
-        <pre class="font-mono text-xs leading-relaxed overflow-x-auto"><code set:html={`<span style="color:#FF3B30">Trigrams (weak):</span>   "asy"(3000 files) ∩ "syn"(2100 files) ∩ "ync"(1800 files) = 47 candidates
-<span style="color:#34C759">Sparse n-grams:</span>   "async fn"(3 files) = 3 candidates  → 15x fewer candidates to verify`}></code></pre>
+        <div class="text-xs font-mono text-white/50 mb-3">Selectivity comparison for "async fn":</div>
+        <pre class="font-mono text-xs leading-relaxed overflow-x-auto"><code set:html={`<span class="text-red-400">Trigrams (weak):</span>   "asy"(3000 files) ∩ "syn"(2100 files) ∩ "ync"(1800 files) = 47 candidates
+<span class="text-green-400">Sparse n-grams:</span>   "async fn"(3 files) = 3 candidates  → 15x fewer candidates to verify`}></code></pre>
       </div>
     </section>
 
     <!-- Daemon latency -->
     <section class="mb-4">
-      <h2 class="text-2xl font-mono font-bold text-white mb-4 flex items-center gap-2">
+      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
         <span>🐸</span>
         Sage Mode Latency Breakdown
       </h2>
 
-      <div class="energy-card rounded-xl p-6 bg-card/50">
+      <div class="energy-card rounded-xl p-6">
         <div class="space-y-3">
-          {[
-            { step: "Unix socket read (query)", time: "~0.02ms", color: "#00B4FF" },
-            { step: "N-gram extraction from regex", time: "~0.05ms", color: "#FF9500" },
-            { step: "Hash table lookup (lexicon in memory)", time: "~0.03ms", color: "#FFD700" },
-            { step: "Posting list intersection", time: "~0.05ms", color: "#34C759" },
-            { step: "Parallel regex verification", time: "~0.10ms", color: "#FF6B00" },
-            { step: "Unix socket write (results)", time: "~0.05ms", color: "#00B4FF" },
-          ].map((item) => (
-            <div class="flex items-center justify-between py-1.5 border-b border-border/20 last:border-0">
+          {daemonSteps.map((item) => (
+            <div class="flex items-center justify-between py-1.5 border-b border-border/50 last:border-0">
               <span class="text-xs font-mono text-muted-foreground">{item.step}</span>
-              <span class="text-xs font-mono font-bold" style={`color: ${item.color}`}>{item.time}</span>
+              <span class={`text-xs font-mono font-bold ${item.cls}`}>{item.time}</span>
             </div>
           ))}
-          <div class="flex items-center justify-between pt-2 mt-2 border-t border-border/30">
-            <span class="text-sm font-mono font-bold text-white">Total (p50)</span>
-            <span class="text-sm font-mono font-black" style="color: #34C759;">~0.3ms</span>
+          <div class="flex items-center justify-between pt-2 mt-2 border-t border-border">
+            <span class="text-sm font-mono font-bold text-foreground">Total (p50)</span>
+            <span class="text-sm font-mono font-black perf-green">~0.3ms</span>
           </div>
         </div>
       </div>
     </section>
   </div>
 </DocsLayout>
+
+<style>
+  /* Theme-aware performance colors — readable in both modes */
+  .perf-red { color: oklch(0.55 0.2 25); }
+  .perf-orange { color: var(--primary); }
+  .perf-gold { color: oklch(0.55 0.14 80); }
+  .perf-blue { color: var(--accent); }
+  .perf-green { color: oklch(0.52 0.14 155); }
+  .perf-muted { color: var(--muted-foreground); }
+
+  :global(.dark) .perf-red { color: #FF6B5A; }
+  :global(.dark) .perf-orange { color: #FF9500; }
+  :global(.dark) .perf-gold { color: #FFD700; }
+  :global(.dark) .perf-blue { color: #00B4FF; }
+  :global(.dark) .perf-green { color: #34C759; }
+
+  /* Progress bars */
+  .perf-bar-perf-red { background: linear-gradient(90deg, oklch(0.5 0.18 25 / 0.6), oklch(0.55 0.2 25)); }
+  .perf-bar-perf-orange { background: linear-gradient(90deg, oklch(0.5 0.15 45 / 0.6), var(--primary)); }
+  .perf-bar-perf-gold { background: linear-gradient(90deg, oklch(0.5 0.12 80 / 0.6), oklch(0.55 0.14 80)); }
+  .perf-bar-perf-blue { background: linear-gradient(90deg, oklch(0.4 0.1 250 / 0.6), var(--accent)); }
+  .perf-bar-perf-green { background: linear-gradient(90deg, oklch(0.45 0.12 155 / 0.6), oklch(0.52 0.14 155)); }
+
+  :global(.dark) .perf-bar-perf-red { background: linear-gradient(90deg, #FF3B3080, #FF3B30); }
+  :global(.dark) .perf-bar-perf-orange { background: linear-gradient(90deg, #FF950080, #FF9500); }
+  :global(.dark) .perf-bar-perf-gold { background: linear-gradient(90deg, #FFD70080, #FFD700); }
+  :global(.dark) .perf-bar-perf-blue { background: linear-gradient(90deg, #00B4FF80, #00B4FF); }
+  :global(.dark) .perf-bar-perf-green { background: linear-gradient(90deg, #34C75980, #34C759); }
+</style>
