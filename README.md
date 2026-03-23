@@ -16,10 +16,10 @@
 
 **instant-grep** (`ig`) is a regex search tool that builds a persistent index of your codebase using [sparse n-grams](https://github.com/danlark1/sparse_ngrams), the same algorithm behind [GitHub Code Search](https://github.blog/engineering/architecture-optimization/the-technology-behind-githubs-new-code-search/) and [Cursor's fast regex search](https://cursor.com/blog/fast-regex-search).
 
-Instead of scanning every file on each search (like `grep` or `ripgrep`), `ig` narrows candidates through an inverted index, then runs regex verification only on matching files. The result: **sub-2ms searches** on typical projects, **6x faster than Cursor**.
+Instead of scanning every file on each search (like `grep` or `ripgrep`), `ig` narrows candidates through an inverted index, then runs regex verification only on matching files. The result: **~3ms searches** on typical projects, **~3.5x faster than ripgrep**.
 
 ```
-$ ig search "async fn.*Result" src/ --stats
+$ ig "async fn.*Result" src/ --stats
 
 src/daemon.rs
 23:    pub async fn handle_connection(stream: UnixStream) -> Result<()> {
@@ -96,25 +96,25 @@ cp target/release/ig ~/.local/bin/
 
 ```bash
 # Search with auto-indexing (builds .ig/ on first run)
-ig search "pattern" .
+ig "pattern" .
 
 # Case-insensitive
-ig search -i "todo|fixme" .
+ig -i "todo|fixme" .
 
 # Filter by file type
-ig search "useRouter" . --type ts
+ig "useRouter" . --type ts
 
 # Context lines (like grep -C)
-ig search -C 3 "async fn" src/
+ig -C 3 "async fn" src/
 
 # JSON output (for AI agents)
-ig search "fetchData" . --json
+ig "fetchData" . --json
 
 # Show performance stats
-ig search "Result<T>" . --stats
+ig "Result<T>" . --stats
 
 # Force brute-force (skip index)
-ig search "pattern" . --no-index
+ig "pattern" . --no-index
 ```
 
 ### Index management
@@ -145,7 +145,8 @@ ig query "pattern" .
 ### All flags
 
 ```
-ig search <PATTERN> [PATH]
+ig <PATTERN> [PATH]              # shortcut (recommended)
+ig search <PATTERN> [PATH]       # explicit subcommand (also works)
   -i, --ignore-case            Case-insensitive
   -A, --after-context <N>      Lines after match
   -B, --before-context <N>     Lines before match
@@ -251,7 +252,7 @@ Measured with `time` on iautos/apps/web (1,284 source files, Next.js project). D
 `ig` is designed as a **CLI tool for AI agents**, following the [CLI > MCP consensus](https://ejholmes.github.io/2026/02/28/mcp-is-dead-long-live-the-cli.html):
 
 - **35x fewer tokens** than MCP (4K vs 145K for equivalent tool schemas)
-- **Zero config** — just `ig search --json` via Bash
+- **Zero config** — just `ig --json` via Bash
 - **LLMs already know CLIs** — trained on millions of man pages and READMEs
 - **Composable** — pipe to `jq`, `head`, `wc`, other tools
 
@@ -259,7 +260,7 @@ Measured with `time` on iautos/apps/web (1,284 source files, Next.js project). D
 
 ```bash
 # Claude Code calls this via the Bash tool:
-ig search "fetchSellerListings" /path/to/project --json
+ig "fetchSellerListings" /path/to/project --json
 ```
 
 Output:

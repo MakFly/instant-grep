@@ -136,9 +136,17 @@ import DocsLayout from "@/layouts/docs.astro"
         Your first search
       </h2>
       <p class="text-muted-foreground mb-4 text-sm leading-relaxed">
-        Run <code class="font-mono">ig search</code> with any regex pattern. If no index exists,
+        Run <code class="font-mono">ig</code> with any regex pattern. If no index exists,
         it will build one automatically — the auto-build jutsu.
       </p>
+
+      <div class="flex items-start gap-3 p-4 rounded-lg border border-border bg-secondary/30 mb-5">
+        <span class="text-lg mt-0.5 theme-orange">⚡</span>
+        <div class="text-sm text-muted-foreground">
+          <strong class="text-foreground">Shortcut:</strong> <code class="font-mono">ig "pattern"</code> is equivalent to <code class="font-mono">ig search "pattern"</code>.
+          The <code class="font-mono">search</code> subcommand is optional — <code class="font-mono">ig</code> searches by default.
+        </div>
+      </div>
 
       <div class="code-block rounded-xl overflow-hidden my-5">
         <div class="flex items-center gap-2 px-4 py-2.5 bg-secondary/50 border-b border-border">
@@ -150,21 +158,21 @@ import DocsLayout from "@/layouts/docs.astro"
           <span class="text-xs text-muted-foreground/50 font-mono ml-2">first search</span>
         </div>
         <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Basic search</span>
-<span class="theme-blue">ig</span> search <span class="theme-gold">"async fn"</span> src/
+<span class="theme-blue">ig</span> <span class="theme-gold">"async fn"</span> src/
 <span class="theme-blue">src/daemon.rs</span>:23:    pub async fn handle_connection...
 <span class="theme-blue">src/query/mod.rs</span>:7:     pub async fn run(...)
 
 <span class="theme-orange"># Case-insensitive search</span>
-<span class="theme-blue">ig</span> search -i <span class="theme-gold">"TODO"</span> .
+<span class="theme-blue">ig</span> -i <span class="theme-gold">"TODO"</span> .
 
 <span class="theme-orange"># With context lines</span>
-<span class="theme-blue">ig</span> search -C 3 <span class="theme-gold">"Result&lt;T&gt;"</span> .
+<span class="theme-blue">ig</span> -C 3 <span class="theme-gold">"Result&lt;T&gt;"</span> .
 
 <span class="theme-orange"># JSON output for AI agents</span>
-<span class="theme-blue">ig</span> search --json <span class="theme-gold">"impl Trait"</span> .
+<span class="theme-blue">ig</span> --json <span class="theme-gold">"impl Trait"</span> .
 
 <span class="theme-orange"># Filter by file type</span>
-<span class="theme-blue">ig</span> search --type rs <span class="theme-gold">"pub fn"</span> .`}></code></pre>
+<span class="theme-blue">ig</span> --type rs <span class="theme-gold">"pub fn"</span> .`}></code></pre>
       </div>
     </section>
 
@@ -182,7 +190,7 @@ import DocsLayout from "@/layouts/docs.astro"
         </p>
         <div class="flex flex-col gap-3">
           {[
-            { n: "1", text: "ig search \"pattern\" . called", cls: "theme-orange" },
+            { n: "1", text: "ig \"pattern\" . called (or ig search \"pattern\" .)", cls: "theme-orange" },
             { n: "2", text: "Check for .ig/metadata.bin — if missing, build index first", cls: "theme-orange" },
             { n: "3", text: "Extract n-grams from regex, query posting lists, verify matches", cls: "theme-orange" },
             { n: "✓", text: "Results printed in ~0.9ms", cls: "theme-green" },

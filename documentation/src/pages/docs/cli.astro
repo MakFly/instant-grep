@@ -45,9 +45,19 @@ import DocsLayout from "@/layouts/docs.astro"
         Auto-builds index on first run. The most-used jutsu in the arsenal.
       </p>
 
+      <div class="flex items-start gap-3 p-4 rounded-lg border border-border bg-secondary/30 mb-5">
+        <span class="text-lg mt-0.5 theme-orange">⚡</span>
+        <div class="text-sm text-muted-foreground">
+          <strong class="text-foreground">Shortcut:</strong> the <code class="font-mono">search</code> subcommand is optional.
+          <code class="font-mono">ig "pattern" .</code> and <code class="font-mono">ig search "pattern" .</code> are equivalent.
+          All flags work the same way in both forms.
+        </div>
+      </div>
+
       <div class="code-block rounded-xl overflow-hidden mb-5">
         <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> search <span class="theme-gold">[OPTIONS]</span> <span class="theme-orange">&lt;PATTERN&gt;</span>`}></code></pre>
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> <span class="theme-gold">[OPTIONS]</span> <span class="theme-orange">&lt;PATTERN&gt;</span> [PATH]
+<span class="theme-blue">ig</span> search <span class="theme-gold">[OPTIONS]</span> <span class="theme-orange">&lt;PATTERN&gt;</span> [PATH]  <span class="theme-comment"># also works</span>`}></code></pre>
       </div>
 
       <div class="overflow-x-auto mb-5">
@@ -84,22 +94,22 @@ import DocsLayout from "@/layouts/docs.astro"
       <div class="code-block rounded-xl overflow-hidden">
         <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
         <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Basic regex search</span>
-<span class="theme-blue">ig</span> search <span class="theme-gold">"async fn \\w+"</span> src/
+<span class="theme-blue">ig</span> <span class="theme-gold">"async fn \\w+"</span> src/
 
 <span class="theme-orange"># Case-insensitive with 2 lines of context</span>
-<span class="theme-blue">ig</span> search -i -C 2 <span class="theme-gold">"TODO"</span> .
+<span class="theme-blue">ig</span> -i -C 2 <span class="theme-gold">"TODO"</span> .
 
 <span class="theme-orange"># JSON output for AI agents</span>
-<span class="theme-blue">ig</span> search --json <span class="theme-gold">"impl \\w+ for"</span> src/
+<span class="theme-blue">ig</span> --json <span class="theme-gold">"impl \\w+ for"</span> src/
 
 <span class="theme-orange"># Only Rust files</span>
-<span class="theme-blue">ig</span> search --type rs <span class="theme-gold">"pub fn"</span> .
+<span class="theme-blue">ig</span> --type rs <span class="theme-gold">"pub fn"</span> .
 
 <span class="theme-orange"># Files matching glob</span>
-<span class="theme-blue">ig</span> search --glob <span class="theme-gold">'src/**/*.rs'</span> <span class="theme-gold">"Result&lt;"</span> .
+<span class="theme-blue">ig</span> --glob <span class="theme-gold">'src/**/*.rs'</span> <span class="theme-gold">"Result&lt;"</span> .
 
 <span class="theme-orange"># Show stats (candidates filtered, time)</span>
-<span class="theme-blue">ig</span> search --stats <span class="theme-gold">"use std"</span> .`}></code></pre>
+<span class="theme-blue">ig</span> --stats <span class="theme-gold">"use std"</span> .`}></code></pre>
       </div>
     </section>
 

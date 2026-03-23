@@ -76,7 +76,7 @@ import DocsLayout from "@/layouts/docs.astro"
       <div class="code-block rounded-xl overflow-hidden mb-4">
         <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">Claude Code uses ig like this</div>
         <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Claude searching for function implementations</span>
-<span class="theme-blue">ig</span> search --json <span class="theme-gold">"fn build_covering_ngrams"</span> src/
+<span class="theme-blue">ig</span> --json <span class="theme-gold">"fn build_covering_ngrams"</span> src/
 
 {
   "matches": [{"file": "src/index/ngram.rs", "line": 142, "text": "pub fn build_covering_ngrams..."}],
@@ -84,17 +84,17 @@ import DocsLayout from "@/layouts/docs.astro"
 }
 
 <span class="theme-orange"># Claude finding all public API surface</span>
-<span class="theme-blue">ig</span> search --json --type rs <span class="theme-gold">"^pub (fn|struct|enum|trait)"</span> src/
+<span class="theme-blue">ig</span> --json --type rs <span class="theme-gold">"^pub (fn|struct|enum|trait)"</span> src/
 
 <span class="theme-orange"># Claude finding TODO items before a refactor</span>
-<span class="theme-blue">ig</span> search --json -i <span class="theme-gold">"TODO|FIXME|HACK"</span> .`}></code></pre>
+<span class="theme-blue">ig</span> --json -i <span class="theme-gold">"TODO|FIXME|HACK"</span> .`}></code></pre>
       </div>
 
       <div class="flex items-start gap-3 p-4 rounded-lg border border-border bg-secondary/30">
         <span class="text-lg mt-0.5 theme-blue">ℹ</span>
         <div class="text-sm text-muted-foreground">
           <strong class="text-foreground">Configuration:</strong> ig is configured as a Bash tool in Claude Code's environment.
-          Claude calls <code class="font-mono">ig search --json</code> and receives structured results
+          Claude calls <code class="font-mono">ig --json</code> and receives structured results
           without needing to read full file contents.
         </div>
       </div>
@@ -134,7 +134,7 @@ RESULT=$(<span class="theme-blue">ig</span> query --json <span class="theme-gold
 <span class="theme-blue">def</span> <span class="theme-gold">search_codebase</span>(pattern: str, path: str = <span class="theme-gold">"."</span>) -&gt; list:
     <span class="theme-comment">"""Search codebase with instant-grep. Returns list of matches."""</span>
     result = subprocess.run(
-        [<span class="theme-gold">"ig"</span>, <span class="theme-gold">"search"</span>, <span class="theme-gold">"--json"</span>, pattern, path],
+        [<span class="theme-gold">"ig"</span>, <span class="theme-gold">"--json"</span>, pattern, path],
         capture_output=<span class="theme-orange-bright">True</span>,
         text=<span class="theme-orange-bright">True</span>
     )
@@ -205,9 +205,9 @@ matches = search_codebase(<span class="theme-gold">"async fn"</span>, <span clas
           <div class="text-xs font-mono font-bold mb-2 theme-blue">jq recipes for agents</div>
           <div class="code-block rounded-lg p-3 text-xs font-mono">
             <div class="text-muted-foreground/50 mb-1">file:line list</div>
-            <div class="text-foreground/70">ig search --json "pat" . | jq '.matches[] | "\(.file):\(.line)"'</div>
+            <div class="text-foreground/70">ig --json "pat" . | jq '.matches[] | "\(.file):\(.line)"'</div>
             <div class="text-muted-foreground/50 mt-2 mb-1">just file paths</div>
-            <div class="text-foreground/70">ig search --json "pat" . | jq '[.matches[].file] | unique'</div>
+            <div class="text-foreground/70">ig --json "pat" . | jq '[.matches[].file] | unique'</div>
           </div>
         </div>
       </div>
