@@ -9,31 +9,31 @@
 /* ===== LIGHT MODE — "Konoha Scroll" ===== */
 :root {
   /* Backgrounds: clean white with micro warm tint */
-  --background: oklch(0.988 0.002 90);       /* #FAFAF8 */
-  --foreground: oklch(0.13 0.01 75);          /* #1A1A1A near-black */
-  --card: oklch(1 0 0);                       /* pure white */
+  --background: oklch(0.988 0.002 90); /* #FAFAF8 */
+  --foreground: oklch(0.13 0.01 75); /* #1A1A1A near-black */
+  --card: oklch(1 0 0); /* pure white */
   --card-foreground: oklch(0.13 0.01 75);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.13 0.01 75);
 
   /* Primary: burnt orange — high contrast on white */
-  --primary: oklch(0.52 0.16 35);             /* #C4500A */
-  --primary-foreground: oklch(0.99 0 0);      /* white */
+  --primary: oklch(0.52 0.16 35); /* #C4500A */
+  --primary-foreground: oklch(0.99 0 0); /* white */
 
   /* Secondary: light warm gray */
-  --secondary: oklch(0.96 0.004 75);          /* #F2F1EF */
+  --secondary: oklch(0.96 0.004 75); /* #F2F1EF */
   --secondary-foreground: oklch(0.25 0.01 75);
 
   /* Muted: warm grays */
   --muted: oklch(0.96 0.004 75);
-  --muted-foreground: oklch(0.44 0.02 75);    /* #6B6B6B */
+  --muted-foreground: oklch(0.44 0.02 75); /* #6B6B6B */
 
   /* Accent: deep blue — readable on white */
-  --accent: oklch(0.45 0.12 250);             /* #1E60A0 */
+  --accent: oklch(0.45 0.12 250); /* #1E60A0 */
   --accent-foreground: oklch(0.99 0 0);
 
-  --destructive: oklch(0.52 0.2 25);          /* dark red */
-  --border: oklch(0.88 0.005 75);             /* #E0DFDD warm gray border */
+  --destructive: oklch(0.52 0.2 25); /* dark red */
+  --border: oklch(0.88 0.005 75); /* #E0DFDD warm gray border */
   --input: oklch(0.88 0.005 75);
   --ring: oklch(0.52 0.16 35);
 
@@ -46,7 +46,7 @@
   --radius: 0.75rem;
 
   /* Sidebar: very subtle warm gray */
-  --sidebar: oklch(0.975 0.003 75);           /* #F7F6F4 */
+  --sidebar: oklch(0.975 0.003 75); /* #F7F6F4 */
   --sidebar-foreground: oklch(0.13 0.01 75);
   --sidebar-primary: oklch(0.52 0.16 35);
   --sidebar-primary-foreground: oklch(0.99 0 0);
@@ -56,11 +56,11 @@
   --sidebar-ring: oklch(0.52 0.16 35);
 
   /* Anime accent colors — toned down for light */
-  --orange: #C4500A;
-  --orange-bright: #E06500;
-  --chakra-blue: #1E60A0;
-  --sharingan-red: #CC2200;
-  --saiyan-gold: #B8860B;
+  --orange: #c4500a;
+  --orange-bright: #e06500;
+  --chakra-blue: #1e60a0;
+  --sharingan-red: #cc2200;
+  --saiyan-gold: #b8860b;
 }
 
 /* ===== DARK MODE ===== */
@@ -98,16 +98,16 @@
   --sidebar-border: oklch(1 0 0 / 8%);
   --sidebar-ring: oklch(0.72 0.22 45);
 
-  --orange: #FF6B00;
-  --orange-bright: #FF9500;
-  --chakra-blue: #00B4FF;
-  --sharingan-red: #FF0000;
-  --saiyan-gold: #FFD700;
+  --orange: #ff6b00;
+  --orange-bright: #ff9500;
+  --chakra-blue: #00b4ff;
+  --sharingan-red: #ff0000;
+  --saiyan-gold: #ffd700;
 }
 
 @theme inline {
-  --font-sans: 'Montserrat Variable', sans-serif;
-  --font-mono: 'JetBrains Mono Variable', monospace;
+  --font-sans: "Montserrat Variable", sans-serif;
+  --font-mono: "JetBrains Mono Variable", monospace;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -154,11 +154,13 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: 'Montserrat Variable', sans-serif;
+    font-family: "Montserrat Variable", sans-serif;
   }
   html {
     @apply font-sans;
-    transition: background-color 0.2s ease, color 0.2s ease;
+    transition:
+      background-color 0.2s ease,
+      color 0.2s ease;
   }
 }
 
@@ -166,14 +168,23 @@
 
 /* Gradient text — adapts to theme via CSS vars */
 .gradient-text {
-  background: linear-gradient(135deg, var(--orange) 0%, var(--saiyan-gold) 50%, var(--orange-bright) 100%);
+  background: linear-gradient(
+    135deg,
+    var(--orange) 0%,
+    var(--saiyan-gold) 50%,
+    var(--orange-bright) 100%
+  );
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
 .gradient-text-blue {
-  background: linear-gradient(135deg, var(--chakra-blue) 0%, oklch(0.4 0.15 250) 100%);
+  background: linear-gradient(
+    135deg,
+    var(--chakra-blue) 0%,
+    oklch(0.4 0.15 250) 100%
+  );
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -181,35 +192,42 @@
 
 /* Ki/Chakra glow effects — use current vars */
 .glow-orange {
-  box-shadow: 0 0 20px color-mix(in oklch, var(--orange) 40%, transparent),
-              0 0 40px color-mix(in oklch, var(--orange) 15%, transparent);
+  box-shadow:
+    0 0 20px color-mix(in oklch, var(--orange) 40%, transparent),
+    0 0 40px color-mix(in oklch, var(--orange) 15%, transparent);
 }
 
 .glow-blue {
-  box-shadow: 0 0 20px color-mix(in oklch, var(--chakra-blue) 40%, transparent),
-              0 0 40px color-mix(in oklch, var(--chakra-blue) 15%, transparent);
+  box-shadow:
+    0 0 20px color-mix(in oklch, var(--chakra-blue) 40%, transparent),
+    0 0 40px color-mix(in oklch, var(--chakra-blue) 15%, transparent);
 }
 
 .glow-gold {
-  box-shadow: 0 0 20px color-mix(in oklch, var(--saiyan-gold) 40%, transparent),
-              0 0 40px color-mix(in oklch, var(--saiyan-gold) 15%, transparent);
+  box-shadow:
+    0 0 20px color-mix(in oklch, var(--saiyan-gold) 40%, transparent),
+    0 0 40px color-mix(in oklch, var(--saiyan-gold) 15%, transparent);
 }
 
 .text-glow-orange {
-  text-shadow: 0 0 20px color-mix(in oklch, var(--orange) 60%, transparent),
-               0 0 40px color-mix(in oklch, var(--orange) 30%, transparent);
+  text-shadow:
+    0 0 20px color-mix(in oklch, var(--orange) 60%, transparent),
+    0 0 40px color-mix(in oklch, var(--orange) 30%, transparent);
 }
 
 .text-glow-blue {
-  text-shadow: 0 0 20px color-mix(in oklch, var(--chakra-blue) 60%, transparent),
-               0 0 40px color-mix(in oklch, var(--chakra-blue) 30%, transparent);
+  text-shadow:
+    0 0 20px color-mix(in oklch, var(--chakra-blue) 60%, transparent),
+    0 0 40px color-mix(in oklch, var(--chakra-blue) 30%, transparent);
 }
 
 /* Light mode: disable glow/text-shadow entirely (clean look) */
 html:not(.dark) .glow-orange,
 html:not(.dark) .glow-blue,
 html:not(.dark) .glow-gold {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 html:not(.dark) .text-glow-orange,
@@ -219,46 +237,111 @@ html:not(.dark) .text-glow-blue {
 
 /* Animated glow pulse */
 @keyframes chakra-pulse {
-  0%, 100% { box-shadow: 0 0 10px rgba(255, 107, 0, 0.3), 0 0 20px rgba(255, 107, 0, 0.1); }
-  50% { box-shadow: 0 0 30px rgba(255, 107, 0, 0.6), 0 0 60px rgba(255, 107, 0, 0.3); }
+  0%,
+  100% {
+    box-shadow:
+      0 0 10px rgba(255, 107, 0, 0.3),
+      0 0 20px rgba(255, 107, 0, 0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 30px rgba(255, 107, 0, 0.6),
+      0 0 60px rgba(255, 107, 0, 0.3);
+  }
 }
 
 @keyframes ki-pulse {
-  0%, 100% { box-shadow: 0 0 10px rgba(0, 180, 255, 0.3), 0 0 20px rgba(0, 180, 255, 0.1); }
-  50% { box-shadow: 0 0 30px rgba(0, 180, 255, 0.6), 0 0 60px rgba(0, 180, 255, 0.3); }
+  0%,
+  100% {
+    box-shadow:
+      0 0 10px rgba(0, 180, 255, 0.3),
+      0 0 20px rgba(0, 180, 255, 0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 30px rgba(0, 180, 255, 0.6),
+      0 0 60px rgba(0, 180, 255, 0.3);
+  }
 }
 
 @keyframes power-flash {
-  0% { opacity: 0; }
-  10% { opacity: 1; background: rgba(255, 215, 0, 0.3); }
-  20% { opacity: 0; }
-  30% { opacity: 1; background: rgba(255, 107, 0, 0.3); }
-  40% { opacity: 0; }
-  100% { opacity: 0; }
+  0% {
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+    background: rgba(255, 215, 0, 0.3);
+  }
+  20% {
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+    background: rgba(255, 107, 0, 0.3);
+  }
+  40% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 @keyframes kaioken-text {
-  0% { opacity: 0; transform: scale(0.5) rotate(-5deg); }
-  20% { opacity: 1; transform: scale(1.3) rotate(2deg); }
-  40% { transform: scale(1.1) rotate(-1deg); }
-  60% { transform: scale(1.2) rotate(1deg); }
-  80% { opacity: 1; transform: scale(1) rotate(0); }
-  100% { opacity: 0; transform: scale(0.8); }
+  0% {
+    opacity: 0;
+    transform: scale(0.5) rotate(-5deg);
+  }
+  20% {
+    opacity: 1;
+    transform: scale(1.3) rotate(2deg);
+  }
+  40% {
+    transform: scale(1.1) rotate(-1deg);
+  }
+  60% {
+    transform: scale(1.2) rotate(1deg);
+  }
+  80% {
+    opacity: 1;
+    transform: scale(1) rotate(0);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
 }
 
 @keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
 }
 
 @keyframes terminal-cursor {
-  0%, 49% { opacity: 1; }
-  50%, 100% { opacity: 0; }
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
 }
 
-.animate-chakra-pulse { animation: chakra-pulse 2s ease-in-out infinite; }
-.animate-ki-pulse { animation: ki-pulse 2s ease-in-out infinite; }
-.animate-float { animation: float 3s ease-in-out infinite; }
+.animate-chakra-pulse {
+  animation: chakra-pulse 2s ease-in-out infinite;
+}
+.animate-ki-pulse {
+  animation: ki-pulse 2s ease-in-out infinite;
+}
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
 
 /* Light mode: no pulse animation, just subtle shadow */
 html:not(.dark) .animate-chakra-pulse,
@@ -268,7 +351,7 @@ html:not(.dark) .animate-ki-pulse {
 }
 
 .terminal-cursor::after {
-  content: '█';
+  content: "█";
   animation: terminal-cursor 1s step-end infinite;
 }
 
@@ -281,20 +364,28 @@ html:not(.dark) .animate-ki-pulse {
 }
 
 .energy-card::before {
-  content: '';
+  content: "";
   position: absolute;
   inset: -1px;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, color-mix(in oklch, var(--orange) 40%, transparent), color-mix(in oklch, var(--chakra-blue) 20%, transparent));
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--orange) 40%, transparent),
+    color-mix(in oklch, var(--chakra-blue) 20%, transparent)
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   opacity: 0;
   transition: opacity 0.3s ease;
 }
 
-.energy-card:hover::before { opacity: 1; }
+.energy-card:hover::before {
+  opacity: 1;
+}
 
 .energy-card:hover {
   transform: translateY(-2px);
@@ -306,7 +397,9 @@ html:not(.dark) .animate-ki-pulse {
 }
 
 html:not(.dark) .energy-card:hover {
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.08),
+    0 1px 4px rgba(0, 0, 0, 0.04);
 }
 
 /* Kaioken power-up overlay */
@@ -326,11 +419,13 @@ html:not(.dark) .energy-card:hover {
 }
 
 .kaioken-text {
-  font-family: 'JetBrains Mono Variable', monospace;
+  font-family: "JetBrains Mono Variable", monospace;
   font-size: clamp(2rem, 8vw, 6rem);
   font-weight: 900;
-  color: #FFD700;
-  text-shadow: 0 0 40px #FF6B00, 0 0 80px #FF6B00;
+  color: #ffd700;
+  text-shadow:
+    0 0 40px #ff6b00,
+    0 0 80px #ff6b00;
   animation: kaioken-text 2s ease forwards;
   letter-spacing: 0.05em;
 }
@@ -342,7 +437,7 @@ html:not(.dark) .energy-card:hover {
 }
 
 .scroll-link::after {
-  content: '';
+  content: "";
   position: absolute;
   bottom: -2px;
   left: 0;
@@ -356,7 +451,9 @@ html:not(.dark) .energy-card:hover {
   box-shadow: 0 0 8px rgba(255, 107, 0, 0.6);
 }
 
-.scroll-link:hover::after { width: 100%; }
+.scroll-link:hover::after {
+  width: 100%;
+}
 
 /* Code block — ALWAYS dark background in both modes */
 .code-block {
@@ -376,7 +473,7 @@ html:not(.dark) .code-block {
 }
 
 .code-block::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   left: 0;
@@ -385,11 +482,21 @@ html:not(.dark) .code-block {
 }
 
 .dark .code-block::before {
-  background: linear-gradient(90deg, transparent, rgba(0, 180, 255, 0.5), transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(0, 180, 255, 0.5),
+    transparent
+  );
 }
 
 html:not(.dark) .code-block::before {
-  background: linear-gradient(90deg, transparent, rgba(196, 80, 10, 0.3), transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(196, 80, 10, 0.3),
+    transparent
+  );
 }
 
 /* pre/code always dark */
@@ -401,7 +508,7 @@ pre {
 /* Inline code */
 .dark code:not(pre code) {
   background: rgba(255, 255, 255, 0.08);
-  color: #FF9500;
+  color: #ff9500;
   border-radius: 0.25rem;
   padding: 0.1em 0.35em;
 }
@@ -419,7 +526,7 @@ html:not(.dark) code:not(pre code) {
 }
 
 .dark .sidebar-active {
-  color: #FF9500;
+  color: #ff9500;
   background: rgba(255, 107, 0, 0.1);
 }
 
@@ -447,13 +554,13 @@ html:not(.dark) .sidebar-active {
   pointer-events: none;
   transition: opacity 0.2s ease;
   z-index: 100;
-  font-family: 'JetBrains Mono Variable', monospace;
+  font-family: "JetBrains Mono Variable", monospace;
 }
 
 .dark .jutsu-tooltip .tooltip-content {
   background: oklch(0.08 0.015 250);
   border: 1px solid rgba(255, 107, 0, 0.4);
-  color: #FF9500;
+  color: #ff9500;
   box-shadow: 0 0 20px rgba(255, 107, 0, 0.3);
 }
 
@@ -465,7 +572,7 @@ html:not(.dark) .jutsu-tooltip .tooltip-content {
 }
 
 .jutsu-tooltip .tooltip-content::after {
-  content: '';
+  content: "";
   position: absolute;
   top: 100%;
   left: 50%;
@@ -481,7 +588,83 @@ html:not(.dark) .jutsu-tooltip .tooltip-content::after {
   border-top-color: oklch(0.85 0.005 75);
 }
 
-.jutsu-tooltip:hover .tooltip-content { opacity: 1; }
+.jutsu-tooltip:hover .tooltip-content {
+  opacity: 1;
+}
+
+/* ===== CODE BLOCK THEME FIXES ===== */
+
+/* Inside code-block / pre: ALWAYS use bright dark-mode colors for .theme-* classes
+   because code blocks always have a dark background */
+.code-block .theme-orange,
+pre .theme-orange {
+  color: #ff9500 !important;
+}
+.code-block .theme-gold,
+pre .theme-gold {
+  color: #ffd700 !important;
+}
+.code-block .theme-blue,
+pre .theme-blue {
+  color: #00b4ff !important;
+}
+.code-block .theme-green,
+pre .theme-green {
+  color: #34c759 !important;
+}
+.code-block .theme-red,
+pre .theme-red {
+  color: #ff6b5a !important;
+}
+.code-block .theme-orange-bright,
+pre .theme-orange-bright {
+  color: #ff9500 !important;
+}
+
+/* Code block header bar: always dark to match the code block */
+.code-block .bg-secondary\/50 {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+.code-block .border-border {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.code-block .text-muted-foreground\/50,
+.code-block .text-muted-foreground {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+
+/* The traffic light dots in code blocks should keep their colors */
+.code-block .bg-\[\#FF3B30\] {
+  background-color: #ff3b30 !important;
+}
+.code-block .bg-\[\#FFD700\] {
+  background-color: #ffd700 !important;
+}
+.code-block .bg-\[\#34C759\] {
+  background-color: #34c759 !important;
+}
+
+/* ===== LIGHT MODE: energy-card needs visible separation ===== */
+html:not(.dark) .energy-card {
+  background: white;
+  border: 1px solid oklch(0.9 0.005 75);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+html:not(.dark) .energy-card:hover {
+  border-color: oklch(0.82 0.02 40);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.06),
+    0 1px 4px rgba(0, 0, 0, 0.03);
+}
+
+/* bg-card/50 in light: use white with subtle shadow for separation */
+html:not(.dark) .bg-card\/50 {
+  background: white !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
 
 /* ===== LIGHT MODE TEXT FIXES ===== */
 
@@ -534,18 +717,32 @@ html:not(.dark) .border-white\/5 {
   height: 6px;
 }
 
-.dark ::-webkit-scrollbar-track { background: oklch(0.08 0.015 250); }
-.dark ::-webkit-scrollbar-thumb { background: rgba(255, 107, 0, 0.3); border-radius: 3px; }
-.dark ::-webkit-scrollbar-thumb:hover { background: rgba(255, 107, 0, 0.6); }
+.dark ::-webkit-scrollbar-track {
+  background: oklch(0.08 0.015 250);
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 107, 0, 0.3);
+  border-radius: 3px;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 107, 0, 0.6);
+}
 
-html:not(.dark) ::-webkit-scrollbar-track { background: oklch(0.96 0.003 75); }
-html:not(.dark) ::-webkit-scrollbar-thumb { background: oklch(0.8 0.01 75); border-radius: 3px; }
-html:not(.dark) ::-webkit-scrollbar-thumb:hover { background: oklch(0.7 0.02 75); }
+html:not(.dark) ::-webkit-scrollbar-track {
+  background: oklch(0.96 0.003 75);
+}
+html:not(.dark) ::-webkit-scrollbar-thumb {
+  background: oklch(0.8 0.01 75);
+  border-radius: 3px;
+}
+html:not(.dark) ::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.7 0.02 75);
+}
 
 /* Selection */
 .dark ::selection {
   background: rgba(255, 107, 0, 0.3);
-  color: #FFD700;
+  color: #ffd700;
 }
 
 html:not(.dark) ::selection {
