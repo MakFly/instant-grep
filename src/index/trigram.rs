@@ -1,12 +1,15 @@
+#[allow(dead_code)]
 pub type Trigram = u32;
 
 /// Pack 3 bytes into a u32 trigram (lower 24 bits).
+#[allow(dead_code)]
 #[inline]
 pub fn pack_trigram(a: u8, b: u8, c: u8) -> Trigram {
     ((a as u32) << 16) | ((b as u32) << 8) | (c as u32)
 }
 
 /// Extract all unique trigrams from a byte slice. Returns sorted, deduplicated vec.
+#[allow(dead_code)]
 pub fn extract_trigrams(data: &[u8]) -> Vec<Trigram> {
     if data.len() < 3 {
         return Vec::new();

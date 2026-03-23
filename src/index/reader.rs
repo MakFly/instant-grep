@@ -22,15 +22,11 @@ impl IndexReader {
     pub fn open(ig_dir: &Path) -> Result<Self> {
         let metadata = IndexMetadata::load_from(ig_dir).context("load metadata")?;
 
-        let lexicon_file =
-            File::open(ig_dir.join("lexicon.bin")).context("open lexicon.bin")?;
-        let lexicon =
-            unsafe { Mmap::map(&lexicon_file).context("mmap lexicon.bin")? };
+        let lexicon_file = File::open(ig_dir.join("lexicon.bin")).context("open lexicon.bin")?;
+        let lexicon = unsafe { Mmap::map(&lexicon_file).context("mmap lexicon.bin")? };
 
-        let postings_file =
-            File::open(ig_dir.join("postings.bin")).context("open postings.bin")?;
-        let postings =
-            unsafe { Mmap::map(&postings_file).context("mmap postings.bin")? };
+        let postings_file = File::open(ig_dir.join("postings.bin")).context("open postings.bin")?;
+        let postings = unsafe { Mmap::map(&postings_file).context("mmap postings.bin")? };
 
         let table_size = lexicon.len() / LEXICON_ENTRY_SIZE;
 
@@ -113,10 +109,8 @@ impl IndexReader {
                 if children.is_empty() {
                     return Vec::new();
                 }
-                let mut lists: Vec<Vec<DocId>> = children
-                    .iter()
-                    .map(|child| self.resolve(child))
-                    .collect();
+                let mut lists: Vec<Vec<DocId>> =
+                    children.iter().map(|child| self.resolve(child)).collect();
                 lists.sort_unstable_by_key(|l| l.len());
                 let mut result = lists.remove(0);
                 for list in &lists {
@@ -138,9 +132,7 @@ impl IndexReader {
                 }
                 result
             }
-            NgramQuery::All => {
-                (0..self.metadata.file_count).collect()
-            }
+            NgramQuery::All => (0..self.metadata.file_count).collect(),
         }
     }
 

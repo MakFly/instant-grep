@@ -5,7 +5,7 @@ use regex::bytes::RegexBuilder;
 
 use crate::search::matcher::{self, FileMatches, SearchConfig};
 use crate::util::is_binary;
-use crate::walk::{walk_files, DEFAULT_MAX_FILE_SIZE};
+use crate::walk::{DEFAULT_MAX_FILE_SIZE, walk_files};
 
 /// Brute-force search: scan all files with regex (no index).
 pub fn search_brute_force(
@@ -33,10 +33,10 @@ pub fn search_brute_force(
         };
 
         // Quick binary check
-        if let Ok(bytes) = std::fs::read(path) {
-            if is_binary(&bytes) {
-                continue;
-            }
+        if let Ok(bytes) = std::fs::read(path)
+            && is_binary(&bytes)
+        {
+            continue;
         }
 
         match matcher::match_file(root, &rel_path, &regex, config) {

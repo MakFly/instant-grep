@@ -8,7 +8,6 @@ const benchmarks = [
   { version: "V4", tool: "ig (V4 — covering set + mmap)", latency: "1.4ms", notes: "Shadow Clone Selection + mmap", cls: "perf-blue", highlight: false, goku: false },
   { version: "V5", tool: "ig (V5 — parallel verify)", latency: "0.9ms", notes: "Rayon parallel regex verification", cls: "perf-green", highlight: true, goku: false },
   { version: "daemon", tool: "ig (daemon mode)", latency: "0.3ms", notes: "Sage Mode — index in process memory", cls: "perf-orange", highlight: true, goku: false },
-  { version: "cursor", tool: "Cursor built-in search", latency: "5.4ms", notes: "Baseline for comparison", cls: "perf-muted", highlight: false, goku: false },
   { version: "goku", tool: "Goku (Instant Transmission)", latency: "0.00ms", notes: "Teleports to any ki signature instantly", cls: "perf-gold", highlight: false, goku: true },
 ]
 
@@ -22,8 +21,7 @@ const timeline = [
 ]
 
 const heroStats = [
-  { value: "20x", label: "Faster than V1", cls: "perf-orange" },
-  { value: "6x", label: "Faster than Cursor", cls: "perf-blue" },
+  { value: "20×", label: "Faster than V1", cls: "perf-orange" },
   { value: "0.9ms", label: "p50 latency", cls: "perf-gold" },
   { value: "0.3ms", label: "Daemon mode", cls: "perf-green" },
 ]
@@ -56,7 +54,7 @@ const daemonSteps = [
     </div>
 
     <!-- Hero stats -->
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-12">
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-12">
       {heroStats.map((stat) => (
         <div class="text-center p-5 rounded-xl energy-card">
           <div class={`font-mono text-3xl font-black mb-1 ${stat.cls}`}>

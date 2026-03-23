@@ -42,22 +42,22 @@
     <div class="flex flex-wrap items-center justify-center gap-4 sm:gap-8 my-4">
       <div class="flex flex-col items-center gap-1">
         <span class="font-mono text-3xl font-black gradient-text">0.9ms</span>
-        <span class="text-xs text-muted-foreground/60 font-mono uppercase tracking-wider">search latency</span>
+        <span class="text-xs text-muted-foreground font-mono uppercase tracking-wider">search latency</span>
       </div>
       <div class="w-px h-10 bg-border/50 hidden sm:block"></div>
       <div class="flex flex-col items-center gap-1">
-        <span class="font-mono text-3xl font-black hero-stat-blue">6x</span>
-        <span class="text-xs text-muted-foreground/60 font-mono uppercase tracking-wider">faster than Cursor</span>
+        <span class="font-mono text-3xl font-black hero-stat-blue">20×</span>
+        <span class="text-xs text-muted-foreground font-mono uppercase tracking-wider">vs V1 baseline</span>
       </div>
       <div class="w-px h-10 bg-border/50 hidden sm:block"></div>
       <div class="flex flex-col items-center gap-1">
         <span class="font-mono text-3xl font-black hero-stat-gold">20</span>
-        <span class="text-xs text-muted-foreground/60 font-mono uppercase tracking-wider">tests passing</span>
+        <span class="text-xs text-muted-foreground font-mono uppercase tracking-wider">tests passing</span>
       </div>
       <div class="w-px h-10 bg-border/50 hidden sm:block"></div>
       <div class="flex flex-col items-center gap-1">
         <span class="font-mono text-3xl font-black hero-stat-orange">38</span>
-        <span class="text-xs text-muted-foreground/60 font-mono uppercase tracking-wider">dirs excluded</span>
+        <span class="text-xs text-muted-foreground font-mono uppercase tracking-wider">dirs excluded</span>
       </div>
     </div>
 
@@ -65,7 +65,7 @@
     <div class="flex flex-col sm:flex-row items-center gap-4">
       <a
         href="/docs/getting-started"
-        class="group relative inline-flex items-center gap-2 px-8 py-3.5 rounded-xl font-mono font-bold text-sm text-black overflow-hidden transition-all animate-chakra-pulse hover:scale-105 hero-cta-primary"
+        class="group relative inline-flex items-center gap-2 px-8 py-3.5 rounded-xl font-mono font-bold text-sm text-primary-foreground overflow-hidden transition-all animate-chakra-pulse hover:scale-105 hero-cta-primary"
       >
         <span class="relative z-10">Get Started</span>
         <svg class="relative z-10 w-4 h-4 transition-transform group-hover:translate-x-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -85,7 +85,7 @@
     </div>
 
     <!-- Quick install -->
-    <div class="flex items-center gap-3 px-5 py-2.5 rounded-lg code-block text-xs font-mono text-muted-foreground">
+    <div class="flex items-center gap-3 px-5 py-2.5 rounded-lg code-block text-xs font-mono">
       <span class="hero-inline-orange">$</span>
       <span class="hero-inline-blue">cargo</span>
       <span class="text-foreground/70">build --release</span>
@@ -117,9 +117,9 @@
   .hero-orb-gold { background-color: oklch(0.55 0.14 80); }
 
   .hero-badge {
-    border: 1px solid color-mix(in oklch, var(--primary) 30%, transparent);
-    background: color-mix(in oklch, var(--primary) 5%, transparent);
-    color: var(--primary);
+    border: 1px solid color-mix(in oklch, var(--primary) 35%, oklch(0.88 0.01 75));
+    background: color-mix(in oklch, var(--primary) 8%, oklch(0.99 0.002 90));
+    color: oklch(0.36 0.12 38);
   }
 
   .hero-accent-blue { color: var(--accent); }

@@ -24,9 +24,9 @@
   --secondary: oklch(0.96 0.004 75); /* #F2F1EF */
   --secondary-foreground: oklch(0.25 0.01 75);
 
-  /* Muted: warm grays */
+  /* Muted: warm grays — dark enough for WCAG-ish body / labels on white */
   --muted: oklch(0.96 0.004 75);
-  --muted-foreground: oklch(0.44 0.02 75); /* #6B6B6B */
+  --muted-foreground: oklch(0.38 0.02 75);
 
   /* Accent: deep blue — readable on white */
   --accent: oklch(0.45 0.12 250); /* #1E60A0 */
@@ -464,12 +464,20 @@ html:not(.dark) .energy-card:hover {
   overflow: hidden;
 }
 
-.dark .code-block {
-  border: 1px solid rgba(0, 180, 255, 0.15);
-}
-
+/* Light mode: dark terminal canvas — inherited theme tokens must read as light text */
 html:not(.dark) .code-block {
   border: 1px solid oklch(0.85 0.005 75);
+  --foreground: oklch(0.93 0.008 85);
+  --card-foreground: oklch(0.93 0.008 85);
+  --popover-foreground: oklch(0.93 0.008 85);
+  --muted-foreground: oklch(0.62 0.025 250);
+  --secondary-foreground: oklch(0.88 0.01 85);
+  --border: oklch(1 0 0 / 14%);
+  --input: oklch(1 0 0 / 12%);
+}
+
+.dark .code-block {
+  border: 1px solid rgba(0, 180, 255, 0.15);
 }
 
 .code-block::before {
@@ -503,6 +511,12 @@ html:not(.dark) .code-block::before {
 pre {
   background: oklch(0.08 0.01 250) !important;
   color: oklch(0.9 0.01 80) !important;
+}
+
+html:not(.dark) pre {
+  --foreground: oklch(0.93 0.008 85);
+  --muted-foreground: oklch(0.62 0.025 250);
+  --border: oklch(1 0 0 / 14%);
 }
 
 /* Inline code */
@@ -621,6 +635,38 @@ pre .theme-orange-bright {
   color: #ff9500 !important;
 }
 
+/* term-* / hero-inline-* use page light-theme primary/accent — too dark on terminal; force bright tokens */
+html:not(.dark) .code-block .term-orange,
+html:not(.dark) .code-block .term-orange-bright,
+html:not(.dark) pre .term-orange,
+html:not(.dark) pre .term-orange-bright {
+  color: #ffb366 !important;
+}
+html:not(.dark) .code-block .term-blue,
+html:not(.dark) pre .term-blue {
+  color: #6ec8ff !important;
+}
+html:not(.dark) .code-block .term-gold,
+html:not(.dark) pre .term-gold {
+  color: #ffe566 !important;
+}
+html:not(.dark) .code-block .term-green,
+html:not(.dark) pre .term-green {
+  color: #7ae582 !important;
+}
+html:not(.dark) .code-block .hero-inline-orange,
+html:not(.dark) pre .hero-inline-orange {
+  color: #ff9f4d !important;
+}
+html:not(.dark) .code-block .hero-inline-blue,
+html:not(.dark) pre .hero-inline-blue {
+  color: #6ec8ff !important;
+}
+html:not(.dark) .code-block .hero-inline-gold,
+html:not(.dark) pre .hero-inline-gold {
+  color: #ffe566 !important;
+}
+
 /* Code block header bar: always dark to match the code block */
 .code-block .bg-secondary\/50 {
   background: rgba(255, 255, 255, 0.04) !important;
@@ -687,6 +733,65 @@ html:not(.dark) .text-white\/70 {
 
 html:not(.dark) .text-white\/60 {
   color: var(--muted-foreground) !important;
+}
+
+/* Dark surfaces: undo light-mode text-white remaps (code blocks stay terminal-lit) */
+html:not(.dark) .code-block .text-white,
+html:not(.dark) pre .text-white {
+  color: oklch(0.97 0.005 85) !important;
+}
+html:not(.dark) .code-block .text-white\/90,
+html:not(.dark) pre .text-white\/90 {
+  color: oklch(0.92 0.01 85) !important;
+}
+html:not(.dark) .code-block .text-white\/80,
+html:not(.dark) pre .text-white\/80 {
+  color: oklch(0.86 0.015 85) !important;
+}
+html:not(.dark) .code-block .text-white\/70,
+html:not(.dark) pre .text-white\/70 {
+  color: oklch(0.78 0.02 85) !important;
+}
+html:not(.dark) .code-block .text-white\/60,
+html:not(.dark) pre .text-white\/60 {
+  color: oklch(0.68 0.025 85) !important;
+}
+html:not(.dark) .code-block .text-white\/50,
+html:not(.dark) pre .text-white\/50 {
+  color: oklch(0.58 0.03 250) !important;
+}
+html:not(.dark) .code-block .text-white\/40,
+html:not(.dark) pre .text-white\/40 {
+  color: oklch(0.48 0.03 250) !important;
+}
+html:not(.dark) .code-block .text-white\/30,
+html:not(.dark) pre .text-white\/30 {
+  color: oklch(0.42 0.03 250) !important;
+}
+html:not(.dark) .code-block .text-white\/10,
+html:not(.dark) pre .text-white\/10 {
+  color: oklch(0.35 0.02 250) !important;
+}
+html:not(.dark) .code-block .text-white\/5,
+html:not(.dark) pre .text-white\/5 {
+  color: oklch(0.3 0.02 250) !important;
+}
+
+/* Terminal chrome inside code-block: keep translucent white, not page “secondary” fill */
+html:not(.dark) .code-block .bg-white\/5 {
+  background-color: rgb(255 255 255 / 0.06) !important;
+}
+html:not(.dark) .code-block .hover\:bg-white\/5:hover {
+  background-color: rgb(255 255 255 / 0.1) !important;
+}
+html:not(.dark) .code-block .bg-white\/10 {
+  background-color: rgb(255 255 255 / 0.08) !important;
+}
+html:not(.dark) .code-block .border-white\/5 {
+  border-color: rgb(255 255 255 / 0.1) !important;
+}
+html:not(.dark) .code-block .border-white\/10 {
+  border-color: rgb(255 255 255 / 0.14) !important;
 }
 
 /* bg-white/5 hovers → subtle gray in light */

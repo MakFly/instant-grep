@@ -89,12 +89,11 @@ pub fn walk_files(
     };
 
     builder.filter_entry(move |entry| {
-        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-            if let Some(name) = entry.path().file_name().and_then(|n| n.to_str()) {
-                if exclude_set.contains(name) {
-                    return false;
-                }
-            }
+        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false)
+            && let Some(name) = entry.path().file_name().and_then(|n| n.to_str())
+            && exclude_set.contains(name)
+        {
+            return false;
         }
         true
     });
@@ -107,12 +106,11 @@ pub fn walk_files(
             continue;
         }
         // Skip files larger than max_file_size
-        if max_file_size > 0 {
-            if let Ok(meta) = entry.metadata() {
-                if meta.len() > max_file_size {
-                    continue;
-                }
-            }
+        if max_file_size > 0
+            && let Ok(meta) = entry.metadata()
+            && meta.len() > max_file_size
+        {
+            continue;
         }
         paths.push(entry.into_path());
     }

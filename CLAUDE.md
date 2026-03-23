@@ -1,6 +1,6 @@
 # instant-grep (`ig`)
 
-Trigram-indexed regex search CLI in Rust — a standalone reimplementation of Cursor's fast regex search for AI agents.
+Trigram-indexed regex search CLI in Rust — built for fast agent and editor-adjacent search workflows.
 
 ## Stack
 

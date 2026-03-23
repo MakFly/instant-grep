@@ -34,8 +34,7 @@ impl IndexMetadata {
 
         let json_path = ig_dir.join("metadata.json");
         let file = File::create(&json_path).context("create metadata.json")?;
-        serde_json::to_writer_pretty(BufWriter::new(file), self)
-            .context("write metadata.json")?;
+        serde_json::to_writer_pretty(BufWriter::new(file), self).context("write metadata.json")?;
 
         Ok(())
     }

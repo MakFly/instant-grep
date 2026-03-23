@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
-use regex_syntax::hir::literal::{ExtractKind, Extractor};
 use regex_syntax::Parser;
+use regex_syntax::hir::literal::{ExtractKind, Extractor};
 
-use crate::index::ngram::{extract_covering_ngrams, DEFAULT_MAX_NGRAM_LEN};
+use crate::index::ngram::{DEFAULT_MAX_NGRAM_LEN, extract_covering_ngrams};
 use crate::query::plan::NgramQuery;
 
 /// Convert a regex pattern into an NgramQuery using sparse n-grams.
@@ -70,9 +70,7 @@ pub fn regex_to_query(pattern: &str, case_insensitive: bool) -> Result<NgramQuer
             return Ok(NgramQuery::All);
         }
 
-        let and_query = NgramQuery::And(
-            ngram_keys.into_iter().map(NgramQuery::Ngram).collect(),
-        );
+        let and_query = NgramQuery::And(ngram_keys.into_iter().map(NgramQuery::Ngram).collect());
         or_branches.push(and_query);
     }
 
@@ -143,8 +141,11 @@ mod tests {
         match query {
             NgramQuery::And(children) => {
                 // Covering should produce ~3-6 n-grams instead of ~23 trigrams
-                assert!(children.len() < 15,
-                    "covering should produce fewer keys, got {}", children.len());
+                assert!(
+                    children.len() < 15,
+                    "covering should produce fewer keys, got {}",
+                    children.len()
+                );
             }
             _ => panic!("expected And query"),
         }

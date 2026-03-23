@@ -12,7 +12,9 @@ pub const DEFAULT_MAX_NGRAM_LEN: usize = 16;
 fn hash_bigram(a: u8, b: u8) -> u32 {
     const MUL1: u64 = 0xc6a4a7935bd1e995;
     const MUL2: u64 = 0x228876a7198b743;
-    let v = (a as u64).wrapping_mul(MUL1).wrapping_add((b as u64).wrapping_mul(MUL2));
+    let v = (a as u64)
+        .wrapping_mul(MUL1)
+        .wrapping_add((b as u64).wrapping_mul(MUL2));
     (v.wrapping_add(!v >> 47)) as u32
 }
 
@@ -56,9 +58,7 @@ pub fn build_all_ngrams(data: &[u8]) -> Vec<(usize, usize)> {
             result.push((stack.last().unwrap().pos, i + 2));
 
             // Glue same hashes to the left
-            while stack.len() > 1
-                && stack.last().unwrap().hash == stack[stack.len() - 2].hash
-            {
+            while stack.len() > 1 && stack.last().unwrap().hash == stack[stack.len() - 2].hash {
                 stack.pop();
             }
             stack.pop();
@@ -195,7 +195,12 @@ mod tests {
         let ranges = build_covering_ngrams(data, DEFAULT_MAX_NGRAM_LEN);
         let strings = collect_ngram_strings(data, &ranges);
         // Expected from danlark1: {"hel","ell","llo","rld","worl","lo wo"}
-        assert_eq!(strings.len(), 6, "expected 6 covering ngrams, got {:?}", strings);
+        assert_eq!(
+            strings.len(),
+            6,
+            "expected 6 covering ngrams, got {:?}",
+            strings
+        );
         assert!(strings.contains(&"hel".to_string()));
         assert!(strings.contains(&"rld".to_string()));
     }
@@ -206,7 +211,12 @@ mod tests {
         let ranges = build_covering_ngrams(data, DEFAULT_MAX_NGRAM_LEN);
         let strings = collect_ngram_strings(data, &ranges);
         // Expected from danlark1: {"chest","ster","er "}
-        assert_eq!(strings.len(), 3, "expected 3 covering ngrams, got {:?}", strings);
+        assert_eq!(
+            strings.len(),
+            3,
+            "expected 3 covering ngrams, got {:?}",
+            strings
+        );
         assert!(strings.contains(&"chest".to_string()));
         assert!(strings.contains(&"ster".to_string()));
         assert!(strings.contains(&"er ".to_string()));
@@ -218,7 +228,12 @@ mod tests {
         let ranges = build_covering_ngrams(data, DEFAULT_MAX_NGRAM_LEN);
         let strings = collect_ngram_strings(data, &ranges);
         // Expected from danlark1: {"for(i","(int i=4","=42"}
-        assert_eq!(strings.len(), 3, "expected 3 covering ngrams, got {:?}", strings);
+        assert_eq!(
+            strings.len(),
+            3,
+            "expected 3 covering ngrams, got {:?}",
+            strings
+        );
         assert!(strings.contains(&"=42".to_string()));
     }
 

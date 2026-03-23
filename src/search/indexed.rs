@@ -70,17 +70,17 @@ pub fn search_indexed(
             let rel_path = reader.file_path(*doc_id).to_string();
 
             // Apply type filter
-            if let Some(ft) = type_filter {
-                if !matches_type(&rel_path, ft) {
-                    return None;
-                }
+            if let Some(ft) = type_filter
+                && !matches_type(&rel_path, ft)
+            {
+                return None;
             }
 
             // Apply glob filter
-            if let Some(glob) = glob_filter {
-                if !matches_glob(&rel_path, glob) {
-                    return None;
-                }
+            if let Some(glob) = glob_filter
+                && !matches_glob(&rel_path, glob)
+            {
+                return None;
             }
 
             Some((*doc_id, rel_path))
@@ -128,7 +128,9 @@ fn matches_type(path: &str, file_type: &str) -> bool {
         "php" => ext == "php",
         "rb" | "ruby" => ext == "rb",
         "c" => ext == "c" || ext == "h",
-        "cpp" | "cxx" => ext == "cpp" || ext == "cxx" || ext == "cc" || ext == "hpp" || ext == "hxx",
+        "cpp" | "cxx" => {
+            ext == "cpp" || ext == "cxx" || ext == "cc" || ext == "hpp" || ext == "hxx"
+        }
         "css" => ext == "css",
         "html" => ext == "html" || ext == "htm",
         "json" => ext == "json",

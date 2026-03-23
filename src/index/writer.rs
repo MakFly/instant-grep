@@ -9,8 +9,8 @@ use ahash::AHashMap;
 use anyhow::{Context, Result};
 use rayon::prelude::*;
 
-use crate::index::metadata::{IndexMetadata, IndexedFile, INDEX_VERSION};
-use crate::index::ngram::{extract_sparse_ngrams, NgramKey};
+use crate::index::metadata::{INDEX_VERSION, IndexMetadata, IndexedFile};
+use crate::index::ngram::{NgramKey, extract_sparse_ngrams};
 use crate::index::postings::DocId;
 use crate::util::{ig_dir, is_binary};
 use crate::walk::walk_files;
@@ -30,21 +30,26 @@ pub fn build_index(
     let existing_meta = load_existing_metadata(&ig);
     let current_git_commit = get_git_head(&root);
 
-    if let Some(ref meta) = existing_meta {
-        if meta.version == INDEX_VERSION {
-            let changed = detect_changed_files(&root, meta, &current_git_commit);
-            if let Some(changed_paths) = changed {
-                if changed_paths.is_empty() {
-                    eprintln!("Index is up to date");
-                    return Ok(meta.clone());
-                } else {
-                    eprintln!("Incremental: {} files changed", changed_paths.len());
-                }
+    if let Some(ref meta) = existing_meta
+        && meta.version == INDEX_VERSION
+    {
+        let changed = detect_changed_files(&root, meta, &current_git_commit);
+        if let Some(changed_paths) = changed {
+            if changed_paths.is_empty() {
+                eprintln!("Index is up to date");
+                return Ok(meta.clone());
+            } else {
+                eprintln!("Incremental: {} files changed", changed_paths.len());
             }
         }
     }
 
-    full_rebuild(&root, use_default_excludes, max_file_size, &current_git_commit)
+    full_rebuild(
+        &root,
+        use_default_excludes,
+        max_file_size,
+        &current_git_commit,
+    )
 }
 
 fn full_rebuild(
@@ -180,13 +185,14 @@ fn write_index(
 
     // Auto-add .ig/ to .gitignore
     let gitignore = root.join(".gitignore");
-    if gitignore.exists() {
-        if let Ok(content) = fs::read_to_string(&gitignore) {
-            if !content.lines().any(|l| l.trim() == ".ig" || l.trim() == ".ig/") {
-                let mut f = fs::OpenOptions::new().append(true).open(&gitignore)?;
-                writeln!(f, "\n# instant-grep index\n.ig/")?;
-            }
-        }
+    if gitignore.exists()
+        && let Ok(content) = fs::read_to_string(&gitignore)
+        && !content
+            .lines()
+            .any(|l| l.trim() == ".ig" || l.trim() == ".ig/")
+    {
+        let mut f = fs::OpenOptions::new().append(true).open(&gitignore)?;
+        writeln!(f, "\n# instant-grep index\n.ig/")?;
     }
 
     Ok(metadata)
@@ -216,10 +222,10 @@ fn detect_changed_files(
 ) -> Option<Vec<String>> {
     let mut changed = Vec::new();
 
-    if let (Some(old_commit), Some(new_commit)) = (&meta.git_commit, current_commit) {
-        if old_commit != new_commit {
-            return detect_git_diff_files(root, old_commit, new_commit);
-        }
+    if let (Some(old_commit), Some(new_commit)) = (&meta.git_commit, current_commit)
+        && old_commit != new_commit
+    {
+        return detect_git_diff_files(root, old_commit, new_commit);
     }
 
     for file in &meta.files {
@@ -284,7 +290,7 @@ fn next_prime(n: usize) -> usize {
     if n <= 2 {
         return 2;
     }
-    let mut candidate = if n % 2 == 0 { n + 1 } else { n };
+    let mut candidate = if n.is_multiple_of(2) { n + 1 } else { n };
     loop {
         if is_prime(candidate) {
             return candidate;
@@ -300,12 +306,12 @@ fn is_prime(n: usize) -> bool {
     if n == 2 || n == 3 {
         return true;
     }
-    if n % 2 == 0 || n % 3 == 0 {
+    if n.is_multiple_of(2) || n.is_multiple_of(3) {
         return false;
     }
     let mut i = 5;
     while i * i <= n {
-        if n % i == 0 || n % (i + 2) == 0 {
+        if n.is_multiple_of(i) || n.is_multiple_of(i + 2) {
             return false;
         }
         i += 6;

@@ -63,14 +63,14 @@ impl Printer {
         let mut prev_line_num: Option<usize> = None;
 
         for line_match in &file_matches.matches {
-            if let Some(prev) = prev_line_num {
-                if line_match.line_number > prev + 1 {
-                    let _ = self
-                        .stdout
-                        .set_color(ColorSpec::new().set_fg(Some(Color::Cyan)));
-                    let _ = writeln!(self.stdout, "--");
-                    let _ = self.stdout.reset();
-                }
+            if let Some(prev) = prev_line_num
+                && line_match.line_number > prev + 1
+            {
+                let _ = self
+                    .stdout
+                    .set_color(ColorSpec::new().set_fg(Some(Color::Cyan)));
+                let _ = writeln!(self.stdout, "--");
+                let _ = self.stdout.reset();
             }
             prev_line_num = Some(line_match.line_number);
 
@@ -78,12 +78,7 @@ impl Printer {
         }
     }
 
-    fn print_json(
-        &mut self,
-        file_matches: &FileMatches,
-        count_only: bool,
-        files_only: bool,
-    ) {
+    fn print_json(&mut self, file_matches: &FileMatches, count_only: bool, files_only: bool) {
         if files_only {
             let _ = writeln!(
                 self.stdout,
@@ -156,11 +151,9 @@ impl Printer {
                     let _ = self.stdout.write_all(&line[pos..start]);
                 }
 
-                let _ = self.stdout.set_color(
-                    ColorSpec::new()
-                        .set_fg(Some(Color::Red))
-                        .set_bold(true),
-                );
+                let _ = self
+                    .stdout
+                    .set_color(ColorSpec::new().set_fg(Some(Color::Red)).set_bold(true));
                 let _ = self.stdout.write_all(&line[start..end]);
                 let _ = self.stdout.reset();
 

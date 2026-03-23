@@ -39,12 +39,11 @@ pub fn match_file(
     config: &SearchConfig,
 ) -> Result<Option<FileMatches>> {
     let full_path = root.join(rel_path);
-    let file = std::fs::File::open(&full_path)
-        .with_context(|| format!("open {}", full_path.display()))?;
+    let file =
+        std::fs::File::open(&full_path).with_context(|| format!("open {}", full_path.display()))?;
 
-    let mmap = unsafe {
-        Mmap::map(&file).with_context(|| format!("mmap {}", full_path.display()))?
-    };
+    let mmap =
+        unsafe { Mmap::map(&file).with_context(|| format!("mmap {}", full_path.display()))? };
     let content = &*mmap;
 
     if content.is_empty() {

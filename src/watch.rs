@@ -51,11 +51,7 @@ pub fn watch_and_rebuild(root: &Path, use_default_excludes: bool) -> Result<()> 
 
                 if last_rebuild.elapsed() > Duration::from_secs(1) {
                     let start = Instant::now();
-                    match writer::build_index(
-                        &root,
-                        use_default_excludes,
-                        DEFAULT_MAX_FILE_SIZE,
-                    ) {
+                    match writer::build_index(&root, use_default_excludes, DEFAULT_MAX_FILE_SIZE) {
                         Ok(meta) => {
                             eprintln!(
                                 "Rebuilt: {} files, {} trigrams in {:.0}ms",

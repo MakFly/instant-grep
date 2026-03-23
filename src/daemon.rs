@@ -102,10 +102,7 @@ impl DaemonState {
                     let new_count = new_reader.metadata.file_count;
                     self.reader = new_reader;
                     self.last_mtime = current_mtime;
-                    eprintln!(
-                        "Index reloaded: {} → {} files",
-                        old_count, new_count
-                    );
+                    eprintln!("Index reloaded: {} → {} files", old_count, new_count);
                     true
                 }
                 Err(e) => {
@@ -146,8 +143,8 @@ pub fn start_daemon(root: &Path) -> Result<()> {
     let sock_path = socket_path(&root);
     let _ = std::fs::remove_file(&sock_path);
 
-    let listener = UnixListener::bind(&sock_path)
-        .with_context(|| format!("bind {}", sock_path.display()))?;
+    let listener =
+        UnixListener::bind(&sock_path).with_context(|| format!("bind {}", sock_path.display()))?;
 
     eprintln!("Socket: {}", sock_path.display());
 
@@ -174,10 +171,7 @@ pub fn start_daemon(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn handle_client(
-    stream: UnixStream,
-    state: &Arc<RwLock<DaemonState>>,
-) -> Result<()> {
+fn handle_client(stream: UnixStream, state: &Arc<RwLock<DaemonState>>) -> Result<()> {
     let mut buf_reader = BufReader::new(&stream);
     let mut writer = &stream;
 
@@ -208,12 +202,7 @@ fn handle_client(
     Ok(())
 }
 
-fn process_query(
-    line: &str,
-    reader: &IndexReader,
-    root: &Path,
-    reloaded: bool,
-) -> QueryResponse {
+fn process_query(line: &str, reader: &IndexReader, root: &Path, reloaded: bool) -> QueryResponse {
     let req: QueryRequest = match serde_json::from_str(line) {
         Ok(r) => r,
         Err(e) => {
@@ -332,7 +321,7 @@ fn process_query(
 
 fn ctrlc_cleanup(sock_path: PathBuf) {
     std::thread::spawn(move || {
-        let _ = signal_hook_simple(&sock_path);
+        signal_hook_simple(&sock_path);
     });
 }
 
@@ -382,8 +371,16 @@ mod tests {
         // Create some source files
         let src = root.join("src");
         fs::create_dir_all(&src).unwrap();
-        fs::write(src.join("main.rs"), b"fn main() {\n    println!(\"hello\");\n}\n").unwrap();
-        fs::write(src.join("lib.rs"), b"pub fn greet() -> String {\n    \"world\".to_string()\n}\n").unwrap();
+        fs::write(
+            src.join("main.rs"),
+            b"fn main() {\n    println!(\"hello\");\n}\n",
+        )
+        .unwrap();
+        fs::write(
+            src.join("lib.rs"),
+            b"pub fn greet() -> String {\n    \"world\".to_string()\n}\n",
+        )
+        .unwrap();
 
         // Build index
         crate::index::writer::build_index(&root, false, 1_048_576).unwrap();
@@ -404,7 +401,10 @@ mod tests {
     fn test_daemon_state_detects_no_change() {
         let (dir, root) = setup_test_project();
         let mut state = DaemonState::new(&root).unwrap();
-        assert!(!state.reload_if_changed(), "should not reload when nothing changed");
+        assert!(
+            !state.reload_if_changed(),
+            "should not reload when nothing changed"
+        );
         drop(dir);
     }
 
@@ -437,7 +437,10 @@ mod tests {
         );
 
         // Second check: no change since we just reloaded
-        assert!(!state.reload_if_changed(), "should not reload again immediately");
+        assert!(
+            !state.reload_if_changed(),
+            "should not reload again immediately"
+        );
 
         drop(dir);
     }
@@ -467,7 +470,10 @@ mod tests {
         let query_json = r#"{"pattern":"fn main"}"#;
         let response = process_query(query_json, &state.reader, &state.root, true);
 
-        assert!(response.reloaded, "reloaded flag should be true when passed");
+        assert!(
+            response.reloaded,
+            "reloaded flag should be true when passed"
+        );
 
         drop(dir);
     }

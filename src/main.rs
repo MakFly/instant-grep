@@ -58,9 +58,8 @@ fn main() -> Result<()> {
             let max_size = max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
             let use_excludes = !no_default_excludes;
 
-            let use_color = !json
-                && atty::is(atty::Stream::Stdout)
-                && std::env::var("NO_COLOR").is_err();
+            let use_color =
+                !json && atty::is(atty::Stream::Stdout) && std::env::var("NO_COLOR").is_err();
 
             if no_index {
                 let results = search::fallback::search_brute_force(
