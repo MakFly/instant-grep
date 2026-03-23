@@ -9,7 +9,7 @@ interface Props {
 const { title = "instant-grep", description = "Trigram-indexed regex search CLI — faster than Instant Transmission" } = Astro.props
 ---
 
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -18,6 +18,25 @@ const { title = "instant-grep", description = "Trigram-indexed regex search CLI 
     <meta name="description" content={description} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
+    <!-- Anti-flash: apply theme before first paint -->
+    <script is:inline>
+      (function() {
+        var stored = localStorage.getItem('theme');
+        if (stored === 'light') {
+          document.documentElement.classList.remove('dark');
+        } else if (stored === 'dark') {
+          document.documentElement.classList.add('dark');
+        } else {
+          // Default: dark mode, unless system explicitly prefers light
+          var prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+          if (prefersLight) {
+            document.documentElement.classList.remove('dark');
+          } else {
+            document.documentElement.classList.add('dark');
+          }
+        }
+      })();
+    </script>
   </head>
   <body class="min-h-screen bg-background text-foreground antialiased">
     <slot />

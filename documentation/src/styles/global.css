@@ -6,7 +6,51 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ===== LIGHT MODE (default when no .dark class) ===== */
 :root {
+  --background: oklch(0.97 0.01 75);
+  --foreground: oklch(0.18 0.02 250);
+  --card: oklch(0.99 0.008 75);
+  --card-foreground: oklch(0.18 0.02 250);
+  --popover: oklch(0.99 0.008 75);
+  --popover-foreground: oklch(0.18 0.02 250);
+  --primary: oklch(0.62 0.22 45);
+  --primary-foreground: oklch(0.99 0.005 80);
+  --secondary: oklch(0.93 0.015 75);
+  --secondary-foreground: oklch(0.18 0.02 250);
+  --muted: oklch(0.93 0.015 75);
+  --muted-foreground: oklch(0.45 0.04 250);
+  --accent: oklch(0.5 0.2 220);
+  --accent-foreground: oklch(0.99 0.005 80);
+  --destructive: oklch(0.55 0.25 25);
+  --border: oklch(0 0 0 / 12%);
+  --input: oklch(0 0 0 / 8%);
+  --ring: oklch(0.62 0.22 45);
+  --chart-1: oklch(0.62 0.22 45);
+  --chart-2: oklch(0.5 0.2 220);
+  --chart-3: oklch(0.75 0.2 90);
+  --chart-4: oklch(0.55 0.25 25);
+  --chart-5: oklch(0.6 0.18 155);
+  --radius: 0.75rem;
+  --sidebar: oklch(0.95 0.012 75);
+  --sidebar-foreground: oklch(0.18 0.02 250);
+  --sidebar-primary: oklch(0.62 0.22 45);
+  --sidebar-primary-foreground: oklch(0.99 0.005 80);
+  --sidebar-accent: oklch(0.91 0.015 75);
+  --sidebar-accent-foreground: oklch(0.18 0.02 250);
+  --sidebar-border: oklch(0 0 0 / 10%);
+  --sidebar-ring: oklch(0.62 0.22 45);
+
+  /* Anime custom colors */
+  --orange: #FF6B00;
+  --orange-bright: #FF9500;
+  --chakra-blue: #00B4FF;
+  --sharingan-red: #FF0000;
+  --saiyan-gold: #FFD700;
+}
+
+/* ===== DARK MODE ===== */
+.dark {
   --background: oklch(0.08 0.015 250);
   --foreground: oklch(0.95 0.01 80);
   --card: oklch(0.11 0.015 250);
@@ -46,27 +90,6 @@
   --chakra-blue: #00B4FF;
   --sharingan-red: #FF0000;
   --saiyan-gold: #FFD700;
-}
-
-.dark {
-  --background: oklch(0.08 0.015 250);
-  --foreground: oklch(0.95 0.01 80);
-  --card: oklch(0.11 0.015 250);
-  --card-foreground: oklch(0.95 0.01 80);
-  --popover: oklch(0.11 0.015 250);
-  --popover-foreground: oklch(0.95 0.01 80);
-  --primary: oklch(0.72 0.22 45);
-  --primary-foreground: oklch(0.08 0.015 250);
-  --secondary: oklch(0.14 0.02 250);
-  --secondary-foreground: oklch(0.95 0.01 80);
-  --muted: oklch(0.14 0.02 250);
-  --muted-foreground: oklch(0.6 0.05 250);
-  --accent: oklch(0.55 0.22 220);
-  --accent-foreground: oklch(0.95 0.01 80);
-  --destructive: oklch(0.6 0.25 25);
-  --border: oklch(1 0 0 / 8%);
-  --input: oklch(1 0 0 / 10%);
-  --ring: oklch(0.72 0.22 45);
 }
 
 @theme inline {
@@ -380,6 +403,133 @@
 
 .jutsu-tooltip:hover .tooltip-content {
   opacity: 1;
+}
+
+/* ===== LIGHT MODE OVERRIDES ===== */
+
+/* In light mode, the hover/background for sidebar links needs contrast */
+html:not(.dark) .sidebar-active {
+  color: #D45800;
+  background: rgba(255, 107, 0, 0.08);
+  border-left: 2px solid #FF6B00;
+}
+
+/* Energy card in light mode: warm shadow instead of glow */
+html:not(.dark) .energy-card {
+  border: 1px solid rgba(180, 80, 0, 0.15);
+}
+
+html:not(.dark) .energy-card:hover {
+  border-color: rgba(255, 107, 0, 0.35);
+  box-shadow: 0 4px 20px rgba(255, 107, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* Code blocks always dark regardless of theme */
+.code-block {
+  background: oklch(0.06 0.01 250);
+  border: 1px solid rgba(0, 180, 255, 0.15);
+  border-radius: 0.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Force dark on pre/code inside code blocks in light mode */
+html:not(.dark) pre,
+html:not(.dark) .code-block pre {
+  background: oklch(0.06 0.01 250) !important;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* Inline code in light mode */
+html:not(.dark) code:not(.code-block code) {
+  background: rgba(180, 80, 0, 0.08);
+  color: #C45000;
+  border-radius: 0.25rem;
+  padding: 0.1em 0.35em;
+}
+
+/* Glow effects: more subtle in light mode */
+html:not(.dark) .glow-orange {
+  box-shadow: 0 0 12px rgba(255, 107, 0, 0.2), 0 0 24px rgba(255, 107, 0, 0.08);
+}
+
+html:not(.dark) .glow-blue {
+  box-shadow: 0 0 12px rgba(0, 180, 255, 0.2), 0 0 24px rgba(0, 180, 255, 0.08);
+}
+
+html:not(.dark) .glow-gold {
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.2), 0 0 24px rgba(255, 215, 0, 0.08);
+}
+
+html:not(.dark) .text-glow-orange {
+  text-shadow: 0 0 10px rgba(255, 107, 0, 0.4), 0 0 20px rgba(255, 107, 0, 0.15);
+}
+
+html:not(.dark) .text-glow-blue {
+  text-shadow: 0 0 10px rgba(0, 180, 255, 0.4), 0 0 20px rgba(0, 180, 255, 0.15);
+}
+
+html:not(.dark) .animate-chakra-pulse {
+  animation: chakra-pulse-light 2s ease-in-out infinite;
+}
+
+@keyframes chakra-pulse-light {
+  0%, 100% {
+    box-shadow: 0 0 6px rgba(255, 107, 0, 0.2), 0 0 12px rgba(255, 107, 0, 0.08);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(255, 107, 0, 0.35), 0 0 32px rgba(255, 107, 0, 0.15);
+  }
+}
+
+/* Tooltip in light mode */
+html:not(.dark) .jutsu-tooltip .tooltip-content {
+  background: oklch(0.97 0.01 75);
+  border: 1px solid rgba(255, 107, 0, 0.35);
+  color: #C45000;
+  box-shadow: 0 4px 16px rgba(255, 107, 0, 0.15);
+}
+
+/* Scrollbar in light mode */
+html:not(.dark) ::-webkit-scrollbar-track {
+  background: oklch(0.95 0.012 75);
+}
+
+html:not(.dark) ::-webkit-scrollbar-thumb {
+  background: rgba(255, 107, 0, 0.25);
+}
+
+html:not(.dark) ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 107, 0, 0.45);
+}
+
+/* text-white in light mode should be dark text */
+html:not(.dark) .text-white {
+  color: oklch(0.15 0.02 250) !important;
+}
+
+html:not(.dark) .text-white\/90 {
+  color: oklch(0.18 0.02 250) !important;
+}
+
+/* Heading colors in light mode for doc pages */
+html:not(.dark) .prose h2 {
+  color: oklch(0.18 0.02 250);
+}
+
+html:not(.dark) .prose h3 {
+  color: oklch(0.22 0.02 250);
+}
+
+/* Card backgrounds in light mode */
+html:not(.dark) .bg-card\/50 {
+  background-color: oklch(0.98 0.008 75 / 0.8);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+/* white/5 hovers need to adapt in light mode */
+html:not(.dark) .hover\:bg-white\/5:hover {
+  background-color: rgba(0, 0, 0, 0.04);
 }
 
 /* Astro-specific scrollbar */
