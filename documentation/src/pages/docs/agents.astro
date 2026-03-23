@@ -1,0 +1,259 @@
+---
+import DocsLayout from "@/layouts/docs.astro"
+---
+
+<DocsLayout title="Agent Integration" description="How AI agents use instant-grep for sub-ms codebase search">
+  <div class="prose prose-invert max-w-none">
+    <!-- Page header -->
+    <div class="mb-10">
+      <div class="flex items-center gap-2 text-xs font-mono uppercase tracking-widest mb-3" style="color: #00B4FF;">
+        <span>🤖</span>
+        <span>AI Shinobi Techniques</span>
+      </div>
+      <h1 class="text-4xl font-mono font-black mb-4" style="background: linear-gradient(135deg, #00B4FF, #0070FF); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
+        Agent Integration
+      </h1>
+      <p class="text-muted-foreground text-lg leading-relaxed">
+        How to give your AI agent the speed of a jonin. Sub-millisecond codebase search,
+        structured JSON output, 35x fewer tokens than reading files.
+      </p>
+    </div>
+
+    <!-- Why CLI over MCP -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-white mb-4 flex items-center gap-2">
+        <span style="color: #FF6B00;">⚡</span>
+        Why CLI beats MCP
+      </h2>
+
+      <div class="p-5 rounded-xl border mb-6" style="background: rgba(255,107,0,0.05); border-color: rgba(255,107,0,0.3);">
+        <div class="text-center">
+          <div class="font-mono text-5xl font-black gradient-text mb-2">35x</div>
+          <div class="text-sm text-muted-foreground">fewer tokens than reading file contents via MCP</div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        <div class="p-5 rounded-xl energy-card bg-card/50">
+          <div class="text-xs font-mono font-bold mb-3 flex items-center gap-2" style="color: #FF3B30;">
+            <span>✗</span> MCP file read approach
+          </div>
+          <ul class="space-y-2 text-sm text-muted-foreground">
+            <li class="flex items-start gap-2"><span class="mt-1" style="color: #FF3B30;">•</span>Read entire file to find pattern</li>
+            <li class="flex items-start gap-2"><span class="mt-1" style="color: #FF3B30;">•</span>1000+ tokens per file</li>
+            <li class="flex items-start gap-2"><span class="mt-1" style="color: #FF3B30;">•</span>Need to guess which files to read</li>
+            <li class="flex items-start gap-2"><span class="mt-1" style="color: #FF3B30;">•</span>Slow: network round-trips</li>
+            <li class="flex items-start gap-2"><span class="mt-1" style="color: #FF3B30;">•</span>Context window fills quickly</li>
+          </ul>
+        </div>
+        <div class="p-5 rounded-xl energy-card bg-card/50">
+          <div class="text-xs font-mono font-bold mb-3 flex items-center gap-2" style="color: #34C759;">
+            <span>✓</span> ig CLI approach
+          </div>
+          <ul class="space-y-2 text-sm text-muted-foreground">
+            <li class="flex items-start gap-2"><span class="mt-1" style="color: #34C759;">•</span>Only matching lines returned</li>
+            <li class="flex items-start gap-2"><span class="mt-1" style="color: #34C759;">•</span>~30 tokens per match</li>
+            <li class="flex items-start gap-2"><span class="mt-1" style="color: #34C759;">•</span>Index finds relevant files instantly</li>
+            <li class="flex items-start gap-2"><span class="mt-1" style="color: #34C759;">•</span>0.9ms local process</li>
+            <li class="flex items-start gap-2"><span class="mt-1" style="color: #34C759;">•</span>Structured JSON, easy to parse</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Claude Code integration -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-white mb-4 flex items-center gap-2">
+        <span>🤖</span>
+        Claude Code Integration
+      </h2>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Claude Code uses <code class="font-mono" style="color: #FFD700;">ig</code> as its primary codebase search tool when available.
+        It falls back to ripgrep otherwise. The JSON output lets Claude parse results without regex.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-4">
+        <div class="px-4 py-2.5 bg-white/5 border-b border-white/5 text-xs font-mono text-muted-foreground/50">Claude Code uses ig like this</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span style="color:#FF6B00"># Claude searching for function implementations</span>
+<span style="color:#00B4FF">ig</span> search --json <span style="color:#FFD700">"fn build_covering_ngrams"</span> src/
+
+<span style="color:rgba(255,255,255,0.4)">{
+  "matches": [{"file": "src/index/ngram.rs", "line": 142, "text": "pub fn build_covering_ngrams..."}],
+  "stats": {"duration_ms": 0.9, "candidates": 2, "matches": 1}
+}</span>
+
+<span style="color:#FF6B00"># Claude finding all public API surface</span>
+<span style="color:#00B4FF">ig</span> search --json --type rs <span style="color:#FFD700">"^pub (fn|struct|enum|trait)"</span> src/
+
+<span style="color:#FF6B00"># Claude finding TODO items before a refactor</span>
+<span style="color:#00B4FF">ig</span> search --json -i <span style="color:#FFD700">"TODO|FIXME|HACK"</span> .`}></code></pre>
+      </div>
+
+      <div class="flex items-start gap-3 p-4 rounded-lg border" style="background: rgba(0,180,255,0.05); border-color: rgba(0,180,255,0.15);">
+        <span class="text-lg mt-0.5" style="color: #00B4FF;">ℹ</span>
+        <div class="text-sm text-muted-foreground">
+          <strong class="text-white">Configuration:</strong> ig is configured as a Bash tool in Claude Code's environment.
+          Claude calls <code class="font-mono" style="color: #FFD700;">ig search --json</code> and receives structured results
+          without needing to read full file contents.
+        </div>
+      </div>
+    </section>
+
+    <!-- Codex / other agents -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-white mb-4 flex items-center gap-2">
+        <span>🧑‍💻</span>
+        Codex and Other Agent Integration
+      </h2>
+
+      <p class="text-sm text-muted-foreground mb-4">
+        Any agent with shell access can use ig. Build the index once, then query from any agent or script.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-4">
+        <div class="px-4 py-2.5 bg-white/5 border-b border-white/5 text-xs font-mono text-muted-foreground/50">agent setup script</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span style="color:rgba(255,255,255,0.3)">#!/bin/bash</span>
+<span style="color:#FF6B00"># Set up ig for agent use</span>
+
+<span style="color:#FF6B00"># 1. Build index at session start</span>
+<span style="color:#00B4FF">ig</span> index <span style="color:#FFD700">"$PROJECT_ROOT"</span>
+
+<span style="color:#FF6B00"># 2. Start daemon for sub-ms queries</span>
+<span style="color:#00B4FF">ig</span> daemon <span style="color:#FFD700">"$PROJECT_ROOT"</span> &
+
+<span style="color:#FF6B00"># 3. Agent can now use ig query for all searches</span>
+<span style="color:rgba(255,255,255,0.6)">RESULT=$(</span><span style="color:#00B4FF">ig</span> query --json <span style="color:#FFD700">"$PATTERN"</span> <span style="color:#FFD700">"$PROJECT_ROOT"</span><span style="color:rgba(255,255,255,0.6)">)</span>
+<span style="color:#00B4FF">echo</span> <span style="color:#FFD700">"$RESULT"</span> | <span style="color:#00B4FF">jq</span> <span style="color:#FFD700">'.matches[] | .file + ":" + (.line|tostring)'</span>`}></code></pre>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden">
+        <div class="px-4 py-2.5 bg-white/5 border-b border-white/5 text-xs font-mono text-muted-foreground/50">Python agent integration</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span style="color:#FF9500">import</span> <span style="color:rgba(255,255,255,0.8)">subprocess, json</span>
+
+<span style="color:#00B4FF">def</span> <span style="color:#FFD700">search_codebase</span>(pattern: str, path: str = <span style="color:#FFD700">"."</span>) -&gt; list:
+    <span style="color:rgba(255,107,0,0.8)">"""Search codebase with instant-grep. Returns list of matches."""</span>
+    result = subprocess.run(
+        [<span style="color:#FFD700">"ig"</span>, <span style="color:#FFD700">"search"</span>, <span style="color:#FFD700">"--json"</span>, pattern, path],
+        capture_output=<span style="color:#FF9500">True</span>,
+        text=<span style="color:#FF9500">True</span>
+    )
+    data = json.loads(result.stdout)
+    <span style="color:#FF9500">return</span> data[<span style="color:#FFD700">"matches"</span>]
+
+<span style="color:#FF6B00"># Usage</span>
+matches = search_codebase(<span style="color:#FFD700">"async fn"</span>, <span style="color:#FFD700">"./src"</span>)
+<span style="color:#00B4FF">for</span> m <span style="color:#00B4FF">in</span> matches:
+    <span style="color:#00B4FF">print</span>(<span style="color:#FFD700">f"{m['file']}: {m['text'].strip()}"</span>)`}></code></pre>
+      </div>
+    </section>
+
+    <!-- JSON output format detail -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-white mb-4 flex items-center gap-2">
+        <span style="color: #FFD700;">📦</span>
+        JSON Output Format
+      </h2>
+
+      <p class="text-sm text-muted-foreground mb-4">
+        The <code class="font-mono" style="color: #FFD700;">--json</code> flag outputs a single JSON object.
+        Always valid JSON — even with zero matches. Easy to pipe to <code class="font-mono" style="color: #00B4FF;">jq</code>.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-4">
+        <div class="px-4 py-2.5 bg-white/5 border-b border-white/5 text-xs font-mono text-muted-foreground/50">full JSON schema</div>
+        <pre class="p-4 font-mono text-xs leading-relaxed overflow-x-auto"><code set:html={`<span style="color:rgba(255,255,255,0.4)">{</span>
+  <span style="color:#00B4FF">"pattern"</span>: <span style="color:#FFD700">"&lt;regex string&gt;"</span>,
+  <span style="color:#00B4FF">"matches"</span>: [
+    <span style="color:rgba(255,255,255,0.4)">{</span>
+      <span style="color:#00B4FF">"file"</span>:    <span style="color:#FFD700">"&lt;relative path from index root&gt;"</span>,
+      <span style="color:#00B4FF">"line"</span>:    <span style="color:#FF9500">&lt;1-based line number&gt;</span>,
+      <span style="color:#00B4FF">"text"</span>:    <span style="color:#FFD700">"&lt;raw line content&gt;"</span>,
+      <span style="color:#00B4FF">"before"</span>:  <span style="color:rgba(255,255,255,0.3)">[...context lines]  // only with -B or -C</span>
+      <span style="color:#00B4FF">"after"</span>:   <span style="color:rgba(255,255,255,0.3)">[...context lines]  // only with -A or -C</span>
+    <span style="color:rgba(255,255,255,0.4)">}</span>
+  ],
+  <span style="color:#00B4FF">"stats"</span>: <span style="color:rgba(255,255,255,0.4)">{</span>
+    <span style="color:#00B4FF">"duration_ms"</span>:    <span style="color:#FF9500">&lt;float&gt;</span>,
+    <span style="color:#00B4FF">"candidates"</span>:    <span style="color:#FF9500">&lt;int — files passing index filter&gt;</span>,
+    <span style="color:#00B4FF">"files_searched"</span>: <span style="color:#FF9500">&lt;int — total files in index&gt;</span>,
+    <span style="color:#00B4FF">"matches"</span>:       <span style="color:#FF9500">&lt;int — total match count&gt;</span>
+  <span style="color:rgba(255,255,255,0.4)">}</span>
+<span style="color:rgba(255,255,255,0.4)">}</span>`}></code></pre>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="p-4 rounded-lg border" style="background: rgba(255,107,0,0.05); border-color: rgba(255,107,0,0.15);">
+          <div class="text-xs font-mono font-bold mb-2" style="color: #FF9500;">Token count comparison</div>
+          <div class="text-xs text-muted-foreground space-y-1 font-mono">
+            <div class="flex justify-between">
+              <span>Read 10 full files (MCP):</span>
+              <span style="color: #FF3B30;">~12,000 tokens</span>
+            </div>
+            <div class="flex justify-between">
+              <span>ig search --json (10 matches):</span>
+              <span style="color: #34C759;">~350 tokens</span>
+            </div>
+            <div class="flex justify-between font-bold border-t border-border/30 pt-1 mt-1">
+              <span>Savings:</span>
+              <span style="color: #FF9500;">35x fewer tokens</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="p-4 rounded-lg border" style="background: rgba(0,180,255,0.05); border-color: rgba(0,180,255,0.15);">
+          <div class="text-xs font-mono font-bold mb-2" style="color: #00B4FF;">jq recipes for agents</div>
+          <div class="code-block rounded-lg p-3 text-xs font-mono">
+            <div class="text-muted-foreground/50 mb-1">file:line list</div>
+            <div style="color: rgba(255,255,255,0.7);">ig search --json "pat" . | jq '.matches[] | "\(.file):\(.line)"'</div>
+            <div class="text-muted-foreground/50 mt-2 mb-1">just file paths</div>
+            <div style="color: rgba(255,255,255,0.7);">ig search --json "pat" . | jq '[.matches[].file] | unique'</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Daemon mode for agents -->
+    <section class="mb-4">
+      <h2 class="text-2xl font-mono font-bold text-white mb-4 flex items-center gap-2">
+        <span>🔄</span>
+        Daemon Mode for High-Frequency Agents
+      </h2>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Agents often search the same codebase dozens of times per session.
+        The Sage Mode daemon eliminates repeated index loading overhead.
+      </p>
+
+      <div class="space-y-4">
+        <div class="code-block rounded-xl overflow-hidden">
+          <div class="px-4 py-2.5 bg-white/5 border-b border-white/5 text-xs font-mono text-muted-foreground/50">recommended agent session setup</div>
+          <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span style="color:#FF6B00"># 1. At session start: build + start daemon</span>
+<span style="color:#00B4FF">ig</span> index . && <span style="color:#00B4FF">ig</span> daemon . &
+
+<span style="color:#FF6B00"># 2. All agent searches use daemon (0.3ms)</span>
+<span style="color:#00B4FF">ig</span> query --json <span style="color:#FFD700">"$PATTERN"</span> .
+
+<span style="color:#FF6B00"># 3. If code changes during session: re-index</span>
+<span style="color:#00B4FF">ig</span> index .  <span style="color:rgba(255,255,255,0.3)"># daemon auto-detects and hot-reloads</span>
+
+<span style="color:#FF6B00"># 4. At session end: daemon exits automatically</span>`}></code></pre>
+        </div>
+
+        <div class="grid grid-cols-3 gap-4 text-center">
+          {[
+            { label: "First query (cold)", value: "~15ms", sub: "with index build", color: "#888" },
+            { label: "Warm queries", value: "0.9ms", sub: "ig search", color: "#00B4FF" },
+            { label: "Daemon queries", value: "0.3ms", sub: "ig query", color: "#FF6B00" },
+          ].map((item) => (
+            <div class="p-4 rounded-xl energy-card bg-card/50">
+              <div class="font-mono text-xl font-black mb-1" style={`color: ${item.color}`}>{item.value}</div>
+              <div class="text-xs text-white/80 font-mono mb-0.5">{item.label}</div>
+              <div class="text-xs text-muted-foreground/50">{item.sub}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  </div>
+</DocsLayout>

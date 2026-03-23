@@ -1,0 +1,38 @@
+---
+import "@/styles/global.css"
+import Topbar from "@/components/layout/topbar.astro"
+import Sidebar from "@/components/layout/sidebar.astro"
+import Footer from "@/components/layout/footer.astro"
+
+interface Props {
+  title?: string
+  description?: string
+  currentPath?: string
+}
+
+const {
+  title = "Docs",
+  description = "instant-grep documentation",
+  currentPath = Astro.url.pathname,
+} = Astro.props
+---
+
+<html lang="en" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{title} — instant-grep docs</title>
+    <meta name="description" content={description} />
+  </head>
+  <body class="min-h-screen bg-background text-foreground antialiased">
+    <Topbar />
+    <div class="flex min-h-[calc(100vh-64px)]">
+      <Sidebar currentPath={currentPath} />
+      <main class="flex-1 min-w-0 px-6 py-10 lg:px-12 max-w-4xl">
+        <slot />
+      </main>
+    </div>
+    <Footer />
+  </body>
+</html>

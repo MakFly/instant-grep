@@ -1,0 +1,304 @@
+---
+import DocsLayout from "@/layouts/docs.astro"
+---
+
+<DocsLayout title="Architecture" description="How instant-grep works under the hood — the Rasengan Pipeline">
+  <div class="prose prose-invert max-w-none">
+    <!-- Page header -->
+    <div class="mb-10">
+      <div class="flex items-center gap-2 text-xs font-mono uppercase tracking-widest mb-3" style="color: #00B4FF;">
+        <span>🌀</span>
+        <span>Secret Technique Scroll</span>
+      </div>
+      <h1 class="text-4xl font-mono font-black mb-4" style="background: linear-gradient(135deg, #00B4FF, #0070FF); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
+        Architecture
+      </h1>
+      <p class="text-muted-foreground text-lg leading-relaxed">
+        The inner workings of instant-grep — from regex to result in under a millisecond.
+        Every technique honed to perfection.
+      </p>
+    </div>
+
+    <!-- Rasengan Pipeline diagram -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-white mb-2 flex items-center gap-3">
+        <span style="color: #FF6B00;">🌀</span>
+        Rasengan Pipeline
+      </h2>
+      <p class="text-sm text-muted-foreground mb-6">
+        The complete query pipeline — six stages of pure concentrated energy.
+      </p>
+
+      <div class="code-block rounded-xl p-6 overflow-x-auto">
+        <pre class="font-mono text-xs sm:text-sm leading-relaxed"><code set:html={`<span style="color:#FF6B00">╔══════════════════════════════════════════════════════════════════╗</span>
+<span style="color:#FF6B00">║</span>          <span style="color:#FFD700;font-weight:bold">✦ RASENGAN PIPELINE — FORBIDDEN SCROLL OF SEARCH ✦</span>          <span style="color:#FF6B00">║</span>
+<span style="color:#FF6B00">╚══════════════════════════════════════════════════════════════════╝</span>
+
+  <span style="color:rgba(255,255,255,0.9)">User Input</span>
+      │
+      ▼
+<span style="color:#FF9500">┌─────────────────────────────────────────┐</span>
+<span style="color:#FF9500">│  Stage 1 · regex-syntax Extractor       │</span>  <span style="color:rgba(255,255,255,0.3)">query/extract.rs</span>
+<span style="color:#FF9500">│  "async fn" → literal fragments         │</span>
+<span style="color:#FF9500">└─────────────────┬───────────────────────┘</span>
+                  │
+                  ▼
+<span style="color:#FFD700">┌─────────────────────────────────────────┐</span>
+<span style="color:#FFD700">│  Stage 2 · Sparse N-gram Generation     │</span>  <span style="color:rgba(255,255,255,0.3)">index/ngram.rs</span>
+<span style="color:#FFD700">│  fragments → variable-length n-grams    │</span>
+<span style="color:#FFD700">└─────────────────┬───────────────────────┘</span>
+                  │
+                  ▼
+<span style="color:#00B4FF">┌─────────────────────────────────────────┐</span>
+<span style="color:#00B4FF">│  Stage 3 · Shadow Clone Selection       │</span>  <span style="color:rgba(255,255,255,0.3)">index/ngram.rs</span>
+<span style="color:#00B4FF">│  all n-grams → minimal covering set     │</span>  <span style="color:rgba(255,255,255,0.3)">build_covering_ngrams()</span>
+<span style="color:#00B4FF">└─────────────────┬───────────────────────┘</span>
+                  │
+                  ▼
+<span style="color:#34C759">┌─────────────────────────────────────────┐</span>
+<span style="color:#34C759">│  Stage 4 · Hash Table Lookup            │</span>  <span style="color:rgba(255,255,255,0.3)">index/reader.rs</span>
+<span style="color:#34C759">│  n-grams → posting list offsets (mmap)  │</span>
+<span style="color:#34C759">└─────────────────┬───────────────────────┘</span>
+                  │
+                  ▼
+<span style="color:#FF9500">┌─────────────────────────────────────────┐</span>
+<span style="color:#FF9500">│  Stage 5 · Posting List Intersection    │</span>  <span style="color:rgba(255,255,255,0.3)">index/reader.rs</span>
+<span style="color:#FF9500">│  sorted file ID lists → candidates      │</span>
+<span style="color:#FF9500">└─────────────────┬───────────────────────┘</span>
+                  │
+                  ▼
+<span style="color:#FF6B00">┌─────────────────────────────────────────┐</span>
+<span style="color:#FF6B00">│  Stage 6 · Parallel Regex Verification  │</span>  <span style="color:rgba(255,255,255,0.3)">Rayon threadpool</span>
+<span style="color:#FF6B00">│  candidates → verified matches          │</span>
+<span style="color:#FF6B00">└─────────────────────────────────────────┘</span>
+                  │
+                  ▼
+            <span style="color:#FFD700">✓ Results</span>  <span style="color:rgba(255,255,255,0.3)">(p50: 0.9ms)</span>`}></code></pre>
+      </div>
+    </section>
+
+    <!-- Module structure -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-white mb-4 flex items-center gap-2">
+        <span style="color: #FF6B00;">📂</span>
+        Module Structure
+      </h2>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {[
+          {
+            file: "src/index/ngram.rs",
+            color: "#FF6B00",
+            title: "Core Algorithm",
+            fns: ["hash_bigram()", "build_all_ngrams()", "build_covering_ngrams()"],
+            desc: "Sparse n-gram generation and covering set selection",
+          },
+          {
+            file: "src/index/writer.rs",
+            color: "#FFD700",
+            title: "Index Build Pipeline",
+            fns: ["build_index()", "write_lexicon()", "write_postings()"],
+            desc: "Walks filesystem, builds and serializes the index",
+          },
+          {
+            file: "src/index/reader.rs",
+            color: "#00B4FF",
+            title: "Index Query",
+            fns: ["query_index()", "intersect_postings()", "mmap_open()"],
+            desc: "mmap-backed hash table + posting list intersection",
+          },
+          {
+            file: "src/query/extract.rs",
+            color: "#34C759",
+            title: "Regex → N-gram Conversion",
+            fns: ["extract_ngrams()", "literal_fragments()", "NgramQuery"],
+            desc: "Parses regex AST to extract searchable literal fragments",
+          },
+          {
+            file: "src/daemon.rs",
+            color: "#FF9500",
+            title: "Sage Mode Daemon",
+            fns: ["start_daemon()", "handle_connection()", "serve_query()"],
+            desc: "Unix socket server for sub-ms repeated queries",
+          },
+          {
+            file: "src/main.rs",
+            color: "#FF6B00",
+            title: "CLI Entry Point",
+            fns: ["Commands enum", "clap::Parser", "dispatch()"],
+            desc: "Command dispatch via clap — routes to index, search, status, watch, daemon, query",
+          },
+        ].map((module) => (
+          <div class="energy-card rounded-xl p-5 bg-card/50">
+            <div class="flex items-start justify-between mb-3">
+              <code class="text-xs font-mono" style={`color: ${module.color}`}>{module.file}</code>
+            </div>
+            <h3 class="font-mono font-bold text-white text-sm mb-1">{module.title}</h3>
+            <p class="text-xs text-muted-foreground mb-3">{module.desc}</p>
+            <div class="flex flex-wrap gap-1.5">
+              {module.fns.map((fn) => (
+                <span class="text-xs font-mono px-2 py-0.5 rounded" style={`color: ${module.color}; background: ${module.color}15; border: 1px solid ${module.color}20;`}>
+                  {fn}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <!-- On-disk format -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-white mb-4 flex items-center gap-2">
+        <span style="color: #FF6B00;">💾</span>
+        On-disk Format (.ig/ directory)
+      </h2>
+      <p class="text-sm text-muted-foreground mb-5">
+        Three binary files, all memory-mapped for zero-copy access.
+        <code class="font-mono" style="color: #FFD700;">INDEX_VERSION</code> must be bumped when the format changes.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden">
+        <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span style="color:rgba(255,255,255,0.3)">.ig/</span>
+<span style="color:#00B4FF">├── lexicon.bin</span>    <span style="color:rgba(255,255,255,0.3)">— Hash table: u64(n-gram hash) → u32(posting offset) + u32(count)</span>
+<span style="color:#FF9500">├── postings.bin</span>   <span style="color:rgba(255,255,255,0.3)">— Sorted u32[] file IDs per n-gram (delta-encoded)</span>
+<span style="color:#FFD700">└── metadata.bin</span>   <span style="color:rgba(255,255,255,0.3)">— u32 version + u64[] mtime + []string file paths (null-separated)</span>`}></code></pre>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+        <div class="p-4 rounded-lg border" style="background: rgba(0,180,255,0.05); border-color: rgba(0,180,255,0.15);">
+          <div class="text-xs font-mono font-bold mb-2" style="color: #00B4FF;">lexicon.bin</div>
+          <div class="text-xs text-muted-foreground">Open-addressing hash table. Each slot: 8B key (n-gram hash) + 8B value (offset + count). Load factor: 0.7.</div>
+        </div>
+        <div class="p-4 rounded-lg border" style="background: rgba(255,149,0,0.05); border-color: rgba(255,149,0,0.15);">
+          <div class="text-xs font-mono font-bold mb-2" style="color: #FF9500;">postings.bin</div>
+          <div class="text-xs text-muted-foreground">Concatenated sorted lists of file IDs. Each list referenced by lexicon offset + length. Intersection runs in O(n+m).</div>
+        </div>
+        <div class="p-4 rounded-lg border" style="background: rgba(255,215,0,0.05); border-color: rgba(255,215,0,0.15);">
+          <div class="text-xs font-mono font-bold mb-2" style="color: #FFD700;">metadata.bin</div>
+          <div class="text-xs text-muted-foreground">Maps file IDs to paths. Stores mtimes for incremental rebuild detection. First 4 bytes: INDEX_VERSION.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Rasengan Algorithm -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-white mb-2 flex items-center gap-3">
+        <span>🌀</span>
+        Rasengan Algorithm — Sparse N-grams
+      </h2>
+      <div class="flex items-center gap-2 text-xs font-mono mb-4" style="color: #FF6B00;">
+        <span>Port of github.com/danlark1/sparse_ngrams (GitHub Blackbird)</span>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Traditional trigram search uses every contiguous 3-character substring — expensive and produces many false positives.
+        The Rasengan Algorithm uses <strong class="text-white">variable-length n-grams</strong> that adapt to the string being indexed,
+        concentrating energy where it matters.
+      </p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-6">
+        <div class="energy-card rounded-xl p-5 bg-card/50">
+          <div class="text-xs font-mono font-bold mb-3 flex items-center gap-2" style="color: #FF3B30;">
+            <span>✗</span> Naive Trigrams (weak jutsu)
+          </div>
+          <div class="code-block rounded-lg p-3 text-xs font-mono">
+            <div class="text-muted-foreground/60 mb-2">"async" → trigrams:</div>
+            <div style="color: rgba(255,255,255,0.7);">"asy", "syn", "ync"</div>
+            <div class="text-muted-foreground/60 mt-3 mb-2">Problems:</div>
+            <div class="text-xs" style="color: #FF3B30;">• Fixed length loses selectivity</div>
+            <div class="text-xs" style="color: #FF3B30;">• Many false candidates</div>
+            <div class="text-xs" style="color: #FF3B30;">• Large index size</div>
+          </div>
+        </div>
+        <div class="energy-card rounded-xl p-5 bg-card/50">
+          <div class="text-xs font-mono font-bold mb-3 flex items-center gap-2" style="color: #34C759;">
+            <span>✓</span> Sparse N-grams (Rasengan)
+          </div>
+          <div class="code-block rounded-lg p-3 text-xs font-mono">
+            <div class="text-muted-foreground/60 mb-2">"async fn" → covering set:</div>
+            <div style="color: rgba(255,255,255,0.7);">"async", "fn"</div>
+            <div class="text-muted-foreground/60 mt-3 mb-2">Advantages:</div>
+            <div class="text-xs" style="color: #34C759;">• Variable length = high selectivity</div>
+            <div class="text-xs" style="color: #34C759;">• Fewer candidates to verify</div>
+            <div class="text-xs" style="color: #34C759;">• Smaller index, faster lookup</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-5 rounded-xl border" style="background: rgba(255,107,0,0.05); border-color: rgba(255,107,0,0.15);">
+        <p class="text-xs font-mono font-bold mb-2" style="color: #FF9500;">How hash_bigram() works:</p>
+        <p class="text-sm text-muted-foreground leading-relaxed">
+          Each n-gram is hashed by combining its characters using a polynomial rolling hash with a prime base.
+          The hash fits in a <code class="font-mono" style="color: #FFD700;">u64</code> — enabling the open-addressing hash table lookup
+          to be a single memory access when the index is warm in the OS page cache (or the daemon's mmap).
+        </p>
+      </div>
+    </section>
+
+    <!-- Shadow Clone Selection -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-white mb-2 flex items-center gap-3">
+        <span>👥</span>
+        Shadow Clone Selection — Covering Algorithm
+      </h2>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        From all possible n-grams for a query, we need only the <strong class="text-white">minimal covering set</strong> —
+        the smallest collection of n-grams that together guarantee we find all matching files.
+        Like selecting the perfect shadow clones: enough to cover every angle, no redundancy.
+      </p>
+
+      <div class="code-block rounded-xl p-5 text-xs font-mono leading-relaxed overflow-x-auto">
+        <div class="text-muted-foreground/60 mb-3">build_covering_ngrams() pseudocode:</div>
+        <pre><code set:html={`<span style="color:#00B4FF">fn</span> <span style="color:rgba(255,255,255,0.9)">build_covering_ngrams</span><span style="color:rgba(255,255,255,0.7)">(ngrams: Vec&lt;Ngram&gt;) → Vec&lt;Ngram&gt; {</span>
+    <span style="color:#FF9500">sort</span> ngrams by (position, length desc)
+    <span style="color:#FF9500">greedily</span> select ngrams that cover uncovered positions
+    <span style="color:#FF9500">return</span> minimal subset that covers the full query string
+<span style="color:rgba(255,255,255,0.7)">}</span>`}></code></pre>
+      </div>
+    </section>
+
+    <!-- Sage Mode -->
+    <section class="mb-4">
+      <h2 class="text-2xl font-mono font-bold text-white mb-2 flex items-center gap-3">
+        <span>🐸</span>
+        Sage Mode — Daemon Architecture
+      </h2>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        In Sage Mode, the ninja draws power from nature without moving — the daemon keeps the index
+        mmap'd in process memory, eliminating OS page cache warmup on every query.
+      </p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+        <div class="p-5 rounded-xl border" style="background: rgba(0,180,255,0.05); border-color: rgba(0,180,255,0.15);">
+          <div class="text-sm font-mono font-bold mb-2" style="color: #00B4FF;">Without Sage Mode</div>
+          <ul class="text-xs text-muted-foreground space-y-1">
+            <li>• Cold start: open files, read mmap headers</li>
+            <li>• OS page faults on first access</li>
+            <li>• ~5-15ms for cold index</li>
+            <li>• ~0.9ms when OS cache is warm</li>
+          </ul>
+        </div>
+        <div class="p-5 rounded-xl border" style="background: rgba(255,107,0,0.05); border-color: rgba(255,107,0,0.15);">
+          <div class="text-sm font-mono font-bold mb-2" style="color: #FF9500;">With Sage Mode (daemon)</div>
+          <ul class="text-xs text-muted-foreground space-y-1">
+            <li>• Index already in process memory</li>
+            <li>• Unix socket: no TCP overhead</li>
+            <li>• Sub-0.5ms consistent latency</li>
+            <li>• Perfect for AI agent repeated queries</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden">
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span style="color:#FF6B00"># Start Sage Mode</span>
+<span style="color:#00B4FF">ig</span> <span style="color:rgba(255,255,255,0.8)">daemon .</span>  <span style="color:rgba(255,255,255,0.3)"># runs in background, socket at .ig/daemon.sock</span>
+
+<span style="color:#FF6B00"># Query via socket (0.3ms)</span>
+<span style="color:#00B4FF">ig</span> <span style="color:rgba(255,255,255,0.8)">query</span> <span style="color:#FFD700">"async fn"</span> <span style="color:rgba(255,255,255,0.8)">.</span>`}></code></pre>
+      </div>
+    </section>
+  </div>
+</DocsLayout>

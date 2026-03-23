@@ -1,0 +1,86 @@
+---
+---
+
+<section class="py-20 px-6">
+  <div class="max-w-4xl mx-auto">
+    <div class="text-center mb-12">
+      <p class="text-xs font-mono uppercase tracking-widest text-[#FF6B00] mb-3">Live Demo</p>
+      <h2 class="text-3xl font-mono font-bold gradient-text">See the jutsu in action</h2>
+    </div>
+
+    <div class="code-block rounded-xl overflow-hidden shadow-2xl" style="box-shadow: 0 0 60px rgba(0,180,255,0.1), 0 0 120px rgba(255,107,0,0.05);">
+      <!-- Terminal title bar -->
+      <div class="flex items-center gap-2 px-4 py-3 bg-white/5 border-b border-white/5">
+        <div class="w-3 h-3 rounded-full bg-[#FF3B30]"></div>
+        <div class="w-3 h-3 rounded-full bg-[#FFD700]"></div>
+        <div class="w-3 h-3 rounded-full bg-[#34C759]"></div>
+        <span class="ml-3 text-xs text-muted-foreground/50 font-mono">instant-grep — terminal</span>
+        <div class="ml-auto flex items-center gap-1.5">
+          <span class="text-xs text-[#00B4FF] font-mono animate-pulse">● CHAKRA ACTIVE</span>
+        </div>
+      </div>
+
+      <!-- Terminal content -->
+      <div class="p-6 font-mono text-sm space-y-3 min-h-[320px]">
+        <!-- Command 1: index -->
+        <div class="flex gap-2">
+          <span class="text-[#FF6B00] select-none">❯</span>
+          <span class="text-white/90">ig index .</span>
+        </div>
+        <div class="text-muted-foreground/70 pl-4 space-y-1 text-xs">
+          <div><span class="text-[#00B4FF]">◆</span> Gathering chakra... indexing 1,247 files</div>
+          <div><span class="text-[#FFD700]">◆</span> Building sparse n-gram index</div>
+          <div><span class="text-[#34C759]">✓</span> Index built: <span class="text-white/80">147ms</span> · <span class="text-[#FFD700]">2.3 MB</span> · stored in <span class="text-[#00B4FF]">.ig/</span></div>
+        </div>
+
+        <!-- Command 2: search -->
+        <div class="flex gap-2 pt-2">
+          <span class="text-[#FF6B00] select-none">❯</span>
+          <span class="text-white/90">ig search <span class="text-[#FFD700]">"async fn"</span> src/</span>
+        </div>
+        <div class="text-muted-foreground/70 pl-4 space-y-1 text-xs">
+          <div class="text-[#00B4FF]">src/daemon.rs<span class="text-muted-foreground/40">:23:</span></div>
+          <div class="pl-4 text-white/60">pub <span class="text-[#FF9500]">async fn</span> handle_connection(stream: UnixStream) {"{"}</div>
+          <div class="text-[#00B4FF]">src/index/writer.rs<span class="text-muted-foreground/40">:89:</span></div>
+          <div class="pl-4 text-white/60">pub <span class="text-[#FF9500]">async fn</span> build_index(path: &Path) -> Result{"<"}(){">"} {"{"}</div>
+          <div class="text-[#00B4FF]">src/query/extract.rs<span class="text-muted-foreground/40">:14:</span></div>
+          <div class="pl-4 text-white/60">pub <span class="text-[#FF9500]">async fn</span> run_query(pattern: &str) -> Vec{"<"}Match{">"} {"{"}</div>
+          <div class="mt-2 pt-2 border-t border-white/5">
+            <span class="text-[#34C759]">✓</span> <span class="text-white/80">3 matches</span> in <span class="text-[#FFD700] font-bold">0.9ms</span> <span class="text-muted-foreground/40">·</span> <span class="text-muted-foreground/60">47 candidates filtered</span>
+          </div>
+        </div>
+
+        <!-- Command 3: daemon query -->
+        <div class="flex gap-2 pt-2">
+          <span class="text-[#FF6B00] select-none">❯</span>
+          <span class="text-white/90">ig query <span class="text-[#FFD700]">"Result&lt;"</span> . <span class="text-muted-foreground/50">--json</span></span>
+        </div>
+        <div class="text-muted-foreground/70 pl-4 text-xs">
+          <div class="text-[#34C759]">✓</span> Daemon query: <span class="text-[#FF6B00] font-bold">0.3ms</span> <span class="text-muted-foreground/40">·</span> <span class="text-white/80">12 matches</span></div>
+        </div>
+
+        <!-- Cursor -->
+        <div class="flex gap-2 pt-2">
+          <span class="text-[#FF6B00] select-none">❯</span>
+          <span class="terminal-cursor text-white/30"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stats under terminal -->
+    <div class="grid grid-cols-3 gap-4 mt-6">
+      <div class="text-center p-4 rounded-lg border border-border/30 bg-white/2">
+        <div class="text-xl font-mono font-bold text-[#FF6B00]">0.9ms</div>
+        <div class="text-xs text-muted-foreground/60 mt-1 font-mono">p50 latency</div>
+      </div>
+      <div class="text-center p-4 rounded-lg border border-border/30 bg-white/2">
+        <div class="text-xl font-mono font-bold text-[#00B4FF]">0.3ms</div>
+        <div class="text-xs text-muted-foreground/60 mt-1 font-mono">daemon mode</div>
+      </div>
+      <div class="text-center p-4 rounded-lg border border-border/30 bg-white/2">
+        <div class="text-xl font-mono font-bold text-[#FFD700]">6x</div>
+        <div class="text-xs text-muted-foreground/60 mt-1 font-mono">vs Cursor</div>
+      </div>
+    </div>
+  </div>
+</section>

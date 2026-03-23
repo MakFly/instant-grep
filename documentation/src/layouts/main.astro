@@ -1,0 +1,25 @@
+---
+import "@/styles/global.css"
+
+interface Props {
+  title?: string
+  description?: string
+}
+
+const { title = "instant-grep", description = "Trigram-indexed regex search CLI — faster than Instant Transmission" } = Astro.props
+---
+
+<html lang="en" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{title} — instant-grep</title>
+    <meta name="description" content={description} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+  </head>
+  <body class="min-h-screen bg-background text-foreground antialiased">
+    <slot />
+  </body>
+</html>

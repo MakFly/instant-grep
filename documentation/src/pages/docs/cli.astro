@@ -1,0 +1,275 @@
+---
+import DocsLayout from "@/layouts/docs.astro"
+---
+
+<DocsLayout title="CLI Reference" description="All 6 instant-grep commands with complete flag documentation">
+  <div class="prose prose-invert max-w-none">
+    <!-- Page header -->
+    <div class="mb-10">
+      <div class="flex items-center gap-2 text-xs font-mono uppercase tracking-widest mb-3" style="color: #FFD700;">
+        <span>⚡</span>
+        <span>Jutsu Compendium — All Techniques</span>
+      </div>
+      <h1 class="text-4xl font-mono font-black mb-4" style="background: linear-gradient(135deg, #FFD700, #FF9500); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
+        CLI Reference
+      </h1>
+      <p class="text-muted-foreground text-lg leading-relaxed">
+        Six commands. Each one mastered to perfection. No bloat, no ceremony — pure power.
+      </p>
+
+      <!-- Quick nav -->
+      <div class="flex flex-wrap gap-2 mt-5">
+        {["search", "index", "status", "watch", "daemon", "query"].map((cmd) => (
+          <a href={`#${cmd}`} class="px-3 py-1.5 rounded-lg text-xs font-mono border transition-all" style="color: #FF9500; background: rgba(255,107,0,0.08); border-color: rgba(255,107,0,0.2);">
+            ig {cmd}
+          </a>
+        ))}
+      </div>
+    </div>
+
+    <!-- ig search -->
+    <section id="search" class="mb-14 scroll-mt-20">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-2 h-8 rounded-full" style="background: linear-gradient(180deg, #FF6B00, #FF9500);"></div>
+        <h2 class="text-2xl font-mono font-bold text-white">ig search</h2>
+        <div class="jutsu-tooltip">
+          <span class="text-xs font-mono px-2 py-1 rounded border cursor-help" style="color: #FF6B00; border-color: rgba(255,107,0,0.3); background: rgba(255,107,0,0.05);">
+            hover for jutsu
+          </span>
+          <div class="tooltip-content">🌀 Kage Bunshin no Search!</div>
+        </div>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        The primary command. Searches for regex patterns across indexed files.
+        Auto-builds index on first run. The most-used jutsu in the arsenal.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-5">
+        <div class="px-4 py-2.5 bg-white/5 border-b border-white/5 text-xs font-mono text-muted-foreground/50">syntax</div>
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span style="color:#00B4FF">ig</span> <span style="color:rgba(255,255,255,0.9)">search</span> <span style="color:#FFD700">[OPTIONS]</span> <span style="color:#FF9500">&lt;PATTERN&gt;</span> <span style="color:rgba(255,255,255,0.4)">[PATH]</span>`}></code></pre>
+      </div>
+
+      <div class="overflow-x-auto mb-5">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="border-b border-border/30">
+              <th class="text-left py-2.5 px-3 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Flag</th>
+              <th class="text-left py-2.5 px-3 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Short</th>
+              <th class="text-left py-2.5 px-3 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Description</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono text-xs">
+            {[
+              ["--ignore-case", "-i", "Case-insensitive matching"],
+              ["--after-context N", "-A N", "Show N lines after each match"],
+              ["--before-context N", "-B N", "Show N lines before each match"],
+              ["--context N", "-C N", "Show N lines before and after (overrides -A/-B)"],
+              ["--type EXT", "", "Filter by file extension (e.g. --type rs)"],
+              ["--glob PATTERN", "", "Filter files by glob pattern (e.g. --glob '*.rs')"],
+              ["--json", "", "Output results as JSON (for AI agents)"],
+              ["--stats", "", "Print search statistics (candidates, time, etc.)"],
+              ["--no-index", "", "Skip index, grep files directly (slow but always fresh)"],
+            ].map(([flag, short, desc]) => (
+              <tr class="border-b border-border/20 hover:bg-white/2 transition-colors">
+                <td class="py-2.5 px-3 font-mono" style="color: #FF9500;">{flag}</td>
+                <td class="py-2.5 px-3 font-mono" style="color: #00B4FF;">{short}</td>
+                <td class="py-2.5 px-3 text-muted-foreground">{desc}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden">
+        <div class="px-4 py-2.5 bg-white/5 border-b border-white/5 text-xs font-mono text-muted-foreground/50">examples</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span style="color:#FF6B00"># Basic regex search</span>
+<span style="color:#00B4FF">ig</span> search <span style="color:#FFD700">"async fn \\w+"</span> src/
+
+<span style="color:#FF6B00"># Case-insensitive with 2 lines of context</span>
+<span style="color:#00B4FF">ig</span> search -i -C 2 <span style="color:#FFD700">"TODO"</span> .
+
+<span style="color:#FF6B00"># JSON output for AI agents</span>
+<span style="color:#00B4FF">ig</span> search --json <span style="color:#FFD700">"impl \\w+ for"</span> src/
+
+<span style="color:#FF6B00"># Only Rust files</span>
+<span style="color:#00B4FF">ig</span> search --type rs <span style="color:#FFD700">"pub fn"</span> .
+
+<span style="color:#FF6B00"># Files matching glob</span>
+<span style="color:#00B4FF">ig</span> search --glob <span style="color:#FFD700">'src/**/*.rs'</span> <span style="color:#FFD700">"Result&lt;"</span> .
+
+<span style="color:#FF6B00"># Show stats (candidates filtered, time)</span>
+<span style="color:#00B4FF">ig</span> search --stats <span style="color:#FFD700">"use std"</span> .`}></code></pre>
+      </div>
+    </section>
+
+    <!-- ig index -->
+    <section id="index" class="mb-14 scroll-mt-20">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-2 h-8 rounded-full" style="background: linear-gradient(180deg, #00B4FF, #0070FF);"></div>
+        <h2 class="text-2xl font-mono font-bold text-white">ig index</h2>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Build or rebuild the sparse n-gram index for a directory.
+        Creates <code class="font-mono" style="color: #00B4FF;">.ig/</code> with three binary files.
+        Called automatically by <code class="font-mono" style="color: #FFD700;">ig search</code> when no index exists.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-5">
+        <div class="px-4 py-2.5 bg-white/5 border-b border-white/5 text-xs font-mono text-muted-foreground/50">syntax</div>
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span style="color:#00B4FF">ig</span> <span style="color:rgba(255,255,255,0.9)">index</span> <span style="color:#FFD700">[OPTIONS]</span> <span style="color:rgba(255,255,255,0.4)">[PATH]</span>   <span style="color:rgba(255,255,255,0.3)"># default: current directory</span>`}></code></pre>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden">
+        <div class="px-4 py-2.5 bg-white/5 border-b border-white/5 text-xs font-mono text-muted-foreground/50">examples</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span style="color:#FF6B00"># Index current directory</span>
+<span style="color:#00B4FF">ig</span> index
+
+<span style="color:#FF6B00"># Index specific path</span>
+<span style="color:#00B4FF">ig</span> index /path/to/project
+
+<span style="color:#FF6B00"># Force rebuild (even if index exists)</span>
+<span style="color:#00B4FF">ig</span> index --force .`}></code></pre>
+      </div>
+    </section>
+
+    <!-- ig status -->
+    <section id="status" class="mb-14 scroll-mt-20">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-2 h-8 rounded-full" style="background: linear-gradient(180deg, #FFD700, #FF9500);"></div>
+        <h2 class="text-2xl font-mono font-bold text-white">ig status</h2>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Display statistics about the current index — file count, index size, n-gram count, version, and last build time.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-4">
+        <div class="px-4 py-2.5 bg-white/5 border-b border-white/5 text-xs font-mono text-muted-foreground/50">output example</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span style="color:#FF6B00">❯</span> <span style="color:#00B4FF">ig</span> status .
+
+<span style="color:#FFD700">instant-grep index status</span>
+<span style="color:rgba(255,255,255,0.3)">──────────────────────────</span>
+<span style="color:#00B4FF">Location:</span>    <span style="color:rgba(255,255,255,0.8)">/home/user/project/.ig/</span>
+<span style="color:#00B4FF">Version:</span>     <span style="color:rgba(255,255,255,0.8)">5</span>
+<span style="color:#00B4FF">Files:</span>       <span style="color:#FFD700">1,247</span>
+<span style="color:#00B4FF">N-grams:</span>     <span style="color:#FFD700">48,392</span>
+<span style="color:#00B4FF">Lexicon:</span>     <span style="color:rgba(255,255,255,0.8)">2.1 MB</span>
+<span style="color:#00B4FF">Postings:</span>    <span style="color:rgba(255,255,255,0.8)">218 KB</span>
+<span style="color:#00B4FF">Built:</span>       <span style="color:rgba(255,255,255,0.8)">2025-03-22 14:30:12</span>`}></code></pre>
+      </div>
+    </section>
+
+    <!-- ig watch -->
+    <section id="watch" class="mb-14 scroll-mt-20">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-2 h-8 rounded-full" style="background: linear-gradient(180deg, #34C759, #00B4FF);"></div>
+        <h2 class="text-2xl font-mono font-bold text-white">ig watch</h2>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Watch a directory for file changes and automatically rebuild the index when files are created, modified, or deleted.
+        Continuous chakra flow — the index is always fresh.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-4">
+        <div class="px-4 py-2.5 bg-white/5 border-b border-white/5 text-xs font-mono text-muted-foreground/50">usage</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span style="color:#FF6B00"># Watch and auto-rebuild on changes</span>
+<span style="color:#00B4FF">ig</span> watch .
+
+<span style="color:rgba(255,255,255,0.4)">[watching] src/ — press Ctrl+C to stop</span>
+<span style="color:#FFD700">[rebuild]</span>  <span style="color:rgba(255,255,255,0.7)">src/main.rs modified → rebuilding... done (43ms)</span>
+<span style="color:#FFD700">[rebuild]</span>  <span style="color:rgba(255,255,255,0.7)">src/lib.rs created → rebuilding... done (51ms)</span>`}></code></pre>
+      </div>
+
+      <div class="flex items-start gap-3 p-4 rounded-lg border" style="background: rgba(255,107,0,0.05); border-color: rgba(255,107,0,0.15);">
+        <span class="text-lg mt-0.5" style="color: #FF9500;">💡</span>
+        <div class="text-sm text-muted-foreground">
+          Combine with <code class="font-mono" style="color: #FFD700;">ig daemon</code> for best results:
+          watch keeps the index fresh, daemon keeps it in memory.
+          Together they give you permanent sub-ms search on a live codebase.
+        </div>
+      </div>
+    </section>
+
+    <!-- ig daemon -->
+    <section id="daemon" class="mb-14 scroll-mt-20">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-2 h-8 rounded-full" style="background: linear-gradient(180deg, #FF9500, #FFD700);"></div>
+        <h2 class="text-2xl font-mono font-bold text-white">ig daemon</h2>
+        <span class="text-xs font-mono px-2 py-1 rounded border" style="color: #FF9500; border-color: rgba(255,149,0,0.3); background: rgba(255,149,0,0.05);">Sage Mode</span>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Start the Sage Mode daemon — a Unix socket server that keeps the index mmap'd in process memory.
+        Use <code class="font-mono" style="color: #FFD700;">ig query</code> to send queries to the running daemon.
+        Ideal for AI agents making repeated searches.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-4">
+        <div class="px-4 py-2.5 bg-white/5 border-b border-white/5 text-xs font-mono text-muted-foreground/50">usage</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span style="color:#FF6B00"># Start daemon in background</span>
+<span style="color:#00B4FF">ig</span> daemon . &
+
+<span style="color:rgba(255,255,255,0.4)">[sage-mode] Daemon started</span>
+<span style="color:rgba(255,255,255,0.4)">[sage-mode] Socket: .ig/daemon.sock</span>
+<span style="color:rgba(255,255,255,0.4)">[sage-mode] Index loaded: 1,247 files (2.3 MB)</span>
+<span style="color:rgba(255,255,255,0.4)">[sage-mode] Ready for queries...</span>`}></code></pre>
+      </div>
+    </section>
+
+    <!-- ig query -->
+    <section id="query" class="mb-10 scroll-mt-20">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-2 h-8 rounded-full" style="background: linear-gradient(180deg, #FF6B00, #FF0000);"></div>
+        <h2 class="text-2xl font-mono font-bold text-white">ig query</h2>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Send a query to a running daemon via Unix socket.
+        Same interface as <code class="font-mono" style="color: #FFD700;">ig search</code> but routes through the socket.
+        Requires <code class="font-mono" style="color: #FFD700;">ig daemon</code> to be running.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-4">
+        <div class="px-4 py-2.5 bg-white/5 border-b border-white/5 text-xs font-mono text-muted-foreground/50">syntax</div>
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span style="color:#00B4FF">ig</span> <span style="color:rgba(255,255,255,0.9)">query</span> <span style="color:#FFD700">[OPTIONS]</span> <span style="color:#FF9500">&lt;PATTERN&gt;</span> <span style="color:rgba(255,255,255,0.4)">[PATH]</span>`}></code></pre>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden">
+        <div class="px-4 py-2.5 bg-white/5 border-b border-white/5 text-xs font-mono text-muted-foreground/50">examples</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span style="color:#FF6B00"># Query daemon (sub-ms)</span>
+<span style="color:#00B4FF">ig</span> query <span style="color:#FFD700">"async fn"</span> .
+
+<span style="color:#FF6B00"># JSON output via daemon</span>
+<span style="color:#00B4FF">ig</span> query --json <span style="color:#FFD700">"Result&lt;"</span> .
+
+<span style="color:rgba(255,255,255,0.4)"># p50 latency: 0.3ms (warm daemon)</span>`}></code></pre>
+      </div>
+    </section>
+
+    <!-- JSON output format -->
+    <section class="mb-4 p-6 rounded-xl border" style="background: rgba(0,180,255,0.05); border-color: rgba(0,180,255,0.2);">
+      <h3 class="font-mono font-bold mb-3" style="color: #00B4FF;">JSON Output Format (--json)</h3>
+      <p class="text-xs text-muted-foreground mb-3">Used by AI agents — structured, parseable, minimal tokens.</p>
+      <div class="code-block rounded-xl overflow-hidden">
+        <pre class="p-4 font-mono text-xs leading-relaxed overflow-x-auto"><code set:html={`<span style="color:rgba(255,255,255,0.4)">{</span>
+  <span style="color:#00B4FF">"pattern"</span>: <span style="color:#FFD700">"async fn"</span>,
+  <span style="color:#00B4FF">"matches"</span>: [
+    <span style="color:rgba(255,255,255,0.4)">{</span>
+      <span style="color:#00B4FF">"file"</span>: <span style="color:#FFD700">"src/daemon.rs"</span>,
+      <span style="color:#00B4FF">"line"</span>: <span style="color:#FF9500">23</span>,
+      <span style="color:#00B4FF">"text"</span>: <span style="color:#FFD700">"pub async fn handle_connection(stream: UnixStream) {"</span>
+    <span style="color:rgba(255,255,255,0.4)">}</span>
+  ],
+  <span style="color:#00B4FF">"stats"</span>: <span style="color:rgba(255,255,255,0.4)">{</span>
+    <span style="color:#00B4FF">"duration_ms"</span>: <span style="color:#FF9500">0.9</span>,
+    <span style="color:#00B4FF">"candidates"</span>: <span style="color:#FF9500">47</span>,
+    <span style="color:#00B4FF">"matches"</span>: <span style="color:#FF9500">3</span>
+  <span style="color:rgba(255,255,255,0.4)">}</span>
+<span style="color:rgba(255,255,255,0.4)">}</span>`}></code></pre>
+      </div>
+    </section>
+  </div>
+</DocsLayout>

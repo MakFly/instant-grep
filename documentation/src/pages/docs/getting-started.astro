@@ -1,0 +1,221 @@
+---
+import DocsLayout from "@/layouts/docs.astro"
+---
+
+<DocsLayout title="Getting Started" description="Install and use instant-grep in minutes">
+  <div class="prose prose-invert max-w-none">
+    <!-- Page header -->
+    <div class="mb-10">
+      <div class="flex items-center gap-2 text-xs font-mono uppercase tracking-widest mb-3" style="color: #FF6B00;">
+        <span>📜</span>
+        <span>Training Arc — Chapter 1</span>
+      </div>
+      <h1 class="text-4xl font-mono font-black gradient-text mb-4">Getting Started</h1>
+      <p class="text-muted-foreground text-lg leading-relaxed">
+        From zero to sub-millisecond search in under 5 minutes. No configuration files.
+        No daemons to set up manually. Just build and go.
+      </p>
+    </div>
+
+    <!-- Prerequisites -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-white mb-4 flex items-center gap-2">
+        <span style="color: #FF6B00;">01</span>
+        Prerequisites
+      </h2>
+      <div class="energy-card rounded-xl p-5 bg-card/50">
+        <ul class="space-y-3 text-sm">
+          <li class="flex items-center gap-3">
+            <span class="font-mono" style="color: #34C759;">✓</span>
+            <span class="text-muted-foreground">Rust toolchain (stable) — <code class="font-mono" style="color: #FFD700;">rustup toolchain install stable</code></span>
+          </li>
+          <li class="flex items-center gap-3">
+            <span class="font-mono" style="color: #34C759;">✓</span>
+            <span class="text-muted-foreground">Cargo (comes with Rust)</span>
+          </li>
+          <li class="flex items-center gap-3">
+            <span class="font-mono" style="color: #34C759;">✓</span>
+            <span class="text-muted-foreground">A terminal and a project to search through</span>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Installation -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-white mb-4 flex items-center gap-2">
+        <span style="color: #FF6B00;">02</span>
+        Installation
+      </h2>
+      <p class="text-muted-foreground mb-4 text-sm leading-relaxed">
+        Clone the repository and build the release binary. Then copy it to a location in your PATH.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden my-5">
+        <div class="flex items-center gap-2 px-4 py-2.5 bg-white/5 border-b border-white/5">
+          <div class="flex items-center gap-1.5">
+            <div class="w-2.5 h-2.5 rounded-full bg-[#FF3B30]"></div>
+            <div class="w-2.5 h-2.5 rounded-full bg-[#FFD700]"></div>
+            <div class="w-2.5 h-2.5 rounded-full bg-[#34C759]"></div>
+          </div>
+          <span class="text-xs text-muted-foreground/50 font-mono ml-2">installation</span>
+        </div>
+        <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span style="color:#FF6B00"># Clone and build</span>
+<span style="color:#00B4FF">git</span> <span style="color:rgba(255,255,255,0.8)">clone https://github.com/kevinbdx35/instant-grep</span>
+<span style="color:#00B4FF">cd</span> <span style="color:rgba(255,255,255,0.8)">instant-grep</span>
+<span style="color:#00B4FF">cargo</span> <span style="color:rgba(255,255,255,0.8)">build --release</span>
+
+<span style="color:#FF6B00"># Copy to PATH (adjust path as needed)</span>
+<span style="color:#00B4FF">cp</span> <span style="color:rgba(255,255,255,0.8)">target/release/ig ~/.local/bin/ig</span>
+
+<span style="color:#FF6B00"># Verify installation</span>
+<span style="color:#00B4FF">ig</span> <span style="color:#FFD700">--version</span>`}></code></pre>
+      </div>
+
+      <div class="flex items-start gap-3 p-4 rounded-lg border" style="background: rgba(0,180,255,0.05); border-color: rgba(0,180,255,0.15);">
+        <span class="text-lg mt-0.5" style="color: #00B4FF;">ℹ</span>
+        <div class="text-sm text-muted-foreground">
+          <strong class="text-white">Tip:</strong> Make sure <code class="font-mono" style="color: #FFD700;">~/.local/bin</code> is in your <code class="font-mono" style="color: #FFD700;">$PATH</code>.
+          Add <code class="font-mono" style="color: #FFD700;">export PATH="$HOME/.local/bin:$PATH"</code> to your shell config if needed.
+        </div>
+      </div>
+    </section>
+
+    <!-- First index -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-white mb-4 flex items-center gap-2">
+        <span style="color: #FF6B00;">03</span>
+        Build your first index
+      </h2>
+      <p class="text-muted-foreground mb-4 text-sm leading-relaxed">
+        Navigate to any project directory and run <code class="font-mono" style="color: #FFD700;">ig index</code>.
+        This creates a <code class="font-mono" style="color: #FFD700;">.ig/</code> directory with three binary files:
+        <code class="font-mono" style="color: #00B4FF;">lexicon.bin</code>, <code class="font-mono" style="color: #00B4FF;">postings.bin</code>, and <code class="font-mono" style="color: #00B4FF;">metadata.bin</code>.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden my-5">
+        <div class="flex items-center gap-2 px-4 py-2.5 bg-white/5 border-b border-white/5">
+          <div class="flex items-center gap-1.5">
+            <div class="w-2.5 h-2.5 rounded-full bg-[#FF3B30]"></div>
+            <div class="w-2.5 h-2.5 rounded-full bg-[#FFD700]"></div>
+            <div class="w-2.5 h-2.5 rounded-full bg-[#34C759]"></div>
+          </div>
+          <span class="text-xs text-muted-foreground/50 font-mono ml-2">build index</span>
+        </div>
+        <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span style="color:#FF6B00">❯</span> <span style="color:#00B4FF">ig</span> <span style="color:rgba(255,255,255,0.8)">index .</span>
+
+<span style="color:#00B4FF">◆</span> <span style="color:rgba(255,255,255,0.7)">Gathering chakra... scanning directory tree</span>
+<span style="color:#FFD700">◆</span> <span style="color:rgba(255,255,255,0.7)">Skipping 38 excluded directories (node_modules, target, .git, ...)</span>
+<span style="color:#FF9500">◆</span> <span style="color:rgba(255,255,255,0.7)">Building sparse n-gram index: 1,247 files</span>
+<span style="color:#34C759">✓</span> <span style="color:rgba(255,255,255,0.8)">Index built in 147ms</span>
+   <span style="color:rgba(255,255,255,0.4)">lexicon:  2.1 MB  (.ig/lexicon.bin)</span>
+   <span style="color:rgba(255,255,255,0.4)">postings: 0.2 MB  (.ig/postings.bin)</span>
+   <span style="color:rgba(255,255,255,0.4)">metadata: 0.0 MB  (.ig/metadata.bin)</span>`}></code></pre>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 my-6">
+        <div class="p-4 rounded-lg energy-card bg-card/50 text-center">
+          <div class="font-mono text-xl font-bold mb-1" style="color: #FF6B00;">lexicon.bin</div>
+          <div class="text-xs text-muted-foreground">Hash table mapping n-grams to posting list offsets</div>
+        </div>
+        <div class="p-4 rounded-lg energy-card bg-card/50 text-center">
+          <div class="font-mono text-xl font-bold mb-1" style="color: #00B4FF;">postings.bin</div>
+          <div class="text-xs text-muted-foreground">Sorted file ID lists for each n-gram</div>
+        </div>
+        <div class="p-4 rounded-lg energy-card bg-card/50 text-center">
+          <div class="font-mono text-xl font-bold mb-1" style="color: #FFD700;">metadata.bin</div>
+          <div class="text-xs text-muted-foreground">File paths, modification times, version info</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- First search -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-white mb-4 flex items-center gap-2">
+        <span style="color: #FF6B00;">04</span>
+        Your first search
+      </h2>
+      <p class="text-muted-foreground mb-4 text-sm leading-relaxed">
+        Run <code class="font-mono" style="color: #FFD700;">ig search</code> with any regex pattern. If no index exists,
+        it will build one automatically — the auto-build jutsu.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden my-5">
+        <div class="flex items-center gap-2 px-4 py-2.5 bg-white/5 border-b border-white/5">
+          <div class="flex items-center gap-1.5">
+            <div class="w-2.5 h-2.5 rounded-full bg-[#FF3B30]"></div>
+            <div class="w-2.5 h-2.5 rounded-full bg-[#FFD700]"></div>
+            <div class="w-2.5 h-2.5 rounded-full bg-[#34C759]"></div>
+          </div>
+          <span class="text-xs text-muted-foreground/50 font-mono ml-2">first search</span>
+        </div>
+        <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span style="color:#FF6B00"># Basic search</span>
+<span style="color:#00B4FF">ig</span> search <span style="color:#FFD700">"async fn"</span> src/
+<span style="color:#00B4FF">src/daemon.rs</span><span style="color:rgba(255,255,255,0.3)">:23:    </span><span style="color:rgba(255,255,255,0.7)">pub async fn handle_connection...</span>
+<span style="color:#00B4FF">src/query/mod.rs</span><span style="color:rgba(255,255,255,0.3)">:7:     </span><span style="color:rgba(255,255,255,0.7)">pub async fn run(...)</span>
+
+<span style="color:#FF6B00"># Case-insensitive search</span>
+<span style="color:#00B4FF">ig</span> search -i <span style="color:#FFD700">"TODO"</span> .
+
+<span style="color:#FF6B00"># With context lines</span>
+<span style="color:#00B4FF">ig</span> search -C 3 <span style="color:#FFD700">"Result&lt;T&gt;"</span> .
+
+<span style="color:#FF6B00"># JSON output for AI agents</span>
+<span style="color:#00B4FF">ig</span> search --json <span style="color:#FFD700">"impl Trait"</span> .
+
+<span style="color:#FF6B00"># Filter by file type</span>
+<span style="color:#00B4FF">ig</span> search --type rs <span style="color:#FFD700">"pub fn"</span> .`}></code></pre>
+      </div>
+    </section>
+
+    <!-- Auto-build -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-white mb-4 flex items-center gap-2">
+        <span style="color: #FF6B00;">05</span>
+        Auto-build explained
+      </h2>
+      <div class="energy-card rounded-xl p-6 bg-card/50">
+        <p class="text-sm text-muted-foreground leading-relaxed mb-4">
+          When you run <code class="font-mono" style="color: #FFD700;">ig search</code>, it checks if a <code class="font-mono" style="color: #00B4FF;">.ig/</code> index
+          exists in the target directory. If not, it automatically runs <code class="font-mono" style="color: #FFD700;">ig index</code> first.
+          This means you can always just run search — no manual indexing required.
+        </p>
+        <div class="flex flex-col gap-3">
+          {[
+            { n: "1", text: "ig search \"pattern\" . called", color: "#FF6B00" },
+            { n: "2", text: "Check for .ig/metadata.bin — if missing, build index first", color: "#FF6B00" },
+            { n: "3", text: "Extract n-grams from regex, query posting lists, verify matches", color: "#FF6B00" },
+            { n: "✓", text: "Results printed in ~0.9ms", color: "#34C759", last: true },
+          ].map((step) => (
+            <div class="flex items-center gap-3 text-sm">
+              <span class="w-8 h-8 rounded-full flex items-center justify-center font-mono text-xs font-bold flex-shrink-0" style={`color: ${step.color}; background: ${step.color}15; border: 1px solid ${step.color}40;`}>{step.n}</span>
+              <span class="text-muted-foreground">{step.text}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <!-- Next steps -->
+    <section class="mb-4">
+      <h2 class="text-2xl font-mono font-bold text-white mb-6">Next steps</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <a href="/docs/cli" class="energy-card rounded-xl p-5 bg-card/50 flex flex-col gap-2 group">
+          <span class="text-2xl">⚡</span>
+          <h3 class="font-mono font-bold text-white group-hover:text-[#FF9500] transition-colors">CLI Reference</h3>
+          <p class="text-xs text-muted-foreground">All 6 commands with every flag documented</p>
+        </a>
+        <a href="/docs/architecture" class="energy-card rounded-xl p-5 bg-card/50 flex flex-col gap-2 group">
+          <span class="text-2xl">🌀</span>
+          <h3 class="font-mono font-bold text-white group-hover:text-[#FF9500] transition-colors">Architecture</h3>
+          <p class="text-xs text-muted-foreground">Rasengan Pipeline and the Sage Mode daemon</p>
+        </a>
+        <a href="/docs/performance" class="energy-card rounded-xl p-5 bg-card/50 flex flex-col gap-2 group">
+          <span class="text-2xl">📊</span>
+          <h3 class="font-mono font-bold text-white group-hover:text-[#FF9500] transition-colors">Performance</h3>
+          <p class="text-xs text-muted-foreground">Benchmarks and optimization history</p>
+        </a>
+      </div>
+    </section>
+  </div>
+</DocsLayout>

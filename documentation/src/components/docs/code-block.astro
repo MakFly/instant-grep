@@ -1,0 +1,47 @@
+---
+interface Props {
+  code: string
+  lang?: string
+  title?: string
+  showPrompt?: boolean
+}
+
+const { code, lang = "bash", title, showPrompt = false } = Astro.props
+
+const lines = code.trim().split("\n")
+---
+
+<div class="code-block rounded-xl overflow-hidden my-5">
+  {title && (
+    <div class="flex items-center gap-2 px-4 py-2.5 bg-white/5 border-b border-white/5">
+      <div class="flex items-center gap-1.5">
+        <div class="w-2.5 h-2.5 rounded-full bg-[#FF3B30]"></div>
+        <div class="w-2.5 h-2.5 rounded-full bg-[#FFD700]"></div>
+        <div class="w-2.5 h-2.5 rounded-full bg-[#34C759]"></div>
+      </div>
+      <span class="text-xs text-muted-foreground/50 font-mono ml-2">{title}</span>
+      {lang && (
+        <span class="ml-auto text-xs text-muted-foreground/30 font-mono uppercase">{lang}</span>
+      )}
+    </div>
+  )}
+  <div class="relative">
+    <pre class="p-5 overflow-x-auto text-sm font-mono leading-relaxed"><code class="text-white/80">{lines.map((line, i) => (
+  <span class="block">
+    {showPrompt && <span class="text-[#FF6B00] select-none mr-2">$</span>}
+    <span set:html={line
+      .replace(/("[^"]*")/g, '<span style="color:#FFD700">$1</span>')
+      .replace(/(\b(async|fn|pub|let|const|use|mod|struct|impl|return|match|if|else|for|in|while|loop|mut|ref)\b)/g, '<span style="color:#FF9500">$1</span>')
+      .replace(/(#[^\n]*$)/gm, '<span style="color:#555">$1</span>')
+      .replace(/(\b(ig|cargo|rustc)\b)/g, '<span style="color:#00B4FF">$1</span>')
+    }></span>
+  </span>
+))}
+</code></pre>
+    <button
+      class="copy-btn absolute top-3 right-3 text-xs text-muted-foreground/40 hover:text-muted-foreground/80 font-mono transition-colors px-2 py-1 rounded border border-white/5 hover:border-white/10"
+    >
+      copy
+    </button>
+  </div>
+</div>

@@ -1,0 +1,82 @@
+---
+import MainLayout from "@/layouts/main.astro"
+import Topbar from "@/components/layout/topbar.astro"
+import Footer from "@/components/layout/footer.astro"
+---
+
+<MainLayout title="404 — Tsukuyomi Dimension">
+  <Topbar />
+
+  <div class="min-h-[80vh] flex flex-col items-center justify-center px-6 text-center relative overflow-hidden">
+    <!-- Sharingan background effect -->
+    <div class="absolute inset-0 flex items-center justify-center opacity-5">
+      <div class="w-[600px] h-[600px] rounded-full border-4 border-[#FF0000] animate-[spin_20s_linear_infinite]"></div>
+      <div class="absolute w-[400px] h-[400px] rounded-full border-2 border-[#FF0000] animate-[spin_15s_linear_reverse_infinite]"></div>
+      <div class="absolute w-[200px] h-[200px] rounded-full border border-[#FF0000]"></div>
+    </div>
+
+    <!-- Red glow -->
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] rounded-full"
+      style="background: radial-gradient(circle, rgba(255,0,0,0.08) 0%, transparent 70%);">
+    </div>
+
+    <div class="relative z-10 max-w-2xl">
+      <!-- 404 number -->
+      <div class="font-mono font-black text-[120px] sm:text-[180px] leading-none mb-6"
+        style="color: #FF0000; text-shadow: 0 0 60px rgba(255,0,0,0.5), 0 0 120px rgba(255,0,0,0.2);">
+        404
+      </div>
+
+      <!-- Sharingan eye symbol -->
+      <div class="text-6xl mb-6" style="filter: drop-shadow(0 0 20px rgba(255,0,0,0.6));">
+        🔴
+      </div>
+
+      <h1 class="text-2xl sm:text-3xl font-mono font-bold text-white mb-4">
+        You've been caught in Tsukuyomi...
+      </h1>
+
+      <p class="text-muted-foreground text-lg mb-3 leading-relaxed">
+        This page doesn't exist in this dimension.
+      </p>
+
+      <p class="text-sm text-muted-foreground/60 font-mono mb-10">
+        The Uchiha have trapped you in an infinite illusion.<br />
+        Break free with the path below.
+      </p>
+
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+        <a
+          href="/"
+          class="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl font-mono font-bold text-black transition-all hover:scale-105"
+          style="background: linear-gradient(135deg, #FF6B00, #FF9500); box-shadow: 0 0 30px rgba(255,107,0,0.4);"
+        >
+          ← Escape to reality
+        </a>
+        <a
+          href="/docs/getting-started"
+          class="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl font-mono font-bold text-[#00B4FF] border border-[rgba(0,180,255,0.3)] hover:bg-[rgba(0,180,255,0.05)] transition-all"
+        >
+          Read the docs
+        </a>
+      </div>
+
+      <p class="mt-12 text-xs text-muted-foreground/30 font-mono">
+        Error: FILE_NOT_FOUND · dimension: genjutsu-realm · exit: genjutsu-kai
+      </p>
+    </div>
+  </div>
+
+  <Footer />
+</MainLayout>
+
+<style>
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  @keyframes reverse {
+    from { transform: rotate(360deg); }
+    to { transform: rotate(0deg); }
+  }
+</style>

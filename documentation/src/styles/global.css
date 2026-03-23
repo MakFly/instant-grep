@@ -1,0 +1,408 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/montserrat";
+@import "@fontsource-variable/jetbrains-mono";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: oklch(0.08 0.015 250);
+  --foreground: oklch(0.95 0.01 80);
+  --card: oklch(0.11 0.015 250);
+  --card-foreground: oklch(0.95 0.01 80);
+  --popover: oklch(0.11 0.015 250);
+  --popover-foreground: oklch(0.95 0.01 80);
+  --primary: oklch(0.72 0.22 45);
+  --primary-foreground: oklch(0.08 0.015 250);
+  --secondary: oklch(0.14 0.02 250);
+  --secondary-foreground: oklch(0.95 0.01 80);
+  --muted: oklch(0.14 0.02 250);
+  --muted-foreground: oklch(0.6 0.05 250);
+  --accent: oklch(0.55 0.22 220);
+  --accent-foreground: oklch(0.95 0.01 80);
+  --destructive: oklch(0.6 0.25 25);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 10%);
+  --ring: oklch(0.72 0.22 45);
+  --chart-1: oklch(0.72 0.22 45);
+  --chart-2: oklch(0.55 0.22 220);
+  --chart-3: oklch(0.85 0.2 90);
+  --chart-4: oklch(0.6 0.25 25);
+  --chart-5: oklch(0.7 0.18 155);
+  --radius: 0.75rem;
+  --sidebar: oklch(0.1 0.015 250);
+  --sidebar-foreground: oklch(0.95 0.01 80);
+  --sidebar-primary: oklch(0.72 0.22 45);
+  --sidebar-primary-foreground: oklch(0.08 0.015 250);
+  --sidebar-accent: oklch(0.14 0.02 250);
+  --sidebar-accent-foreground: oklch(0.95 0.01 80);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.72 0.22 45);
+
+  /* Anime custom colors */
+  --orange: #FF6B00;
+  --orange-bright: #FF9500;
+  --chakra-blue: #00B4FF;
+  --sharingan-red: #FF0000;
+  --saiyan-gold: #FFD700;
+}
+
+.dark {
+  --background: oklch(0.08 0.015 250);
+  --foreground: oklch(0.95 0.01 80);
+  --card: oklch(0.11 0.015 250);
+  --card-foreground: oklch(0.95 0.01 80);
+  --popover: oklch(0.11 0.015 250);
+  --popover-foreground: oklch(0.95 0.01 80);
+  --primary: oklch(0.72 0.22 45);
+  --primary-foreground: oklch(0.08 0.015 250);
+  --secondary: oklch(0.14 0.02 250);
+  --secondary-foreground: oklch(0.95 0.01 80);
+  --muted: oklch(0.14 0.02 250);
+  --muted-foreground: oklch(0.6 0.05 250);
+  --accent: oklch(0.55 0.22 220);
+  --accent-foreground: oklch(0.95 0.01 80);
+  --destructive: oklch(0.6 0.25 25);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 10%);
+  --ring: oklch(0.72 0.22 45);
+}
+
+@theme inline {
+  --font-sans: 'Montserrat Variable', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', monospace;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Montserrat Variable', sans-serif;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+/* ===== ANIME THEME CUSTOM STYLES ===== */
+
+/* Gradient text utility */
+.gradient-text {
+  background: linear-gradient(135deg, #FF6B00 0%, #FFD700 50%, #FF9500 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-text-blue {
+  background: linear-gradient(135deg, #00B4FF 0%, #0070FF 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Ki/Chakra glow effects */
+.glow-orange {
+  box-shadow: 0 0 20px rgba(255, 107, 0, 0.4), 0 0 40px rgba(255, 107, 0, 0.15);
+}
+
+.glow-blue {
+  box-shadow: 0 0 20px rgba(0, 180, 255, 0.4), 0 0 40px rgba(0, 180, 255, 0.15);
+}
+
+.glow-gold {
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.4), 0 0 40px rgba(255, 215, 0, 0.15);
+}
+
+.text-glow-orange {
+  text-shadow: 0 0 20px rgba(255, 107, 0, 0.8), 0 0 40px rgba(255, 107, 0, 0.4);
+}
+
+.text-glow-blue {
+  text-shadow: 0 0 20px rgba(0, 180, 255, 0.8), 0 0 40px rgba(0, 180, 255, 0.4);
+}
+
+/* Animated glow pulse (power-up effect) */
+@keyframes chakra-pulse {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(255, 107, 0, 0.3), 0 0 20px rgba(255, 107, 0, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(255, 107, 0, 0.6), 0 0 60px rgba(255, 107, 0, 0.3), 0 0 100px rgba(255, 107, 0, 0.1);
+  }
+}
+
+@keyframes ki-pulse {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(0, 180, 255, 0.3), 0 0 20px rgba(0, 180, 255, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(0, 180, 255, 0.6), 0 0 60px rgba(0, 180, 255, 0.3), 0 0 100px rgba(0, 180, 255, 0.1);
+  }
+}
+
+@keyframes power-flash {
+  0% { opacity: 0; }
+  10% { opacity: 1; background: rgba(255, 215, 0, 0.3); }
+  20% { opacity: 0; }
+  30% { opacity: 1; background: rgba(255, 107, 0, 0.3); }
+  40% { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+@keyframes kaioken-text {
+  0% { opacity: 0; transform: scale(0.5) rotate(-5deg); }
+  20% { opacity: 1; transform: scale(1.3) rotate(2deg); }
+  40% { transform: scale(1.1) rotate(-1deg); }
+  60% { transform: scale(1.2) rotate(1deg); }
+  80% { opacity: 1; transform: scale(1) rotate(0); }
+  100% { opacity: 0; transform: scale(0.8); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes scan-line {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+@keyframes terminal-cursor {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@keyframes type-reveal {
+  from { width: 0; }
+  to { width: 100%; }
+}
+
+.animate-chakra-pulse {
+  animation: chakra-pulse 2s ease-in-out infinite;
+}
+
+.animate-ki-pulse {
+  animation: ki-pulse 2s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.terminal-cursor::after {
+  content: '█';
+  animation: terminal-cursor 1s step-end infinite;
+}
+
+/* Card with energy border */
+.energy-card {
+  position: relative;
+  border: 1px solid rgba(255, 107, 0, 0.2);
+  transition: all 0.3s ease;
+}
+
+.energy-card::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(255, 107, 0, 0.4), rgba(0, 180, 255, 0.2), rgba(255, 215, 0, 0.3));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.energy-card:hover::before {
+  opacity: 1;
+}
+
+.energy-card:hover {
+  border-color: rgba(255, 107, 0, 0.4);
+  box-shadow: 0 0 30px rgba(255, 107, 0, 0.15);
+  transform: translateY(-2px);
+}
+
+/* Kaioken power-up overlay */
+.kaioken-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  display: none;
+}
+
+.kaioken-overlay.active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: power-flash 2s ease forwards;
+}
+
+.kaioken-text {
+  font-family: 'JetBrains Mono Variable', monospace;
+  font-size: clamp(2rem, 8vw, 6rem);
+  font-weight: 900;
+  color: #FFD700;
+  text-shadow: 0 0 40px #FF6B00, 0 0 80px #FF6B00, 0 0 120px rgba(255, 107, 0, 0.5);
+  animation: kaioken-text 2s ease forwards;
+  letter-spacing: 0.05em;
+}
+
+/* Scroll/parchment hover effect for nav links */
+.scroll-link {
+  position: relative;
+  transition: color 0.2s ease;
+}
+
+.scroll-link::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #FF6B00, #FFD700);
+  transition: width 0.3s ease;
+  box-shadow: 0 0 8px rgba(255, 107, 0, 0.6);
+}
+
+.scroll-link:hover::after {
+  width: 100%;
+}
+
+/* Code block neon feel */
+.code-block {
+  background: oklch(0.06 0.01 250);
+  border: 1px solid rgba(0, 180, 255, 0.15);
+  border-radius: 0.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.code-block::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0, 180, 255, 0.5), transparent);
+}
+
+/* Sidebar active item */
+.sidebar-active {
+  color: #FF9500;
+  background: rgba(255, 107, 0, 0.1);
+  border-left: 2px solid #FF6B00;
+}
+
+/* Jutsu tooltip */
+.jutsu-tooltip {
+  position: relative;
+  cursor: help;
+}
+
+.jutsu-tooltip .tooltip-content {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: oklch(0.08 0.015 250);
+  border: 1px solid rgba(255, 107, 0, 0.4);
+  border-radius: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  color: #FF9500;
+  box-shadow: 0 0 20px rgba(255, 107, 0, 0.3);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 100;
+  font-family: 'JetBrains Mono Variable', monospace;
+}
+
+.jutsu-tooltip .tooltip-content::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: rgba(255, 107, 0, 0.4);
+}
+
+.jutsu-tooltip:hover .tooltip-content {
+  opacity: 1;
+}
+
+/* Astro-specific scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: oklch(0.08 0.015 250);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 107, 0, 0.3);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 107, 0, 0.6);
+}
+
+/* Selection color */
+::selection {
+  background: rgba(255, 107, 0, 0.3);
+  color: #FFD700;
+}
