@@ -39,11 +39,13 @@ AI agents (Claude Code, Codex, Cursor) call grep constantly. On large codebases,
 
 `ig` solves this by maintaining a persistent search index. First search auto-builds the index; subsequent searches are near-instant.
 
-|              | ripgrep   | ig (CLI)       | ig (daemon)     |
-| ------------ | --------- | -------------- | --------------- |
-| 1,284 files  | ~95ms     | **1.5ms**      | **0.2ms**       |
-| 21,000 files | ~1.6s     | **~15ms**      | **~2ms**        |
-| Approach     | Full scan | Index + verify | In-memory index |
+|             | ripgrep   | ig (CLI)       | ig (daemon)        |
+| ----------- | --------- | -------------- | ------------------ |
+| 1,284 files | ~11ms     | **~3ms**       | **~0.2ms**         |
+| Approach    | Full scan | Index + verify | Persistent process |
+
+> Measured with `time` on a Next.js project (1,284 source files, default exclusions).
+> ig is ~3.5x faster than ripgrep on indexed projects. The daemon eliminates process startup entirely.
 
 ## Installation
 
@@ -222,34 +224,27 @@ Files larger than 1 MB are also skipped by default (`--max-file-size` to overrid
 
 ## Benchmarks
 
-Measured on iautos/apps/web (1,284 files, Next.js project). AMD Ryzen, NVMe SSD.
+Measured with `time` on iautos/apps/web (1,284 source files, Next.js project). Debian, AMD Ryzen, NVMe SSD.
 
-| Scenario                             | Candidates | Latency   |
-| ------------------------------------ | ---------- | --------- |
-| `"ZZZZNOTFOUND"` (0 hits)            | 0 / 1,284  | **0.8ms** |
-| `"fetchSellerListings"` (4 hits)     | 4 / 1,284  | **1.5ms** |
-| `"useRouter"` --type ts (74 hits)    | 74 / 1,284 | **1.9ms** |
-| `"fetchSellerListingsAction"` (long) | 4 / 1,284  | **0.9ms** |
-| Daemon mode (any query)              | —          | **0.2ms** |
+### Wall time (process start to exit)
 
-For comparison:
+| Query                             | Candidates | ig (CLI)   | ripgrep |
+| --------------------------------- | ---------- | ---------- | ------- |
+| `"fetchSellerListings"` (4 hits)  | 4 / 1,284  | **~3ms**   | ~11ms   |
+| `"useRouter"` --type ts (74 hits) | 74 / 1,284 | **~3ms**   | ~11ms   |
+| `"ZZZZNOTFOUND"` (0 hits)         | 0 / 1,284  | **~3ms**   | ~11ms   |
+| Daemon mode (any query)           | —          | **~0.2ms** | N/A     |
 
-| Tool            | Same query |
-| --------------- | ---------- |
-| ripgrep (`rg`)  | ~95ms      |
-| Cursor built-in | ~13ms      |
-| **ig** (CLI)    | **1.5ms**  |
-| **ig** (daemon) | **0.2ms**  |
+> ig wall time is ~3ms regardless of candidate count because the bottleneck is process startup + mmap, not the search itself. The daemon bypasses this entirely.
 
-### Optimization history
+### ig vs ripgrep
 
-| Version | Change                              | Impact                    |
-| ------- | ----------------------------------- | ------------------------- |
-| V1      | Fixed trigrams, JSON metadata       | 95ms baseline             |
-| V2      | Default exclusions, mmap postings   | -87% files indexed        |
-| V3      | Binary metadata (bincode)           | 95ms → 2ms startup        |
-| V4      | Sparse n-grams + covering algorithm | Better selectivity        |
-| V5      | Parallel verification (rayon)       | Faster on many candidates |
+|          | ig                                                            | ripgrep                                      |
+| -------- | ------------------------------------------------------------- | -------------------------------------------- |
+| Best at  | Projects with persistent index, agent loops, repeated queries | One-off searches, no setup, cold filesystems |
+| Weakness | Index build time (~0.2s), larger memory footprint             | Scans all files every time                   |
+
+> **Honest note:** On very large directories (21K+ files), ripgrep with warm disk cache can match ig's speed because its SIMD-optimized scanning is extremely fast. ig's advantage grows with repeated queries and agent usage patterns where the daemon mode shines.
 
 ## Agent Integration
 
