@@ -1,8 +1,8 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::Instant;
+use std::sync::{Arc, RwLock};
+use std::time::{Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use regex::bytes::RegexBuilder;
@@ -41,6 +41,8 @@ struct QueryResponse {
     candidates: usize,
     total_files: usize,
     search_ms: f64,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    reloaded: bool,
 }
 
 #[derive(Serialize)]
@@ -67,20 +69,81 @@ pub fn socket_path(root: &Path) -> PathBuf {
     PathBuf::from(format!("/tmp/ig-{:x}.sock", hash))
 }
 
+/// Shared state for the daemon — reader + last known mtime of metadata.bin.
+struct DaemonState {
+    reader: IndexReader,
+    ig_dir: PathBuf,
+    root: PathBuf,
+    last_mtime: SystemTime,
+}
+
+impl DaemonState {
+    fn new(root: &Path) -> Result<Self> {
+        let root = root.to_path_buf();
+        let ig = ig_dir(&root);
+        let reader = IndexReader::open(&ig).context("open index")?;
+        let last_mtime = metadata_mtime(&ig);
+        Ok(Self {
+            reader,
+            ig_dir: ig,
+            root,
+            last_mtime,
+        })
+    }
+
+    /// Check if the index has been rebuilt since we last loaded it.
+    /// If so, reload the reader. Returns true if reloaded.
+    fn reload_if_changed(&mut self) -> bool {
+        let current_mtime = metadata_mtime(&self.ig_dir);
+        if current_mtime != self.last_mtime {
+            match IndexReader::open(&self.ig_dir) {
+                Ok(new_reader) => {
+                    let old_count = self.reader.metadata.file_count;
+                    let new_count = new_reader.metadata.file_count;
+                    self.reader = new_reader;
+                    self.last_mtime = current_mtime;
+                    eprintln!(
+                        "Index reloaded: {} → {} files",
+                        old_count, new_count
+                    );
+                    true
+                }
+                Err(e) => {
+                    eprintln!("Failed to reload index: {}", e);
+                    false
+                }
+            }
+        } else {
+            false
+        }
+    }
+}
+
+/// Get the mtime of metadata.bin (or metadata.json as fallback).
+fn metadata_mtime(ig_dir: &Path) -> SystemTime {
+    let bin_path = ig_dir.join("metadata.bin");
+    let json_path = ig_dir.join("metadata.json");
+
+    std::fs::metadata(&bin_path)
+        .or_else(|_| std::fs::metadata(&json_path))
+        .and_then(|m| m.modified())
+        .unwrap_or(SystemTime::UNIX_EPOCH)
+}
+
 /// Start the daemon server.
 pub fn start_daemon(root: &Path) -> Result<()> {
     let root = root.canonicalize().context("canonicalize root")?;
-    let ig = ig_dir(&root);
 
-    let reader = Arc::new(IndexReader::open(&ig).context("open index")?);
-    eprintln!(
-        "Daemon started: {} files indexed, listening...",
-        reader.metadata.file_count
-    );
+    let state = Arc::new(RwLock::new(DaemonState::new(&root)?));
+    {
+        let s = state.read().unwrap();
+        eprintln!(
+            "Daemon started: {} files indexed, listening...",
+            s.reader.metadata.file_count
+        );
+    }
 
     let sock_path = socket_path(&root);
-
-    // Remove stale socket
     let _ = std::fs::remove_file(&sock_path);
 
     let listener = UnixListener::bind(&sock_path)
@@ -88,17 +151,15 @@ pub fn start_daemon(root: &Path) -> Result<()> {
 
     eprintln!("Socket: {}", sock_path.display());
 
-    // Handle SIGINT/SIGTERM to clean up socket
     let sock_cleanup = sock_path.clone();
     ctrlc_cleanup(sock_cleanup);
 
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                let reader = Arc::clone(&reader);
-                let root = root.clone();
+                let state = Arc::clone(&state);
                 std::thread::spawn(move || {
-                    if let Err(e) = handle_client(stream, &reader, &root) {
+                    if let Err(e) = handle_client(stream, &state) {
                         eprintln!("Client error: {}", e);
                     }
                 });
@@ -113,7 +174,10 @@ pub fn start_daemon(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn handle_client(stream: UnixStream, reader: &IndexReader, root: &Path) -> Result<()> {
+fn handle_client(
+    stream: UnixStream,
+    state: &Arc<RwLock<DaemonState>>,
+) -> Result<()> {
     let mut buf_reader = BufReader::new(&stream);
     let mut writer = &stream;
 
@@ -121,10 +185,21 @@ fn handle_client(stream: UnixStream, reader: &IndexReader, root: &Path) -> Resul
         let mut line = String::new();
         let n = buf_reader.read_line(&mut line)?;
         if n == 0 {
-            break; // Client disconnected
+            break;
         }
 
-        let response = process_query(&line, reader, root);
+        // Check for index reload before each query — acquire write lock briefly
+        let reloaded = {
+            let mut s = state.write().unwrap();
+            s.reload_if_changed()
+        };
+
+        // Process query with read lock
+        let response = {
+            let s = state.read().unwrap();
+            process_query(&line, &s.reader, &s.root, reloaded)
+        };
+
         let json = serde_json::to_string(&response)?;
         writeln!(writer, "{}", json)?;
         writer.flush()?;
@@ -133,7 +208,12 @@ fn handle_client(stream: UnixStream, reader: &IndexReader, root: &Path) -> Resul
     Ok(())
 }
 
-fn process_query(line: &str, reader: &IndexReader, root: &Path) -> QueryResponse {
+fn process_query(
+    line: &str,
+    reader: &IndexReader,
+    root: &Path,
+    reloaded: bool,
+) -> QueryResponse {
     let req: QueryRequest = match serde_json::from_str(line) {
         Ok(r) => r,
         Err(e) => {
@@ -143,6 +223,7 @@ fn process_query(line: &str, reader: &IndexReader, root: &Path) -> QueryResponse
                 candidates: 0,
                 total_files: 0,
                 search_ms: 0.0,
+                reloaded: false,
             };
         }
     };
@@ -159,6 +240,7 @@ fn process_query(line: &str, reader: &IndexReader, root: &Path) -> QueryResponse
                 candidates: 0,
                 total_files,
                 search_ms: 0.0,
+                reloaded,
             };
         }
     };
@@ -179,6 +261,7 @@ fn process_query(line: &str, reader: &IndexReader, root: &Path) -> QueryResponse
                 candidates: candidate_count,
                 total_files,
                 search_ms: start.elapsed().as_secs_f64() * 1000.0,
+                reloaded,
             };
         }
     };
@@ -195,7 +278,6 @@ fn process_query(line: &str, reader: &IndexReader, root: &Path) -> QueryResponse
     for doc_id in &candidates {
         let rel_path = reader.file_path(*doc_id);
 
-        // Apply type filter
         if let Some(ref ft) = req.file_type {
             let ext = rel_path.rsplit('.').next().unwrap_or("");
             if ext != ft.as_str() {
@@ -244,19 +326,17 @@ fn process_query(line: &str, reader: &IndexReader, root: &Path) -> QueryResponse
         candidates: candidate_count,
         total_files,
         search_ms: start.elapsed().as_secs_f64() * 1000.0,
+        reloaded,
     }
 }
 
 fn ctrlc_cleanup(sock_path: PathBuf) {
     std::thread::spawn(move || {
-        // Simple signal handling: wait for SIGINT
         let _ = signal_hook_simple(&sock_path);
     });
 }
 
 fn signal_hook_simple(sock_path: &Path) {
-    // Use a simple approach: register a handler that removes the socket
-    // This is best-effort — the OS will clean up /tmp eventually anyway
     let path = sock_path.to_path_buf();
     let _ = ctrlc::set_handler(move || {
         let _ = std::fs::remove_file(&path);
@@ -286,4 +366,109 @@ pub fn query_daemon(root: &Path, pattern: &str, case_insensitive: bool) -> Resul
     reader.read_line(&mut response)?;
 
     Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::Duration;
+
+    /// Helper: create a minimal project with files, build an index, return the temp dir path.
+    fn setup_test_project() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+
+        // Create some source files
+        let src = root.join("src");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("main.rs"), b"fn main() {\n    println!(\"hello\");\n}\n").unwrap();
+        fs::write(src.join("lib.rs"), b"pub fn greet() -> String {\n    \"world\".to_string()\n}\n").unwrap();
+
+        // Build index
+        crate::index::writer::build_index(&root, false, 1_048_576).unwrap();
+
+        (dir, root)
+    }
+
+    #[test]
+    fn test_metadata_mtime_returns_valid_time() {
+        let (dir, root) = setup_test_project();
+        let ig = ig_dir(&root);
+        let mtime = metadata_mtime(&ig);
+        assert_ne!(mtime, SystemTime::UNIX_EPOCH, "mtime should not be epoch");
+        drop(dir);
+    }
+
+    #[test]
+    fn test_daemon_state_detects_no_change() {
+        let (dir, root) = setup_test_project();
+        let mut state = DaemonState::new(&root).unwrap();
+        assert!(!state.reload_if_changed(), "should not reload when nothing changed");
+        drop(dir);
+    }
+
+    #[test]
+    fn test_daemon_state_detects_index_rebuild() {
+        let (dir, root) = setup_test_project();
+        let mut state = DaemonState::new(&root).unwrap();
+        let initial_count = state.reader.metadata.file_count;
+
+        // Add a new file
+        let src = root.join("src");
+        fs::write(src.join("new_file.rs"), b"pub fn new_func() { todo!() }\n").unwrap();
+
+        // Delete existing index to force a full rebuild (not incremental skip)
+        let ig = ig_dir(&root);
+        let _ = fs::remove_dir_all(&ig);
+
+        // Small sleep to ensure mtime differs (filesystem granularity)
+        std::thread::sleep(Duration::from_millis(50));
+        crate::index::writer::build_index(&root, false, 1_048_576).unwrap();
+
+        // Now the daemon should detect the change
+        let reloaded = state.reload_if_changed();
+        assert!(reloaded, "should detect index was rebuilt");
+        assert!(
+            state.reader.metadata.file_count > initial_count,
+            "file count should increase after adding a file: {} vs {}",
+            state.reader.metadata.file_count,
+            initial_count
+        );
+
+        // Second check: no change since we just reloaded
+        assert!(!state.reload_if_changed(), "should not reload again immediately");
+
+        drop(dir);
+    }
+
+    #[test]
+    fn test_process_query_returns_results() {
+        let (dir, root) = setup_test_project();
+        let state = DaemonState::new(&root).unwrap();
+
+        let query_json = r#"{"pattern":"fn main"}"#;
+        let response = process_query(query_json, &state.reader, &state.root, false);
+
+        assert!(response.error.is_none(), "should not error");
+        let results = response.results.unwrap();
+        assert!(!results.is_empty(), "should find 'fn main' in main.rs");
+        assert_eq!(results[0].file, "src/main.rs");
+        assert!(!response.reloaded);
+
+        drop(dir);
+    }
+
+    #[test]
+    fn test_process_query_with_reload_flag() {
+        let (dir, root) = setup_test_project();
+        let state = DaemonState::new(&root).unwrap();
+
+        let query_json = r#"{"pattern":"fn main"}"#;
+        let response = process_query(query_json, &state.reader, &state.root, true);
+
+        assert!(response.reloaded, "reloaded flag should be true when passed");
+
+        drop(dir);
+    }
 }
