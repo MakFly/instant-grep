@@ -2,7 +2,7 @@
 import DocsLayout from "@/layouts/docs.astro"
 ---
 
-<DocsLayout title="CLI Reference" description="All 6 instant-grep commands with complete flag documentation">
+<DocsLayout title="CLI Reference" description="All 10 instant-grep commands with complete flag documentation">
   <div class="max-w-none">
     <!-- Page header -->
     <div class="mb-10">
@@ -14,12 +14,12 @@ import DocsLayout from "@/layouts/docs.astro"
         CLI Reference
       </h1>
       <p class="text-muted-foreground text-lg leading-relaxed">
-        Six commands. Each one mastered to perfection. No bloat, no ceremony — pure power.
+        Ten commands. Each one mastered to perfection. No bloat, no ceremony — pure power.
       </p>
 
       <!-- Quick nav -->
       <div class="flex flex-wrap gap-2 mt-5">
-        {["search", "index", "status", "watch", "daemon", "query"].map((cmd) => (
+        {["search", "index", "status", "watch", "daemon", "query", "files", "symbols", "context", "setup"].map((cmd) => (
           <a href={`#${cmd}`} class="px-3 py-1.5 rounded-lg text-xs font-mono border border-border theme-orange nav-pill transition-all">
             ig {cmd}
           </a>
@@ -229,6 +229,131 @@ import DocsLayout from "@/layouts/docs.astro"
       </div>
     </section>
 
+    <!-- ig files -->
+    <section id="files" class="mb-14 scroll-mt-20">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-2 h-8 rounded-full section-bar-blue"></div>
+        <h2 class="text-2xl font-mono font-bold text-foreground">ig files</h2>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        List all project files, respecting .gitignore and default exclusions. Perfect for AI agents needing a file inventory.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-5">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> files <span class="theme-gold">[OPTIONS]</span> [PATH]`}></code></pre>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># List all project files</span>
+<span class="theme-blue">ig</span> files
+
+<span class="theme-orange"># Only Rust files</span>
+<span class="theme-blue">ig</span> files -t rust
+
+<span class="theme-orange"># JSON output for agents</span>
+<span class="theme-blue">ig</span> files --json
+
+<span class="theme-orange"># With glob filter</span>
+<span class="theme-blue">ig</span> files -g <span class="theme-gold">"src/**/*.ts"</span>`}></code></pre>
+      </div>
+    </section>
+
+    <!-- ig symbols -->
+    <section id="symbols" class="mb-14 scroll-mt-20">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-2 h-8 rounded-full section-bar-gold"></div>
+        <h2 class="text-2xl font-mono font-bold text-foreground">ig symbols</h2>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Extract symbol definitions (functions, classes, structs, interfaces) from source files.
+        Language-aware patterns for Rust, TypeScript, Python, Go, PHP, and more.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-5">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> symbols <span class="theme-gold">[OPTIONS]</span> [PATH]`}></code></pre>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># All symbols in project</span>
+<span class="theme-blue">ig</span> symbols
+
+<span class="theme-orange"># Only Rust symbols</span>
+<span class="theme-blue">ig</span> symbols -t rust
+
+<span class="theme-orange"># JSON output (for agents)</span>
+<span class="theme-blue">ig</span> symbols --json
+
+<span class="theme-orange"># Symbols in specific directory</span>
+<span class="theme-blue">ig</span> symbols src/`}></code></pre>
+      </div>
+    </section>
+
+    <!-- ig context -->
+    <section id="context" class="mb-14 scroll-mt-20">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-2 h-8 rounded-full section-bar-green"></div>
+        <h2 class="text-2xl font-mono font-bold text-foreground">ig context</h2>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Show the full code block (function, class, struct) containing a specific line.
+        Automatically detects block boundaries using brace matching or indentation.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-5">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> context <span class="theme-orange">&lt;FILE&gt;</span> <span class="theme-orange">&lt;LINE&gt;</span>`}></code></pre>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Show function containing line 42</span>
+<span class="theme-blue">ig</span> context src/main.rs <span class="theme-gold">42</span>
+
+<span class="theme-orange"># JSON output</span>
+<span class="theme-blue">ig</span> context --json src/main.rs <span class="theme-gold">42</span>`}></code></pre>
+      </div>
+    </section>
+
+    <!-- ig setup -->
+    <section id="setup" class="mb-14 scroll-mt-20">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-2 h-8 rounded-full section-bar-orange"></div>
+        <h2 class="text-2xl font-mono font-bold text-foreground">ig setup</h2>
+        <span class="text-xs font-mono px-2 py-1 rounded border border-border theme-orange sage-badge">New</span>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Auto-configure AI CLI agents (Claude Code, Codex, Gemini CLI) to use ig for code search.
+        Detects installed agents and injects configuration. Idempotent — safe to run multiple times.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-5">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> setup`}></code></pre>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Configure all detected agents</span>
+<span class="theme-blue">ig</span> setup
+
+<span class="theme-orange"># Output:</span>
+<span class="theme-green">✓</span> Claude Code
+  <span class="theme-comment">→ Added Bash(ig *) permission to settings.json</span>
+  <span class="theme-comment">→ Added Search Tools section to CLAUDE.md</span>
+<span class="theme-green">✓</span> Codex CLI
+  <span class="theme-comment">→ Added Search Tools section to AGENTS.md</span>
+<span class="theme-blue">ℹ</span> Gemini CLI <span class="theme-comment">(manual config needed)</span>`}></code></pre>
+      </div>
+    </section>
+
     <!-- ig query -->
     <section id="query" class="mb-10 scroll-mt-20">
       <div class="flex items-center gap-3 mb-4">
@@ -262,7 +387,7 @@ import DocsLayout from "@/layouts/docs.astro"
     <!-- JSON output format -->
     <section class="mb-4 p-6 rounded-xl border border-border bg-secondary/30">
       <h3 class="font-mono font-bold mb-3 theme-blue">JSON Output Format (--json)</h3>
-      <p class="text-xs text-muted-foreground mb-3">Used by AI agents — structured, parseable, minimal tokens.</p>
+      <p class="text-xs text-muted-foreground mb-3">Used by AI agents — structured, parseable, minimal tokens. Supported by <code class="font-mono">search</code>, <code class="font-mono">query</code>, <code class="font-mono">files</code>, <code class="font-mono">symbols</code>, and <code class="font-mono">context</code>.</p>
       <div class="code-block rounded-xl overflow-hidden">
         <pre class="p-4 font-mono text-xs leading-relaxed overflow-x-auto"><code set:html={`{
   <span class="theme-blue">"pattern"</span>: <span class="theme-gold">"async fn"</span>,

@@ -1,9 +1,13 @@
 mod cli;
+mod context;
 mod daemon;
 mod index;
 mod output;
 mod query;
 mod search;
+mod setup;
+mod symbols;
+mod update;
 mod util;
 mod walk;
 mod watch;
@@ -26,6 +30,9 @@ use walk::DEFAULT_MAX_FILE_SIZE;
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // Check for updates in the background (non-blocking)
+    update::check_update_background();
+
     // Extract search flags from top-level (shared between shortcut and subcommand)
     let ignore_case = cli.ignore_case;
     let after_context = cli.after_context;
@@ -38,6 +45,8 @@ fn main() -> Result<()> {
     let file_type = cli.file_type;
     let glob = cli.glob;
     let json = cli.json;
+    let word_regexp = cli.word_regexp;
+    let fixed_strings = cli.fixed_strings;
     let no_default_excludes = cli.no_default_excludes;
     let max_file_size = cli.max_file_size;
 
@@ -58,6 +67,8 @@ fn main() -> Result<()> {
                 file_type: file_type.as_deref(),
                 glob: glob.as_deref(),
                 json,
+                word_regexp,
+                fixed_strings,
                 no_default_excludes,
                 max_file_size,
             })?;
@@ -138,6 +149,58 @@ fn main() -> Result<()> {
             daemon::start_daemon(&root)?;
         }
 
+        Some(Commands::Files { path }) => {
+            let root = resolve_root(path.as_deref());
+            let max_size = max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
+            let use_excludes = !no_default_excludes;
+            let files = walk::walk_files(
+                &root,
+                use_excludes,
+                max_size,
+                file_type.as_deref(),
+                glob.as_deref(),
+            )?;
+            let use_color =
+                !json && atty::is(atty::Stream::Stdout) && std::env::var("NO_COLOR").is_err();
+            let mut printer = Printer::new(use_color, json);
+            printer.print_file_list(&files, &root);
+        }
+
+        Some(Commands::Symbols { path }) => {
+            let root = resolve_root(path.as_deref());
+            let max_size = max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
+            let use_excludes = !no_default_excludes;
+            let syms = symbols::extract_symbols(
+                &root,
+                use_excludes,
+                max_size,
+                file_type.as_deref(),
+                glob.as_deref(),
+            )?;
+            let use_color =
+                !json && atty::is(atty::Stream::Stdout) && std::env::var("NO_COLOR").is_err();
+            let mut printer = Printer::new(use_color, json);
+            printer.print_symbols(&syms);
+        }
+
+        Some(Commands::Context { file, line }) => {
+            let path = std::path::Path::new(&file);
+            let block = context::extract_block(path, line)?;
+            let use_color =
+                !json && atty::is(atty::Stream::Stdout) && std::env::var("NO_COLOR").is_err();
+            let mut printer = Printer::new(use_color, json);
+            printer.print_context(&block);
+        }
+
+        Some(Commands::Completions { shell }) => {
+            let mut cmd = <Cli as clap::CommandFactory>::command();
+            clap_complete::generate(shell, &mut cmd, "ig", &mut std::io::stdout());
+        }
+
+        Some(Commands::Setup) => {
+            setup::run_setup();
+        }
+
         Some(Commands::Query { pattern, path }) => {
             let root = resolve_root(path.as_deref());
             let response = daemon::query_daemon(&root, &pattern, ignore_case)?;
@@ -161,6 +224,8 @@ fn main() -> Result<()> {
                     file_type: file_type.as_deref(),
                     glob: glob.as_deref(),
                     json,
+                    word_regexp,
+                    fixed_strings,
                     no_default_excludes,
                     max_file_size,
                 })?;
@@ -190,14 +255,31 @@ struct SearchOpts<'a> {
     file_type: Option<&'a str>,
     glob: Option<&'a str>,
     json: bool,
+    word_regexp: bool,
+    fixed_strings: bool,
     no_default_excludes: bool,
     max_file_size: Option<u64>,
+}
+
+/// Transform pattern based on -w and -F flags.
+fn prepare_pattern(pattern: &str, word_regexp: bool, fixed_strings: bool) -> String {
+    let mut p = if fixed_strings {
+        regex::escape(pattern)
+    } else {
+        pattern.to_string()
+    };
+    if word_regexp {
+        p = format!(r"\b{}\b", p);
+    }
+    p
 }
 
 /// Core search logic shared between `ig "pattern"` and `ig search "pattern"`.
 #[allow(clippy::too_many_arguments)]
 fn do_search(opts: &SearchOpts) -> Result<()> {
     let root = resolve_root(opts.path);
+    let pattern = prepare_pattern(opts.pattern, opts.word_regexp, opts.fixed_strings);
+    let pattern = pattern.as_str();
     let (before, after) = match opts.context {
         Some(c) => (c, c),
         None => (opts.before_context, opts.after_context),
@@ -217,7 +299,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
     if opts.no_index {
         let results = search::fallback::search_brute_force(
             &root,
-            opts.pattern,
+            pattern,
             opts.ignore_case,
             &config,
             opts.file_type,
@@ -239,7 +321,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
     if !index_ready {
         let results = search::fallback::search_brute_force(
             &root,
-            opts.pattern,
+            pattern,
             opts.ignore_case,
             &config,
             opts.file_type,

@@ -75,7 +75,13 @@ import DocsLayout from "@/layouts/docs.astro"
 
       <div class="code-block rounded-xl overflow-hidden mb-4">
         <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">Claude Code uses ig like this</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Claude searching for function implementations</span>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Claude exploring a new codebase</span>
+<span class="theme-blue">ig</span> files --json -t rust .                   <span class="theme-comment"># list all Rust files</span>
+<span class="theme-blue">ig</span> symbols --json -t rust .                 <span class="theme-comment"># get all function/struct definitions</span>
+<span class="theme-blue">ig</span> context src/main.rs 42 --json            <span class="theme-comment"># read the full function at line 42</span>
+<span class="theme-blue">ig</span> --json <span class="theme-gold">"handleAuth"</span> src/               <span class="theme-comment"># search for pattern</span>
+
+<span class="theme-orange"># Claude searching for function implementations</span>
 <span class="theme-blue">ig</span> --json <span class="theme-gold">"fn build_covering_ngrams"</span> src/
 
 {
@@ -100,6 +106,105 @@ import DocsLayout from "@/layouts/docs.astro"
       </div>
     </section>
 
+    <!-- ig setup -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
+        <span class="theme-green">✦</span>
+        ig setup — Zero-Config Agent Setup
+      </h2>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Run <code class="font-mono">ig setup</code> after installation to automatically configure all detected AI CLI agents on your system.
+        It writes the right permissions and tool hints into each agent's config file so you never have to do it manually.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-4">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">ig setup output</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`$ <span class="theme-blue">ig</span> setup
+
+<span class="theme-green">✓</span> <span class="theme-foreground">Claude Code</span>  <span class="theme-comment">→ Adds Bash(ig *) permission + Search Tools to CLAUDE.md</span>
+<span class="theme-green">✓</span> <span class="theme-foreground">Codex CLI</span>    <span class="theme-comment">→ Adds Search Tools entry to AGENTS.md</span>
+<span class="theme-blue">ℹ</span> <span class="theme-foreground">Gemini CLI</span>   <span class="theme-comment">→ Manual config: add ig to allowed shell commands in settings.json</span>
+<span class="theme-blue">ℹ</span> <span class="theme-foreground">Cursor</span>       <span class="theme-comment">→ Manual config: add ig to terminal allowlist in .cursor/settings.json</span>
+<span class="theme-blue">ℹ</span> <span class="theme-foreground">Windsurf</span>     <span class="theme-comment">→ Manual config: add ig to shell tool permissions in .windsurf/config.json</span>`}></code></pre>
+      </div>
+
+      <div class="flex items-start gap-3 p-4 rounded-lg border border-border bg-secondary/30">
+        <span class="text-lg mt-0.5 theme-green">✓</span>
+        <div class="text-sm text-muted-foreground">
+          <strong class="text-foreground">Idempotent and non-destructive:</strong> running <code class="font-mono">ig setup</code> multiple times is safe —
+          it will never overwrite existing config, only append what is missing.
+          It is also called automatically by <code class="font-mono">install.sh</code> after the binary is installed.
+        </div>
+      </div>
+    </section>
+
+    <!-- Agent-Optimized Commands -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
+        <span class="theme-orange">⚡</span>
+        Agent-Optimized Commands
+      </h2>
+
+      <p class="text-sm text-muted-foreground mb-6 leading-relaxed">
+        Three commands designed specifically for AI agents that need to understand a codebase without reading every file.
+        All support <code class="font-mono">--json</code> for structured output.
+      </p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div class="p-5 rounded-xl energy-card bg-card/50 flex flex-col gap-3">
+          <div class="text-xs font-mono font-bold theme-orange">ig files --json</div>
+          <div class="text-xs text-muted-foreground leading-relaxed">
+            List all project files. Replaces <code class="font-mono">find</code>, <code class="font-mono">ls -R</code>, and <code class="font-mono">tree</code>.
+            Respects <code class="font-mono">.gitignore</code> and ig's exclude list.
+          </div>
+          <div class="code-block rounded-lg p-3 text-xs font-mono mt-auto">
+            <div class="text-muted-foreground/50 mb-1">example</div>
+            <div class="text-foreground/70">ig files --json -t rust .</div>
+          </div>
+        </div>
+
+        <div class="p-5 rounded-xl energy-card bg-card/50 flex flex-col gap-3">
+          <div class="text-xs font-mono font-bold theme-blue">ig symbols --json</div>
+          <div class="text-xs text-muted-foreground leading-relaxed">
+            Extract all symbol definitions — functions, structs, classes, enums.
+            Replaces grepping for <code class="font-mono">^pub fn</code> or <code class="font-mono">^class </code> across the codebase.
+          </div>
+          <div class="code-block rounded-lg p-3 text-xs font-mono mt-auto">
+            <div class="text-muted-foreground/50 mb-1">example</div>
+            <div class="text-foreground/70">ig symbols --json -t rust .</div>
+          </div>
+        </div>
+
+        <div class="p-5 rounded-xl energy-card bg-card/50 flex flex-col gap-3">
+          <div class="text-xs font-mono font-bold theme-gold">ig context FILE LINE</div>
+          <div class="text-xs text-muted-foreground leading-relaxed">
+            Show the full code block surrounding a line — the complete function or struct body.
+            Replaces reading entire files to understand a single definition.
+          </div>
+          <div class="code-block rounded-lg p-3 text-xs font-mono mt-auto">
+            <div class="text-muted-foreground/50 mb-1">example</div>
+            <div class="text-foreground/70">ig context src/main.rs 42 --json</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">agent-optimized workflow example</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Step 1 — get a map of the project</span>
+<span class="theme-blue">ig</span> files --json -t rust .
+
+<span class="theme-orange"># Step 2 — scan all symbol definitions without reading files</span>
+<span class="theme-blue">ig</span> symbols --json -t rust .
+
+<span class="theme-orange"># Step 3 — search for the relevant pattern</span>
+<span class="theme-blue">ig</span> --json <span class="theme-gold">"handleAuth"</span> src/
+
+<span class="theme-orange"># Step 4 — read only the precise block you need</span>
+<span class="theme-blue">ig</span> context src/main.rs 42 --json`}></code></pre>
+      </div>
+    </section>
+
     <!-- Codex / other agents -->
     <section class="mb-12">
       <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
@@ -115,6 +220,9 @@ import DocsLayout from "@/layouts/docs.astro"
         <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">agent setup script</div>
         <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-comment">#!/bin/bash</span>
 <span class="theme-orange"># Set up ig for agent use</span>
+
+<span class="theme-orange"># 0. Auto-configure agent (run once after install)</span>
+<span class="theme-blue">ig</span> setup
 
 <span class="theme-orange"># 1. Build index at session start</span>
 <span class="theme-blue">ig</span> index <span class="theme-gold">"$PROJECT_ROOT"</span>

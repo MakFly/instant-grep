@@ -142,6 +142,39 @@ ig daemon . &
 ig query "pattern" .
 ```
 
+### Explore codebase
+
+```bash
+# List all project files (respects .gitignore)
+ig files .
+ig files -t rust              # only Rust files
+ig files --json               # JSON output for agents
+
+# Extract symbol definitions
+ig symbols .                  # all functions/classes/structs
+ig symbols -t ts              # only TypeScript symbols
+ig symbols --json             # JSON output for agents
+
+# Show full code block at a specific line
+ig context src/main.rs 42     # shows the enclosing function/class
+ig context --json src/main.rs 42
+```
+
+### Shell completions
+
+```bash
+ig completions zsh > ~/.zsh/completions/_ig
+ig completions bash > ~/.bash_completion.d/ig
+ig completions fish > ~/.config/fish/completions/ig.fish
+```
+
+### AI agent setup
+
+```bash
+# Auto-configure Claude Code, Codex, Gemini CLI to use ig
+ig setup
+```
+
 ### All flags
 
 ```
@@ -160,6 +193,14 @@ ig search <PATTERN> [PATH]       # explicit subcommand (also works)
       --no-index               Skip index, brute-force scan
       --no-default-excludes    Include node_modules, target, etc.
       --max-file-size <BYTES>  Override 1MB default limit
+  -w, --word-regexp            Match whole words only
+  -F, --fixed-strings          Treat pattern as literal (not regex)
+
+ig files [PATH]                  # list project files
+ig symbols [PATH]                # extract symbol definitions
+ig context <FILE> <LINE>         # show enclosing code block
+ig completions <SHELL>           # generate shell completions
+ig setup                         # configure AI CLI agents
 ```
 
 ## How it works
@@ -307,6 +348,10 @@ ig
 │   ├── indexed.rs    — Full pipeline: query → candidates → parallel verify
 │   ├── fallback.rs   — Brute-force scan (no index)
 │   └── matcher.rs    — File-level regex matching + line extraction
+├── context.rs        — Code block extraction
+├── symbols.rs        — Symbol definition extraction (multi-language)
+├── setup.rs          — AI agent auto-configuration
+├── update.rs         — Background update checker
 ├── daemon.rs         — Unix socket server + client
 ├── watch.rs          — File watcher (notify crate) + auto-rebuild
 └── walk.rs           — Gitignore-aware file walking + 38 default exclusions

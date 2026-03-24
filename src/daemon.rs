@@ -133,7 +133,7 @@ pub fn start_daemon(root: &Path) -> Result<()> {
 
     let state = Arc::new(RwLock::new(DaemonState::new(&root)?));
     {
-        let s = state.read().unwrap();
+        let s = state.read().unwrap_or_else(|e| e.into_inner());
         eprintln!(
             "Daemon started: {} files indexed, listening...",
             s.reader.metadata.file_count
@@ -184,13 +184,13 @@ fn handle_client(stream: UnixStream, state: &Arc<RwLock<DaemonState>>) -> Result
 
         // Check for index reload before each query — acquire write lock briefly
         let reloaded = {
-            let mut s = state.write().unwrap();
+            let mut s = state.write().unwrap_or_else(|e| e.into_inner());
             s.reload_if_changed()
         };
 
         // Process query with read lock
         let response = {
-            let s = state.read().unwrap();
+            let s = state.read().unwrap_or_else(|e| e.into_inner());
             process_query(&line, &s.reader, &s.root, reloaded)
         };
 

@@ -53,3 +53,7 @@ if ! echo "$PATH" | grep -q "$INSTALL_DIR"; then
   echo "Add to your shell config:"
   echo "  export PATH=\"$INSTALL_DIR:\$PATH\""
 fi
+
+# Auto-configure AI CLI agents
+echo ""
+"$INSTALL_DIR/ig" setup

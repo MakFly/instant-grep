@@ -58,6 +58,21 @@ import DocsLayout from "@/layouts/docs.astro"
             <div class="w-2.5 h-2.5 rounded-full bg-[#FFD700]"></div>
             <div class="w-2.5 h-2.5 rounded-full bg-[#34C759]"></div>
           </div>
+          <span class="text-xs text-muted-foreground/50 font-mono ml-2">one-line install (recommended)</span>
+        </div>
+        <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Install latest release + auto-configure AI agents</span>
+<span class="theme-blue">curl</span> -fsSL https://raw.githubusercontent.com/MakFly/instant-grep/main/install.sh | <span class="theme-blue">bash</span>`}></code></pre>
+      </div>
+
+      <div class="text-center text-xs text-muted-foreground my-3 font-mono">— or build from source —</div>
+
+      <div class="code-block rounded-xl overflow-hidden my-5">
+        <div class="flex items-center gap-2 px-4 py-2.5 bg-secondary/50 border-b border-border">
+          <div class="flex items-center gap-1.5">
+            <div class="w-2.5 h-2.5 rounded-full bg-[#FF3B30]"></div>
+            <div class="w-2.5 h-2.5 rounded-full bg-[#FFD700]"></div>
+            <div class="w-2.5 h-2.5 rounded-full bg-[#34C759]"></div>
+          </div>
           <span class="text-xs text-muted-foreground/50 font-mono ml-2">installation</span>
         </div>
         <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Clone and build</span>
@@ -78,6 +93,19 @@ import DocsLayout from "@/layouts/docs.astro"
           <strong class="text-foreground">Tip:</strong> Make sure <code class="font-mono">~/.local/bin</code> is in your <code class="font-mono">$PATH</code>.
           Add <code class="font-mono">export PATH="$HOME/.local/bin:$PATH"</code> to your shell config if needed.
         </div>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden my-5">
+        <div class="flex items-center gap-2 px-4 py-2.5 bg-secondary/50 border-b border-border">
+          <div class="flex items-center gap-1.5">
+            <div class="w-2.5 h-2.5 rounded-full bg-[#FF3B30]"></div>
+            <div class="w-2.5 h-2.5 rounded-full bg-[#FFD700]"></div>
+            <div class="w-2.5 h-2.5 rounded-full bg-[#34C759]"></div>
+          </div>
+          <span class="text-xs text-muted-foreground/50 font-mono ml-2">configure AI agents (automatic with install.sh)</span>
+        </div>
+        <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Auto-configure Claude Code, Codex, Gemini CLI...</span>
+<span class="theme-blue">ig</span> setup`}></code></pre>
       </div>
     </section>
 
@@ -211,7 +239,7 @@ import DocsLayout from "@/layouts/docs.astro"
         <a href="/docs/cli" class="energy-card rounded-xl p-5 bg-card/50 flex flex-col gap-2 group">
           <span class="text-2xl">⚡</span>
           <h3 class="font-mono font-bold text-foreground group-hover:text-primary transition-colors">CLI Reference</h3>
-          <p class="text-xs text-muted-foreground">All 6 commands with every flag documented</p>
+          <p class="text-xs text-muted-foreground">All 10 commands with every flag documented</p>
         </a>
         <a href="/docs/architecture" class="energy-card rounded-xl p-5 bg-card/50 flex flex-col gap-2 group">
           <span class="text-2xl">🌀</span>

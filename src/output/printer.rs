@@ -3,8 +3,10 @@ use std::time::Duration;
 
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
+use crate::context::BlockResult;
 use crate::search::indexed::SearchStats;
 use crate::search::matcher::{FileMatches, LineMatch};
+use crate::symbols::SymbolMatch;
 
 pub struct Printer {
     stdout: StandardStream,
@@ -203,6 +205,100 @@ impl Printer {
             },
         );
         let _ = self.stdout.reset();
+    }
+
+    pub fn print_file_list(&mut self, files: &[std::path::PathBuf], root: &std::path::Path) {
+        for path in files {
+            let rel = path.strip_prefix(root).unwrap_or(path);
+            let rel_str = rel.to_string_lossy();
+            if self.json_mode {
+                let _ = writeln!(self.stdout, "{{\"file\":\"{}\"}}", escape_json(&rel_str));
+            } else {
+                let _ = writeln!(self.stdout, "{}", rel_str);
+            }
+        }
+    }
+
+    pub fn print_symbols(&mut self, symbols: &[SymbolMatch]) {
+        for sym in symbols {
+            if self.json_mode {
+                let _ = writeln!(
+                    self.stdout,
+                    "{{\"file\":\"{}\",\"line\":{},\"kind\":\"{}\",\"symbol\":\"{}\"}}",
+                    escape_json(&sym.file),
+                    sym.line,
+                    sym.kind,
+                    escape_json(&sym.signature),
+                );
+            } else {
+                self.print_file_path(&sym.file);
+                let _ = self
+                    .stdout
+                    .set_color(ColorSpec::new().set_fg(Some(Color::Cyan)));
+                let _ = write!(self.stdout, ":");
+                let _ = self
+                    .stdout
+                    .set_color(ColorSpec::new().set_fg(Some(Color::Green)));
+                let _ = write!(self.stdout, "{}", sym.line);
+                let _ = self
+                    .stdout
+                    .set_color(ColorSpec::new().set_fg(Some(Color::Cyan)));
+                let _ = write!(self.stdout, ":");
+                let _ = self.stdout.reset();
+                let _ = writeln!(self.stdout, "{}", sym.signature);
+            }
+        }
+    }
+
+    pub fn print_context(&mut self, block: &BlockResult) {
+        if self.json_mode {
+            let lines_json: Vec<String> = block
+                .lines
+                .iter()
+                .map(|(num, text)| {
+                    format!(
+                        "{{\"line\":{},\"text\":\"{}\"}}",
+                        num,
+                        escape_json(text)
+                    )
+                })
+                .collect();
+            let _ = writeln!(
+                self.stdout,
+                "{{\"file\":\"{}\",\"start\":{},\"end\":{},\"lines\":[{}]}}",
+                escape_json(&block.file),
+                block.start,
+                block.end,
+                lines_json.join(","),
+            );
+            return;
+        }
+
+        // Header
+        let _ = self
+            .stdout
+            .set_color(ColorSpec::new().set_fg(Some(Color::Magenta)).set_bold(true));
+        let _ = write!(self.stdout, "{}", block.file);
+        let _ = self
+            .stdout
+            .set_color(ColorSpec::new().set_fg(Some(Color::Cyan)));
+        let _ = writeln!(self.stdout, ":{}-{}", block.start, block.end);
+        let _ = self.stdout.reset();
+
+        // Lines
+        let width = block.end.to_string().len();
+        for (num, text) in &block.lines {
+            let _ = self
+                .stdout
+                .set_color(ColorSpec::new().set_fg(Some(Color::Green)));
+            let _ = write!(self.stdout, "{:>width$}", num, width = width);
+            let _ = self
+                .stdout
+                .set_color(ColorSpec::new().set_fg(Some(Color::Cyan)));
+            let _ = write!(self.stdout, " │ ");
+            let _ = self.stdout.reset();
+            let _ = writeln!(self.stdout, "{}", text);
+        }
     }
 }
 

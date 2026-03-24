@@ -32,6 +32,7 @@ pub fn build_index(
 
     if let Some(ref meta) = existing_meta
         && meta.version == INDEX_VERSION
+        && meta.file_ngrams.len() == meta.files.len()
     {
         let changed = detect_changed_files(&root, meta, &current_git_commit);
         if let Some(changed_paths) = changed {
@@ -39,7 +40,14 @@ pub fn build_index(
                 eprintln!("Index is up to date");
                 return Ok(meta.clone());
             } else {
-                eprintln!("Incremental: {} files changed", changed_paths.len());
+                return incremental_rebuild(
+                    &root,
+                    use_default_excludes,
+                    max_file_size,
+                    &current_git_commit,
+                    meta,
+                    &changed_paths,
+                );
             }
         }
     }
@@ -84,6 +92,81 @@ fn full_rebuild(
     write_index(root, &ig, &file_data, git_commit)
 }
 
+/// Incremental rebuild: reuse cached n-grams for unchanged files,
+/// re-extract only for changed/new/deleted files.
+fn incremental_rebuild(
+    root: &Path,
+    use_default_excludes: bool,
+    max_file_size: u64,
+    git_commit: &Option<String>,
+    old_meta: &IndexMetadata,
+    changed_paths: &[String],
+) -> Result<IndexMetadata> {
+    let ig = ig_dir(root);
+
+    // Build a lookup from old metadata: rel_path -> (mtime, size, ngrams)
+    let old_file_map: HashMap<&str, (&IndexedFile, &Vec<u64>)> = old_meta
+        .files
+        .iter()
+        .zip(old_meta.file_ngrams.iter())
+        .map(|(f, ng)| (f.path.as_str(), (f, ng)))
+        .collect();
+
+    let changed_set: std::collections::HashSet<&str> =
+        changed_paths.iter().map(|s| s.as_str()).collect();
+
+    // Walk all current files
+    let paths = walk_files(root, use_default_excludes, max_file_size, None, None)
+        .context("walking files")?;
+
+    let file_data: Vec<_> = paths
+        .par_iter()
+        .filter_map(|path| {
+            let rel_path = path.strip_prefix(root).ok()?.to_string_lossy().to_string();
+
+            // Check if we can reuse cached n-grams
+            if !changed_set.contains(rel_path.as_str())
+                && let Some((old_file, old_ngrams)) = old_file_map.get(rel_path.as_str()) {
+                    // Verify mtime+size still match
+                    let m = fs::metadata(path).ok()?;
+                    let current_mtime = m
+                        .modified()
+                        .ok()?
+                        .duration_since(UNIX_EPOCH)
+                        .ok()?
+                        .as_secs();
+                    if current_mtime == old_file.mtime && m.len() == old_file.size {
+                        return Some((rel_path, old_file.size, old_file.mtime, (*old_ngrams).clone()));
+                    }
+                }
+
+            // Changed, new, or mtime/size mismatch: re-read and re-extract
+            let bytes = fs::read(path).ok()?;
+            if is_binary(&bytes) {
+                return None;
+            }
+            let ngrams = extract_sparse_ngrams(&bytes);
+            let mtime = fs::metadata(path)
+                .and_then(|m| m.modified())
+                .ok()?
+                .duration_since(UNIX_EPOCH)
+                .ok()?
+                .as_secs();
+            Some((rel_path, bytes.len() as u64, mtime, ngrams))
+        })
+        .collect();
+
+    let total = file_data.len();
+    let reindexed = changed_paths.len();
+    let reused = total.saturating_sub(reindexed);
+    eprintln!(
+        "Incremental: reusing {}/{} files, re-indexing {} changed",
+        reused, total, reindexed
+    );
+
+    write_index(root, &ig, &file_data, git_commit)
+}
+
 fn write_index(
     root: &Path,
     ig: &Path,
@@ -93,12 +176,15 @@ fn write_index(
     let mut postings_map: AHashMap<NgramKey, Vec<DocId>> = AHashMap::new();
     let mut files = Vec::with_capacity(file_data.len());
 
+    let mut file_ngrams_out: Vec<Vec<u64>> = Vec::with_capacity(file_data.len());
+
     for (new_id, (rel_path, size, mtime, ngrams)) in file_data.iter().enumerate() {
         files.push(IndexedFile {
             path: rel_path.clone(),
             mtime: *mtime,
             size: *size,
         });
+        file_ngrams_out.push(ngrams.clone());
 
         for &key in ngrams {
             postings_map.entry(key).or_default().push(new_id as DocId);
@@ -179,6 +265,7 @@ fn write_index(
         ngram_count: ngram_count as u32,
         files,
         git_commit: git_commit.clone(),
+        file_ngrams: file_ngrams_out,
     };
 
     metadata.write_to(ig).context("write metadata")?;

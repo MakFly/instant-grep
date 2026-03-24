@@ -54,6 +54,14 @@ pub struct Cli {
     #[arg(short = 'g', long, global = true)]
     pub glob: Option<String>,
 
+    /// Match whole words only (wraps pattern with \b)
+    #[arg(short = 'w', long, global = true)]
+    pub word_regexp: bool,
+
+    /// Treat pattern as fixed string (not regex)
+    #[arg(short = 'F', long, global = true)]
+    pub fixed_strings: bool,
+
     /// Output results as JSON lines (for AI agents)
     #[arg(long, global = true)]
     pub json: bool,
@@ -101,6 +109,36 @@ pub enum Commands {
         /// Directory to serve (default: current dir)
         path: Option<String>,
     },
+
+    /// List project files (respects .gitignore and excludes)
+    Files {
+        /// Directory to list (default: current dir)
+        path: Option<String>,
+    },
+
+    /// Extract symbol definitions (functions, classes, structs...)
+    Symbols {
+        /// Directory to scan (default: current dir)
+        path: Option<String>,
+    },
+
+    /// Show the full code block containing a specific line
+    Context {
+        /// File path
+        file: String,
+        /// Line number to show context for
+        line: usize,
+    },
+
+    /// Generate shell completions (bash, zsh, fish, powershell)
+    Completions {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
+
+    /// Configure AI CLI agents (Claude Code, Codex, Gemini...) to use ig
+    Setup,
 
     /// Send a search query to a running daemon
     Query {

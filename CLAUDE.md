@@ -31,12 +31,18 @@ Pipeline: `regex → regex-syntax Extractor → covering sparse n-grams → hash
 ## Commands
 
 ```
-ig search <pattern> [path]   # search (auto-builds index)
+ig "pattern" [path]          # search (shortcut, recommended)
+ig search <pattern> [path]   # search (explicit)
 ig index [path]              # build/rebuild index
 ig status [path]             # show stats
 ig watch [path]              # auto-rebuild on file changes
 ig daemon [path]             # start daemon
 ig query <pattern> [path]    # query daemon
+ig files [path]              # list project files
+ig symbols [path]            # extract symbol definitions
+ig context <file> <line>     # show enclosing code block
+ig completions <shell>       # generate shell completions
+ig setup                     # configure AI CLI agents
 ```
 
 ## Conventions
