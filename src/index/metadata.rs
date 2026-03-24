@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-pub const INDEX_VERSION: u32 = 6;
+pub const INDEX_VERSION: u32 = 7;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexMetadata {
@@ -17,9 +17,6 @@ pub struct IndexMetadata {
     pub files: Vec<IndexedFile>,
     #[serde(default)]
     pub git_commit: Option<String>,
-    /// Per-file n-gram keys, parallel to `files`. Used for incremental reindexing.
-    #[serde(default)]
-    pub file_ngrams: Vec<Vec<u64>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

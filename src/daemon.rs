@@ -218,7 +218,7 @@ fn process_query(line: &str, reader: &IndexReader, root: &Path, reloaded: bool) 
     };
 
     let start = Instant::now();
-    let total_files = reader.metadata.file_count as usize;
+    let total_files = reader.total_file_count() as usize;
 
     let query = match regex_to_query(&req.pattern, req.case_insensitive) {
         Ok(q) => q,
@@ -331,6 +331,212 @@ fn signal_hook_simple(sock_path: &Path) {
         let _ = std::fs::remove_file(&path);
         std::process::exit(0);
     });
+}
+
+/// PID file path within .ig/
+fn pid_path(ig_dir: &Path) -> PathBuf {
+    ig_dir.join("daemon.pid")
+}
+
+/// Start the daemon in the background by re-executing ourselves.
+pub fn start_daemon_background(root: &Path) -> Result<()> {
+    let root = root.canonicalize().context("canonicalize root")?;
+    let ig = crate::util::ig_dir(&root);
+    let sock = socket_path(&root);
+
+    // Check if already running
+    if sock.exists() && is_daemon_alive(&ig) {
+        eprintln!("Daemon is already running");
+        return Ok(());
+    }
+
+    let exe = std::env::current_exe().context("get current exe")?;
+    let log_path = ig.join("daemon.log");
+
+    // Re-launch ourselves with IG_DAEMON_FOREGROUND=1
+    let log_file = std::fs::File::create(&log_path).context("create daemon.log")?;
+    let log_err = log_file.try_clone()?;
+
+    let child = std::process::Command::new(&exe)
+        .args(["daemon", "foreground", &root.to_string_lossy()])
+        .env("IG_DAEMON_FOREGROUND", "1")
+        .stdout(log_file)
+        .stderr(log_err)
+        .stdin(std::process::Stdio::null())
+        .spawn()
+        .context("spawn daemon process")?;
+
+    // Write PID
+    let pid = child.id();
+    std::fs::write(pid_path(&ig), pid.to_string()).context("write daemon.pid")?;
+
+    eprintln!("Daemon started (PID {}), log: {}", pid, log_path.display());
+    Ok(())
+}
+
+/// Stop a running daemon.
+pub fn stop_daemon(root: &Path) -> Result<()> {
+    let root = root.canonicalize().context("canonicalize root")?;
+    let ig = crate::util::ig_dir(&root);
+    let sock = socket_path(&root);
+    let pid_file = pid_path(&ig);
+
+    if pid_file.exists() {
+        if let Ok(pid_str) = std::fs::read_to_string(&pid_file) {
+            if let Ok(pid) = pid_str.trim().parse::<i32>() {
+                // Send SIGTERM
+                unsafe {
+                    libc::kill(pid, libc::SIGTERM);
+                }
+                eprintln!("Sent SIGTERM to daemon (PID {})", pid);
+            }
+        }
+        let _ = std::fs::remove_file(&pid_file);
+    }
+
+    // Also clean up socket
+    let _ = std::fs::remove_file(&sock);
+
+    Ok(())
+}
+
+/// Show daemon status.
+pub fn daemon_status(root: &Path) -> Result<()> {
+    let root = root.canonicalize().context("canonicalize root")?;
+    let ig = crate::util::ig_dir(&root);
+    let sock = socket_path(&root);
+
+    if sock.exists() && is_daemon_alive(&ig) {
+        let pid = std::fs::read_to_string(pid_path(&ig))
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        eprintln!("Daemon: running (PID {}, socket: {})", pid, sock.display());
+    } else {
+        eprintln!("Daemon: not running");
+    }
+
+    Ok(())
+}
+
+/// Check if the daemon process is alive via its PID file.
+fn is_daemon_alive(ig_dir: &Path) -> bool {
+    let pid_file = pid_path(ig_dir);
+    if let Ok(pid_str) = std::fs::read_to_string(pid_file) {
+        if let Ok(pid) = pid_str.trim().parse::<i32>() {
+            // kill(pid, 0) checks if process exists without sending a signal
+            return unsafe { libc::kill(pid, 0) } == 0;
+        }
+    }
+    false
+}
+
+/// Generate a launchd plist label for a project.
+fn launchd_label(root: &Path) -> String {
+    let hash = {
+        let path_str = root.to_string_lossy();
+        let mut h: u64 = 5381;
+        for b in path_str.bytes() {
+            h = h.wrapping_mul(33).wrapping_add(b as u64);
+        }
+        h
+    };
+    format!("com.ig.daemon.{:x}", hash)
+}
+
+/// Install a launchd plist for auto-restart on boot.
+pub fn install_launchd(root: &Path) -> Result<()> {
+    let root = root.canonicalize().context("canonicalize root")?;
+    let ig = crate::util::ig_dir(&root);
+    let exe = std::env::current_exe().context("get current exe")?;
+    let label = launchd_label(&root);
+
+    let plist_dir = dirs::home_dir()
+        .context("get home dir")?
+        .join("Library/LaunchAgents");
+    std::fs::create_dir_all(&plist_dir).context("create LaunchAgents dir")?;
+
+    let plist_path = plist_dir.join(format!("{}.plist", label));
+
+    let log_path = ig.join("daemon.log");
+
+    let plist_content = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{label}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{exe}</string>
+        <string>daemon</string>
+        <string>{root}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>{log}</string>
+    <key>StandardErrorPath</key>
+    <string>{log}</string>
+    <key>WorkingDirectory</key>
+    <string>{root}</string>
+</dict>
+</plist>"#,
+        label = label,
+        exe = exe.display(),
+        root = root.display(),
+        log = log_path.display(),
+    );
+
+    std::fs::write(&plist_path, &plist_content).context("write plist")?;
+
+    // Load the service
+    let status = std::process::Command::new("launchctl")
+        .args(["load", &plist_path.to_string_lossy()])
+        .status()
+        .context("launchctl load")?;
+
+    if status.success() {
+        eprintln!("Installed: {}", plist_path.display());
+        eprintln!("Label: {}", label);
+        eprintln!("Daemon will auto-start on boot and restart on crash");
+    } else {
+        eprintln!("launchctl load failed (exit {})", status.code().unwrap_or(-1));
+    }
+
+    Ok(())
+}
+
+/// Uninstall the launchd plist.
+pub fn uninstall_launchd(root: &Path) -> Result<()> {
+    let root = root.canonicalize().context("canonicalize root")?;
+    let label = launchd_label(&root);
+
+    let plist_path = dirs::home_dir()
+        .context("get home dir")?
+        .join("Library/LaunchAgents")
+        .join(format!("{}.plist", label));
+
+    if plist_path.exists() {
+        let _ = std::process::Command::new("launchctl")
+            .args(["unload", &plist_path.to_string_lossy()])
+            .status();
+        std::fs::remove_file(&plist_path).context("remove plist")?;
+        eprintln!("Uninstalled: {}", plist_path.display());
+    } else {
+        eprintln!("No plist found for this project");
+    }
+
+    // Also stop the daemon if running
+    stop_daemon(&root)?;
+
+    Ok(())
 }
 
 /// Send a query to a running daemon and return the response.

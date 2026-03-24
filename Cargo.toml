@@ -1,6 +1,6 @@
 [package]
 name = "instant-grep"
-version = "0.3.0"
+version = "1.0.0"
 edition = "2024"
 description = "Trigram-indexed regex search CLI — sub-ms code search for AI agents"
 license = "MIT"
@@ -30,6 +30,8 @@ anyhow = "1"
 atty = "0.2"
 notify = "6"
 ctrlc = "3"
+libc = "0.2"
+dirs = "5"
 ureq = { version = "3", features = ["json"] }
 clap_complete = "4"
 

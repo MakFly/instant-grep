@@ -143,10 +143,31 @@ fn main() -> Result<()> {
             watch::watch_and_rebuild(&root, !no_default_excludes)?;
         }
 
-        Some(Commands::Daemon { path }) => {
+        Some(Commands::Daemon { action, path }) => {
             let root = resolve_root(path.as_deref());
-            ensure_index(&root, true, DEFAULT_MAX_FILE_SIZE)?;
-            daemon::start_daemon(&root)?;
+            match action.as_deref() {
+                Some("stop") => daemon::stop_daemon(&root)?,
+                Some("status") => daemon::daemon_status(&root)?,
+                Some("install") => {
+                    ensure_index(&root, true, DEFAULT_MAX_FILE_SIZE)?;
+                    daemon::install_launchd(&root)?;
+                }
+                Some("uninstall") => daemon::uninstall_launchd(&root)?,
+                Some("start") => {
+                    ensure_index(&root, true, DEFAULT_MAX_FILE_SIZE)?;
+                    daemon::start_daemon_background(&root)?;
+                }
+                None | Some("foreground") => {
+                    // Default: foreground mode (backward compat, also used by launchd)
+                    ensure_index(&root, true, DEFAULT_MAX_FILE_SIZE)?;
+                    daemon::start_daemon(&root)?;
+                }
+                Some(other) => {
+                    eprintln!("Unknown daemon action: {}", other);
+                    eprintln!("Available: start, stop, status, install, uninstall");
+                    std::process::exit(1);
+                }
+            }
         }
 
         Some(Commands::Files { path }) => {

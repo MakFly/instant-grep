@@ -104,8 +104,11 @@ pub enum Commands {
         path: Option<String>,
     },
 
-    /// Start a daemon that serves search queries via Unix socket
+    /// Manage the search daemon (start/stop/status/install/uninstall)
     Daemon {
+        /// Action: start, stop, status, install, uninstall (default: start in foreground)
+        action: Option<String>,
+
         /// Directory to serve (default: current dir)
         path: Option<String>,
     },

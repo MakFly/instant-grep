@@ -32,7 +32,7 @@ pub fn search_indexed(
     let start = Instant::now();
 
     let reader = IndexReader::open(&ig).context("open index")?;
-    let total_files = reader.metadata.file_count as usize;
+    let total_files = reader.total_file_count() as usize;
 
     let query = regex_to_query(pattern, case_insensitive)?;
 

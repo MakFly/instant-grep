@@ -1,22 +1,22 @@
-use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::{BufWriter, Write};
+use std::fs;
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use ahash::AHashMap;
 use anyhow::{Context, Result};
 use rayon::prelude::*;
 
+use crate::index::merge;
 use crate::index::metadata::{INDEX_VERSION, IndexMetadata, IndexedFile};
-use crate::index::ngram::{NgramKey, extract_sparse_ngrams};
-use crate::index::postings::DocId;
+use crate::index::ngram::extract_sparse_ngrams;
+use crate::index::overlay;
+use crate::index::spimi;
 use crate::util::{ig_dir, is_binary};
 use crate::walk::walk_files;
 
-/// Lexicon entry: 16 bytes on disk (u64 key + u32 offset + u32 length).
-const LEXICON_ENTRY_SIZE: usize = 16;
+/// Max changed files for overlay path (above this, full rebuild).
+const OVERLAY_THRESHOLD: usize = 100;
 
 /// Build or incrementally update the index.
 pub fn build_index(
@@ -32,15 +32,21 @@ pub fn build_index(
 
     if let Some(ref meta) = existing_meta
         && meta.version == INDEX_VERSION
-        && meta.file_ngrams.len() == meta.files.len()
     {
         let changed = detect_changed_files(&root, meta, &current_git_commit);
         if let Some(changed_paths) = changed {
             if changed_paths.is_empty() {
                 eprintln!("Index is up to date");
                 return Ok(meta.clone());
-            } else {
-                return incremental_rebuild(
+            }
+
+            // Use overlay for small changes, full rebuild for large changes
+            if changed_paths.len() <= OVERLAY_THRESHOLD {
+                eprintln!(
+                    "Detected {} changed files, building overlay...",
+                    changed_paths.len()
+                );
+                return incremental_overlay(
                     &root,
                     use_default_excludes,
                     max_file_size,
@@ -48,9 +54,18 @@ pub fn build_index(
                     meta,
                     &changed_paths,
                 );
+            } else {
+                eprintln!(
+                    "Detected {} changed files (>{} threshold), full rebuild...",
+                    changed_paths.len(),
+                    OVERLAY_THRESHOLD
+                );
             }
         }
     }
+
+    // Clear any existing overlay before full rebuild
+    overlay::clear_overlay(&ig);
 
     full_rebuild(
         &root,
@@ -89,170 +104,52 @@ fn full_rebuild(
         })
         .collect();
 
-    write_index(root, &ig, &file_data, git_commit)
+    write_index_spimi(root, &ig, &file_data, git_commit)
 }
 
-/// Incremental rebuild: reuse cached n-grams for unchanged files,
-/// re-extract only for changed/new/deleted files.
-fn incremental_rebuild(
-    root: &Path,
-    use_default_excludes: bool,
-    max_file_size: u64,
-    git_commit: &Option<String>,
-    old_meta: &IndexMetadata,
-    changed_paths: &[String],
-) -> Result<IndexMetadata> {
-    let ig = ig_dir(root);
-
-    // Build a lookup from old metadata: rel_path -> (mtime, size, ngrams)
-    let old_file_map: HashMap<&str, (&IndexedFile, &Vec<u64>)> = old_meta
-        .files
-        .iter()
-        .zip(old_meta.file_ngrams.iter())
-        .map(|(f, ng)| (f.path.as_str(), (f, ng)))
-        .collect();
-
-    let changed_set: std::collections::HashSet<&str> =
-        changed_paths.iter().map(|s| s.as_str()).collect();
-
-    // Walk all current files
-    let paths = walk_files(root, use_default_excludes, max_file_size, None, None)
-        .context("walking files")?;
-
-    let file_data: Vec<_> = paths
-        .par_iter()
-        .filter_map(|path| {
-            let rel_path = path.strip_prefix(root).ok()?.to_string_lossy().to_string();
-
-            // Check if we can reuse cached n-grams
-            if !changed_set.contains(rel_path.as_str())
-                && let Some((old_file, old_ngrams)) = old_file_map.get(rel_path.as_str()) {
-                    // Verify mtime+size still match
-                    let m = fs::metadata(path).ok()?;
-                    let current_mtime = m
-                        .modified()
-                        .ok()?
-                        .duration_since(UNIX_EPOCH)
-                        .ok()?
-                        .as_secs();
-                    if current_mtime == old_file.mtime && m.len() == old_file.size {
-                        return Some((rel_path, old_file.size, old_file.mtime, (*old_ngrams).clone()));
-                    }
-                }
-
-            // Changed, new, or mtime/size mismatch: re-read and re-extract
-            let bytes = fs::read(path).ok()?;
-            if is_binary(&bytes) {
-                return None;
-            }
-            let ngrams = extract_sparse_ngrams(&bytes);
-            let mtime = fs::metadata(path)
-                .and_then(|m| m.modified())
-                .ok()?
-                .duration_since(UNIX_EPOCH)
-                .ok()?
-                .as_secs();
-            Some((rel_path, bytes.len() as u64, mtime, ngrams))
-        })
-        .collect();
-
-    let total = file_data.len();
-    let reindexed = changed_paths.len();
-    let reused = total.saturating_sub(reindexed);
-    eprintln!(
-        "Incremental: reusing {}/{} files, re-indexing {} changed",
-        reused, total, reindexed
-    );
-
-    write_index(root, &ig, &file_data, git_commit)
-}
-
-fn write_index(
+/// Build index using SPIMI pipeline: segment build → k-way merge → lexicon → metadata.
+fn write_index_spimi(
     root: &Path,
     ig: &Path,
-    file_data: &[(String, u64, u64, Vec<NgramKey>)],
+    file_data: &[(String, u64, u64, Vec<u64>)],
     git_commit: &Option<String>,
 ) -> Result<IndexMetadata> {
-    let mut postings_map: AHashMap<NgramKey, Vec<DocId>> = AHashMap::new();
-    let mut files = Vec::with_capacity(file_data.len());
-
-    let mut file_ngrams_out: Vec<Vec<u64>> = Vec::with_capacity(file_data.len());
-
-    for (new_id, (rel_path, size, mtime, ngrams)) in file_data.iter().enumerate() {
-        files.push(IndexedFile {
-            path: rel_path.clone(),
-            mtime: *mtime,
-            size: *size,
-        });
-        file_ngrams_out.push(ngrams.clone());
-
-        for &key in ngrams {
-            postings_map.entry(key).or_default().push(new_id as DocId);
-        }
-    }
-
-    for list in postings_map.values_mut() {
-        list.sort_unstable();
-        list.dedup();
-    }
-
     fs::create_dir_all(ig).context("create .ig directory")?;
 
+    let segment_dir = ig.join("segments");
     let postings_path = ig.join("postings.bin");
     let lexicon_path = ig.join("lexicon.bin");
 
-    let mut postings_writer =
-        BufWriter::new(File::create(&postings_path).context("create postings.bin")?);
+    // Phase 1: Build SPIMI segments with bounded memory
+    let segments = spimi::build_segments(file_data, spimi::DEFAULT_MEMORY_BUDGET, &segment_dir)
+        .context("build SPIMI segments")?;
 
-    let mut ngrams_sorted: Vec<(NgramKey, &Vec<DocId>)> = postings_map
+    eprintln!(
+        "Built {} segment(s) from {} files",
+        segments.len(),
+        file_data.len()
+    );
+
+    // Phase 2: K-way merge segments into postings.bin
+    let merged_entries =
+        merge::merge_segments(&segments, &postings_path).context("merge segments")?;
+
+    // Phase 3: Build and write lexicon
+    let lexicon_data = merge::build_lexicon(&merged_entries);
+    fs::write(&lexicon_path, &lexicon_data).context("write lexicon.bin")?;
+
+    // Phase 4: Cleanup segments
+    merge::cleanup_segments(&segments);
+
+    // Phase 5: Build and write metadata (without file_ngrams!)
+    let files: Vec<IndexedFile> = file_data
         .iter()
-        .map(|(&key, list)| (key, list))
+        .map(|(rel_path, size, mtime, _)| IndexedFile {
+            path: rel_path.clone(),
+            mtime: *mtime,
+            size: *size,
+        })
         .collect();
-    ngrams_sorted.sort_unstable_by_key(|(key, _)| *key);
-
-    let mut offset_map: HashMap<NgramKey, (u32, u32)> = HashMap::new();
-    let mut current_offset: u32 = 0;
-
-    for (key, list) in &ngrams_sorted {
-        let length = list.len() as u32;
-        offset_map.insert(*key, (current_offset, length));
-        for &doc_id in *list {
-            postings_writer.write_all(&doc_id.to_le_bytes())?;
-        }
-        current_offset += length * 4;
-    }
-    postings_writer.flush()?;
-
-    let ngram_count = ngrams_sorted.len();
-    let table_size = next_prime((ngram_count as f64 * 1.3) as usize);
-    let mut table = vec![0u8; table_size * LEXICON_ENTRY_SIZE];
-
-    for (key, (offset, length)) in &offset_map {
-        let stored_key = *key + 1; // sentinel: 0 = empty
-        let mut slot = (stored_key as usize) % table_size;
-        loop {
-            let base = slot * LEXICON_ENTRY_SIZE;
-            let existing = u64::from_le_bytes([
-                table[base],
-                table[base + 1],
-                table[base + 2],
-                table[base + 3],
-                table[base + 4],
-                table[base + 5],
-                table[base + 6],
-                table[base + 7],
-            ]);
-            if existing == 0 {
-                table[base..base + 8].copy_from_slice(&stored_key.to_le_bytes());
-                table[base + 8..base + 12].copy_from_slice(&offset.to_le_bytes());
-                table[base + 12..base + 16].copy_from_slice(&length.to_le_bytes());
-                break;
-            }
-            slot = (slot + 1) % table_size;
-        }
-    }
-
-    fs::write(&lexicon_path, &table).context("write lexicon.bin")?;
 
     let metadata = IndexMetadata {
         version: INDEX_VERSION,
@@ -262,10 +159,9 @@ fn write_index(
             .as_secs(),
         root: root.to_string_lossy().to_string(),
         file_count: files.len() as u32,
-        ngram_count: ngram_count as u32,
+        ngram_count: merged_entries.len() as u32,
         files,
         git_commit: git_commit.clone(),
-        file_ngrams: file_ngrams_out,
     };
 
     metadata.write_to(ig).context("write metadata")?;
@@ -373,35 +269,68 @@ fn detect_git_diff_files(root: &Path, old: &str, new: &str) -> Option<Vec<String
     }
 }
 
-fn next_prime(n: usize) -> usize {
-    if n <= 2 {
-        return 2;
-    }
-    let mut candidate = if n.is_multiple_of(2) { n + 1 } else { n };
-    loop {
-        if is_prime(candidate) {
-            return candidate;
-        }
-        candidate += 2;
-    }
-}
+/// Build an overlay index for a small number of changed files.
+fn incremental_overlay(
+    root: &Path,
+    _use_default_excludes: bool,
+    _max_file_size: u64,
+    git_commit: &Option<String>,
+    base_meta: &IndexMetadata,
+    changed_paths: &[String],
+) -> Result<IndexMetadata> {
+    let ig = ig_dir(root);
 
-fn is_prime(n: usize) -> bool {
-    if n < 2 {
-        return false;
-    }
-    if n == 2 || n == 3 {
-        return true;
-    }
-    if n.is_multiple_of(2) || n.is_multiple_of(3) {
-        return false;
-    }
-    let mut i = 5;
-    while i * i <= n {
-        if n.is_multiple_of(i) || n.is_multiple_of(i + 2) {
-            return false;
+    // Separate changed files into modified/new vs deleted
+    let mut changed_file_data: Vec<(String, u64, u64, Vec<u64>)> = Vec::new();
+    let mut deleted_paths: Vec<String> = Vec::new();
+
+    for rel_path in changed_paths {
+        let full_path = root.join(rel_path);
+        if full_path.exists() {
+            match fs::read(&full_path) {
+                Ok(bytes) => {
+                    if is_binary(&bytes) {
+                        continue;
+                    }
+                    let ngrams = extract_sparse_ngrams(&bytes);
+                    let mtime = fs::metadata(&full_path)
+                        .and_then(|m| m.modified())
+                        .ok()
+                        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    changed_file_data.push((
+                        rel_path.clone(),
+                        bytes.len() as u64,
+                        mtime,
+                        ngrams,
+                    ));
+                }
+                Err(_) => {
+                    deleted_paths.push(rel_path.clone());
+                }
+            }
+        } else {
+            deleted_paths.push(rel_path.clone());
         }
-        i += 6;
     }
-    true
+
+    overlay::build_overlay(
+        &ig,
+        base_meta.file_count,
+        &base_meta.files,
+        &changed_file_data,
+        &deleted_paths,
+        &base_meta.git_commit,
+        git_commit,
+    )?;
+
+    eprintln!(
+        "Overlay: {} modified/new, {} deleted",
+        changed_file_data.len(),
+        deleted_paths.len()
+    );
+
+    // Return base metadata (overlay is transparent at query time)
+    Ok(base_meta.clone())
 }
