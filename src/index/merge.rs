@@ -1,9 +1,10 @@
 use std::collections::BinaryHeap;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use memmap2::{Mmap, MmapMut};
 
 use super::ngram::NgramKey;
 use super::spimi::{SegmentInfo, SegmentReader};
@@ -14,6 +15,21 @@ pub struct MergedEntry {
     pub key: NgramKey,
     pub byte_offset: u32,
     pub byte_length: u32,
+}
+
+/// Size of a single entry in the temp file: u64 key + u32 offset + u32 length.
+const ENTRY_FILE_SIZE: usize = 16;
+
+/// Result of streaming merge: entries written to a temp file instead of a Vec.
+pub struct StreamingMergeResult {
+    pub entries_path: PathBuf,
+    pub entry_count: usize,
+}
+
+impl Drop for StreamingMergeResult {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.entries_path);
+    }
 }
 
 /// Entry in the min-heap for k-way merge.
@@ -36,22 +52,52 @@ impl PartialOrd for HeapEntry {
     }
 }
 
-/// Merge all segment files into final postings.bin.
+/// Merge all segment files into final postings.bin (backward-compatible).
 ///
 /// Returns the merged entries (key, byte_offset, byte_length) for lexicon construction.
+/// Internally uses the streaming path and reads entries back from the temp file.
 pub fn merge_segments(
     segments: &[SegmentInfo],
     postings_path: &Path,
 ) -> Result<Vec<MergedEntry>> {
+    let result = merge_segments_streaming(segments, postings_path)?;
+    read_entries_from_file(&result.entries_path, result.entry_count)
+}
+
+/// Merge all segment files into final postings.bin (streaming / low-RAM).
+///
+/// Writes each MergedEntry to a temp file as it's produced instead of collecting
+/// in a Vec. Returns the temp file path + entry count. The temp file is
+/// automatically deleted when the `StreamingMergeResult` is dropped.
+///
+/// Format: 16 bytes per entry — key(u64 LE) + byte_offset(u32 LE) + byte_length(u32 LE).
+pub fn merge_segments_streaming(
+    segments: &[SegmentInfo],
+    postings_path: &Path,
+) -> Result<StreamingMergeResult> {
+    // Create temp file for entries in same directory as postings (same filesystem)
+    let entries_dir = postings_path.parent().unwrap_or(Path::new("."));
+    let entries_file = tempfile::Builder::new()
+        .prefix(".ig-entries-")
+        .suffix(".tmp")
+        .tempfile_in(entries_dir)
+        .context("create entries temp file")?;
+    let entries_path = entries_file.path().to_path_buf();
+    // Keep the file by persisting (we manage cleanup via StreamingMergeResult::Drop)
+    let entries_file = entries_file
+        .persist(&entries_path)
+        .context("persist entries temp file")?;
+
     if segments.is_empty() {
-        // Write empty postings file
         File::create(postings_path).context("create empty postings.bin")?;
-        return Ok(Vec::new());
+        return Ok(StreamingMergeResult {
+            entries_path,
+            entry_count: 0,
+        });
     }
 
-    // Single segment: fast path — just read and write directly
     if segments.len() == 1 {
-        return merge_single_segment(&segments[0], postings_path);
+        return merge_single_segment_streaming(&segments[0], postings_path, entries_file, entries_path);
     }
 
     // Open all segment readers
@@ -79,15 +125,14 @@ pub fn merge_segments(
 
     let mut postings_writer =
         BufWriter::new(File::create(postings_path).context("create postings.bin")?);
-    let mut merged: Vec<MergedEntry> = Vec::new();
+    let mut entries_writer = BufWriter::new(entries_file);
+    let mut entry_count: usize = 0;
     let mut current_offset: u32 = 0;
 
     while let Some(min_entry) = heap.pop() {
         let min_key = min_entry.key;
 
         // Collect all posting bytes for this key across segments
-        // Since DocId ranges are disjoint across segments (sequential processing),
-        // we can simply concatenate the decoded lists.
         let mut all_doc_ids: Vec<u32> = Vec::new();
 
         // Process the segment that was popped
@@ -97,7 +142,6 @@ pub fn merge_segments(
                 let ids = vbyte::decode_posting_list(&entry.posting_bytes, 0, entry.posting_bytes.len());
                 all_doc_ids.extend_from_slice(&ids);
             }
-            // Advance this reader
             let next = readers[idx].next_entry();
             if let Some(ref e) = next {
                 heap.push(HeapEntry {
@@ -119,7 +163,6 @@ pub fn merge_segments(
                 let ids = vbyte::decode_posting_list(&seg_entry.posting_bytes, 0, seg_entry.posting_bytes.len());
                 all_doc_ids.extend_from_slice(&ids);
             }
-            // Advance this reader
             let next = readers[idx].next_entry();
             if let Some(ref e) = next {
                 heap.push(HeapEntry {
@@ -130,50 +173,90 @@ pub fn merge_segments(
             current_entries[idx] = next;
         }
 
-        // DocIds should already be sorted (disjoint ranges from sequential processing)
-        // but sort to be safe
         all_doc_ids.sort_unstable();
         all_doc_ids.dedup();
 
-        // Encode and write
+        // Encode and write postings
         let encoded = vbyte::encode_posting_list(&all_doc_ids);
         let byte_len = encoded.len() as u32;
         postings_writer.write_all(&encoded)?;
 
-        merged.push(MergedEntry {
-            key: min_key,
-            byte_offset: current_offset,
-            byte_length: byte_len,
-        });
+        // Write entry to temp file: key(u64 LE) + offset(u32 LE) + length(u32 LE)
+        write_entry(&mut entries_writer, min_key, current_offset, byte_len)?;
+        entry_count += 1;
         current_offset += byte_len;
     }
 
     postings_writer.flush()?;
-    Ok(merged)
+    entries_writer.flush()?;
+
+    Ok(StreamingMergeResult {
+        entries_path,
+        entry_count,
+    })
 }
 
-/// Fast path for a single segment: just re-encode as postings.bin.
-fn merge_single_segment(segment: &SegmentInfo, postings_path: &Path) -> Result<Vec<MergedEntry>> {
+/// Fast path for a single segment: streaming variant.
+fn merge_single_segment_streaming(
+    segment: &SegmentInfo,
+    postings_path: &Path,
+    entries_file: File,
+    entries_path: PathBuf,
+) -> Result<StreamingMergeResult> {
     let mut reader = SegmentReader::open(&segment.path)?;
     let mut postings_writer =
         BufWriter::new(File::create(postings_path).context("create postings.bin")?);
-    let mut merged: Vec<MergedEntry> = Vec::new();
+    let mut entries_writer = BufWriter::new(entries_file);
+    let mut entry_count: usize = 0;
     let mut current_offset: u32 = 0;
 
     while let Some(entry) = reader.next_entry() {
         let byte_len = entry.posting_bytes.len() as u32;
         postings_writer.write_all(&entry.posting_bytes)?;
 
-        merged.push(MergedEntry {
-            key: entry.key,
-            byte_offset: current_offset,
-            byte_length: byte_len,
-        });
+        write_entry(&mut entries_writer, entry.key, current_offset, byte_len)?;
+        entry_count += 1;
         current_offset += byte_len;
     }
 
     postings_writer.flush()?;
-    Ok(merged)
+    entries_writer.flush()?;
+
+    Ok(StreamingMergeResult {
+        entries_path,
+        entry_count,
+    })
+}
+
+/// Write a single entry to the entries temp file.
+#[inline]
+fn write_entry(w: &mut BufWriter<File>, key: NgramKey, offset: u32, length: u32) -> Result<()> {
+    w.write_all(&key.to_le_bytes())?;
+    w.write_all(&offset.to_le_bytes())?;
+    w.write_all(&length.to_le_bytes())?;
+    Ok(())
+}
+
+/// Read entries back from a temp file into a Vec (used by backward-compat `merge_segments`).
+fn read_entries_from_file(path: &Path, count: usize) -> Result<Vec<MergedEntry>> {
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    let file = File::open(path).context("open entries temp file")?;
+    let mmap = unsafe { Mmap::map(&file).context("mmap entries temp file")? };
+    let mut entries = Vec::with_capacity(count);
+    for i in 0..count {
+        let base = i * ENTRY_FILE_SIZE;
+        let key = u64::from_le_bytes(mmap[base..base + 8].try_into().unwrap());
+        let byte_offset = u32::from_le_bytes(mmap[base + 8..base + 12].try_into().unwrap());
+        let byte_length = u32::from_le_bytes(mmap[base + 12..base + 16].try_into().unwrap());
+        entries.push(MergedEntry {
+            key,
+            byte_offset,
+            byte_length,
+        });
+    }
+    Ok(entries)
 }
 
 /// Build the lexicon hash table from merged entries.
@@ -214,6 +297,118 @@ pub fn build_lexicon(entries: &[MergedEntry]) -> Vec<u8> {
     }
 
     table
+}
+
+/// Build the lexicon hash table and write directly to a mmap'd file.
+/// Avoids allocating the full hash table on the heap — the OS manages pages.
+/// Prefer `build_lexicon_mmap_from_file` for the streaming path.
+#[allow(dead_code)]
+pub fn build_lexicon_mmap(entries: &[MergedEntry], path: &Path) -> Result<()> {
+    let table_size = next_prime((entries.len() as f64 * 1.3) as usize);
+    if table_size == 0 {
+        File::create(path).context("create empty lexicon.bin")?;
+        return Ok(());
+    }
+
+    const ENTRY_SIZE: usize = 16;
+    let byte_size = table_size * ENTRY_SIZE;
+
+    // Create file with exact size, mmap it as writable
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)
+        .context("create lexicon.bin")?;
+    file.set_len(byte_size as u64)
+        .context("set lexicon.bin size")?;
+
+    let mut mmap = unsafe { MmapMut::map_mut(&file).context("mmap lexicon.bin for write")? };
+    // mmap is zero-filled on fresh file (sentinel value 0 = empty slot)
+
+    for entry in entries {
+        let stored_key = entry.key + 1; // sentinel: 0 = empty
+        let mut slot = (stored_key as usize) % table_size;
+        loop {
+            let base = slot * ENTRY_SIZE;
+            let existing = u64::from_le_bytes(
+                mmap[base..base + 8].try_into().unwrap(),
+            );
+            if existing == 0 {
+                mmap[base..base + 8].copy_from_slice(&stored_key.to_le_bytes());
+                mmap[base + 8..base + 12].copy_from_slice(&entry.byte_offset.to_le_bytes());
+                mmap[base + 12..base + 16].copy_from_slice(&entry.byte_length.to_le_bytes());
+                break;
+            }
+            slot = (slot + 1) % table_size;
+        }
+    }
+
+    mmap.flush().context("flush lexicon mmap")?;
+    Ok(())
+}
+
+/// Build the lexicon hash table from entries stored in a temp file (streaming path).
+///
+/// Mmaps the entries file for reading and builds the lexicon via mmap — no heap
+/// allocation for either the entries or the hash table.
+pub fn build_lexicon_mmap_from_file(
+    entries_path: &Path,
+    entry_count: usize,
+    lexicon_path: &Path,
+) -> Result<()> {
+    if entry_count == 0 {
+        File::create(lexicon_path).context("create empty lexicon.bin")?;
+        return Ok(());
+    }
+
+    let table_size = next_prime((entry_count as f64 * 1.3) as usize);
+    const ENTRY_SIZE: usize = 16;
+    let byte_size = table_size * ENTRY_SIZE;
+
+    // Mmap the entries file for reading
+    let entries_file = File::open(entries_path).context("open entries temp file for lexicon")?;
+    let entries_mmap = unsafe { Mmap::map(&entries_file).context("mmap entries temp file")? };
+
+    // Create lexicon file with exact size, mmap it as writable
+    let lex_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(lexicon_path)
+        .context("create lexicon.bin")?;
+    lex_file
+        .set_len(byte_size as u64)
+        .context("set lexicon.bin size")?;
+
+    let mut mmap = unsafe { MmapMut::map_mut(&lex_file).context("mmap lexicon.bin for write")? };
+
+    for i in 0..entry_count {
+        let base = i * ENTRY_FILE_SIZE;
+        let key = u64::from_le_bytes(entries_mmap[base..base + 8].try_into().unwrap());
+        let byte_offset_bytes: [u8; 4] = entries_mmap[base + 8..base + 12].try_into().unwrap();
+        let byte_length_bytes: [u8; 4] = entries_mmap[base + 12..base + 16].try_into().unwrap();
+
+        let stored_key = key + 1; // sentinel: 0 = empty
+        let mut slot = (stored_key as usize) % table_size;
+        loop {
+            let lex_base = slot * ENTRY_SIZE;
+            let existing =
+                u64::from_le_bytes(mmap[lex_base..lex_base + 8].try_into().unwrap());
+            if existing == 0 {
+                mmap[lex_base..lex_base + 8].copy_from_slice(&stored_key.to_le_bytes());
+                mmap[lex_base + 8..lex_base + 12].copy_from_slice(&byte_offset_bytes);
+                mmap[lex_base + 12..lex_base + 16].copy_from_slice(&byte_length_bytes);
+                break;
+            }
+            slot = (slot + 1) % table_size;
+        }
+    }
+
+    mmap.flush().context("flush lexicon mmap")?;
+    Ok(())
 }
 
 /// Clean up temporary segment files.

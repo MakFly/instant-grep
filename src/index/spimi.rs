@@ -49,12 +49,14 @@ impl MemoryBudget {
         self.current = 0;
     }
 
+    #[allow(dead_code)]
     pub fn current(&self) -> usize {
         self.current
     }
 }
 
 /// Info about a written segment file.
+#[allow(dead_code)]
 pub struct SegmentInfo {
     pub path: PathBuf,
     pub ngram_count: u32,
@@ -66,6 +68,7 @@ pub struct SegmentInfo {
 /// When the memory budget is exceeded, flushes the current map to a segment file.
 ///
 /// Returns: list of segment files and a parallel Vec of (IndexedFile-data) for metadata.
+#[allow(dead_code)]
 pub fn build_segments(
     file_data: &[(String, u64, u64, Vec<NgramKey>)],
     memory_budget: usize,
@@ -103,7 +106,7 @@ pub fn build_segments(
 }
 
 /// Flush the current postings map to a segment file.
-fn flush_segment(
+pub fn flush_segment(
     postings_map: &mut AHashMap<NgramKey, Vec<DocId>>,
     segment_dir: &Path,
     segment_id: u32,

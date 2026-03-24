@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use regex_syntax::Parser;
 use regex_syntax::hir::literal::{ExtractKind, Extractor};
 
-use crate::index::ngram::{DEFAULT_MAX_NGRAM_LEN, extract_covering_ngrams};
+use crate::index::ngram::{DEFAULT_MAX_NGRAM_LEN, extract_covering_ngrams, hash_ngram};
 use crate::query::plan::NgramQuery;
 
 /// Convert a regex pattern into an NgramQuery using sparse n-grams.
@@ -59,8 +59,15 @@ pub fn regex_to_query(pattern: &str, case_insensitive: bool) -> Result<NgramQuer
             bytes.to_vec()
         };
 
-        if working_bytes.len() < 3 {
+        if working_bytes.len() < 2 {
             return Ok(NgramQuery::All);
+        }
+
+        // For 2-byte literals, use bigram key directly (indexed since v0.4)
+        if working_bytes.len() == 2 {
+            let key = hash_ngram(&working_bytes);
+            or_branches.push(NgramQuery::Ngram(key));
+            continue;
         }
 
         // Use covering algorithm for sparse n-grams
@@ -123,8 +130,18 @@ mod tests {
     }
 
     #[test]
-    fn test_short_literal_is_all() {
+    fn test_bigram_uses_index() {
         let query = regex_to_query("ab", false).unwrap();
+        // 2-char patterns should use bigram index lookup, not brute-force
+        match query {
+            NgramQuery::Ngram(_) => {}
+            _ => panic!("expected Ngram query for bigram, got {:?}", query),
+        }
+    }
+
+    #[test]
+    fn test_single_char_is_all() {
+        let query = regex_to_query("a", false).unwrap();
         assert!(query.is_all());
     }
 

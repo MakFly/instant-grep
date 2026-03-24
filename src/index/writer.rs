@@ -4,19 +4,25 @@ use std::path::Path;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use ahash::AHashMap;
 use anyhow::{Context, Result};
 use rayon::prelude::*;
 
 use crate::index::merge;
 use crate::index::metadata::{INDEX_VERSION, IndexMetadata, IndexedFile};
-use crate::index::ngram::extract_sparse_ngrams;
-use crate::index::overlay;
+use crate::index::ngram::{NgramKey, extract_sparse_ngrams};
+use crate::index::overlay::{self, OverlayReader};
+use crate::index::postings::DocId;
 use crate::index::spimi;
 use crate::util::{ig_dir, is_binary};
 use crate::walk::walk_files;
 
 /// Max changed files for overlay path (above this, full rebuild).
 const OVERLAY_THRESHOLD: usize = 100;
+
+/// Batch size for streaming file processing.
+/// Only this many files' ngrams are in memory at once.
+const BATCH_SIZE: usize = 1000;
 
 /// Build or incrementally update the index.
 pub fn build_index(
@@ -33,6 +39,15 @@ pub fn build_index(
     if let Some(ref meta) = existing_meta
         && meta.version == INDEX_VERSION
     {
+        // Check if existing overlay is too large and needs compaction
+        if let Ok(Some(overlay_reader)) = OverlayReader::open(&ig) {
+            if overlay_reader.needs_compaction(meta.file_count) {
+                eprintln!("Overlay too large, compacting...");
+                overlay::clear_overlay(&ig);
+                return full_rebuild(&root, use_default_excludes, max_file_size, &current_git_commit);
+            }
+        }
+
         let changed = detect_changed_files(&root, meta, &current_git_commit);
         if let Some(changed_paths) = changed {
             if changed_paths.is_empty() {
@@ -75,6 +90,8 @@ pub fn build_index(
     )
 }
 
+/// Streaming full rebuild: processes files in batches of BATCH_SIZE.
+/// Only one batch of ngrams is in memory at a time — truly bounded RAM.
 fn full_rebuild(
     root: &Path,
     use_default_excludes: bool,
@@ -82,75 +99,102 @@ fn full_rebuild(
     git_commit: &Option<String>,
 ) -> Result<IndexMetadata> {
     let ig = ig_dir(root);
+    fs::create_dir_all(&ig).context("create .ig directory")?;
+
     let paths = walk_files(root, use_default_excludes, max_file_size, None, None)
         .context("walking files")?;
 
-    let file_data: Vec<_> = paths
-        .par_iter()
-        .filter_map(|path| {
-            let bytes = fs::read(path).ok()?;
-            if is_binary(&bytes) {
-                return None;
-            }
-            let ngrams = extract_sparse_ngrams(&bytes);
-            let mtime = fs::metadata(path)
-                .and_then(|m| m.modified())
-                .ok()?
-                .duration_since(UNIX_EPOCH)
-                .ok()?
-                .as_secs();
-            let rel_path = path.strip_prefix(root).ok()?.to_string_lossy().to_string();
-            Some((rel_path, bytes.len() as u64, mtime, ngrams))
-        })
-        .collect();
-
-    write_index_spimi(root, &ig, &file_data, git_commit)
-}
-
-/// Build index using SPIMI pipeline: segment build → k-way merge → lexicon → metadata.
-fn write_index_spimi(
-    root: &Path,
-    ig: &Path,
-    file_data: &[(String, u64, u64, Vec<u64>)],
-    git_commit: &Option<String>,
-) -> Result<IndexMetadata> {
-    fs::create_dir_all(ig).context("create .ig directory")?;
-
     let segment_dir = ig.join("segments");
-    let postings_path = ig.join("postings.bin");
-    let lexicon_path = ig.join("lexicon.bin");
+    fs::create_dir_all(&segment_dir).context("create segment directory")?;
 
-    // Phase 1: Build SPIMI segments with bounded memory
-    let segments = spimi::build_segments(file_data, spimi::DEFAULT_MEMORY_BUDGET, &segment_dir)
-        .context("build SPIMI segments")?;
+    let mut budget = spimi::MemoryBudget::new(spimi::DEFAULT_MEMORY_BUDGET);
+    let mut postings_map: AHashMap<NgramKey, Vec<DocId>> = AHashMap::new();
+    let mut files: Vec<IndexedFile> = Vec::with_capacity(paths.len());
+    let mut segments: Vec<spimi::SegmentInfo> = Vec::new();
+    let mut segment_id: u32 = 0;
+    let mut doc_id: u32 = 0;
+
+    // Process files in batches — only BATCH_SIZE files' ngrams in memory at once
+    for batch in paths.chunks(BATCH_SIZE) {
+        let batch_data: Vec<_> = batch
+            .par_iter()
+            .filter_map(|path| {
+                let bytes = fs::read(path).ok()?;
+                if is_binary(&bytes) {
+                    return None;
+                }
+                let ngrams = extract_sparse_ngrams(&bytes);
+                let mtime = fs::metadata(path)
+                    .and_then(|m| m.modified())
+                    .ok()?
+                    .duration_since(UNIX_EPOCH)
+                    .ok()?
+                    .as_secs();
+                let rel_path = path.strip_prefix(root).ok()?.to_string_lossy().to_string();
+                Some((rel_path, bytes.len() as u64, mtime, ngrams))
+            })
+            .collect();
+
+        // Feed batch into SPIMI accumulator, then drop batch (ngrams freed)
+        for (rel_path, size, mtime, ngrams) in batch_data {
+            files.push(IndexedFile {
+                path: rel_path,
+                mtime,
+                size,
+            });
+
+            for &key in &ngrams {
+                let is_new = !postings_map.contains_key(&key);
+                postings_map.entry(key).or_default().push(doc_id);
+                budget.track_posting(is_new);
+            }
+            doc_id += 1;
+            // ngrams Vec dropped here — not stored
+
+            if budget.should_flush() && !postings_map.is_empty() {
+                let info =
+                    spimi::flush_segment(&mut postings_map, &segment_dir, segment_id)?;
+                segments.push(info);
+                segment_id += 1;
+                budget.reset();
+            }
+        }
+        // entire batch_data dropped here — RAM freed
+    }
+
+    // Flush remaining postings
+    if !postings_map.is_empty() {
+        let info = spimi::flush_segment(&mut postings_map, &segment_dir, segment_id)?;
+        segments.push(info);
+    }
+    drop(postings_map); // free AHashMap
+
+    let file_count = files.len() as u32;
 
     eprintln!(
         "Built {} segment(s) from {} files",
         segments.len(),
-        file_data.len()
+        file_count
     );
 
-    // Phase 2: K-way merge segments into postings.bin
-    let merged_entries =
-        merge::merge_segments(&segments, &postings_path).context("merge segments")?;
+    // K-way merge segments into postings.bin (streaming: entries go to temp file, not RAM)
+    let postings_path = ig.join("postings.bin");
+    let merge_result =
+        merge::merge_segments_streaming(&segments, &postings_path).context("merge segments")?;
 
-    // Phase 3: Build and write lexicon
-    let lexicon_data = merge::build_lexicon(&merged_entries);
-    fs::write(&lexicon_path, &lexicon_data).context("write lexicon.bin")?;
+    let ngram_count = merge_result.entry_count as u32;
 
-    // Phase 4: Cleanup segments
+    // Build lexicon via mmap from the entries temp file (no heap allocation)
+    let lexicon_path = ig.join("lexicon.bin");
+    merge::build_lexicon_mmap_from_file(&merge_result.entries_path, merge_result.entry_count, &lexicon_path)
+        .context("write lexicon.bin")?;
+
+    drop(merge_result); // entries temp file cleaned up
+
+    // Cleanup segments
     merge::cleanup_segments(&segments);
 
-    // Phase 5: Build and write metadata (without file_ngrams!)
-    let files: Vec<IndexedFile> = file_data
-        .iter()
-        .map(|(rel_path, size, mtime, _)| IndexedFile {
-            path: rel_path.clone(),
-            mtime: *mtime,
-            size: *size,
-        })
-        .collect();
-
+    // Write metadata
     let metadata = IndexMetadata {
         version: INDEX_VERSION,
         created_at: SystemTime::now()
@@ -158,13 +202,13 @@ fn write_index_spimi(
             .unwrap()
             .as_secs(),
         root: root.to_string_lossy().to_string(),
-        file_count: files.len() as u32,
-        ngram_count: merged_entries.len() as u32,
+        file_count,
+        ngram_count,
         files,
         git_commit: git_commit.clone(),
     };
 
-    metadata.write_to(ig).context("write metadata")?;
+    metadata.write_to(&ig).context("write metadata")?;
 
     // Auto-add .ig/ to .gitignore
     let gitignore = root.join(".gitignore");

@@ -135,11 +135,19 @@ ig watch .
 For agents that call search in a tight loop:
 
 ```bash
-# Start daemon (keeps index in memory)
-ig daemon . &
+# Start daemon in background
+ig daemon start .
 
 # Query via Unix socket — 0.2ms response
 ig query "pattern" .
+
+# Status / stop
+ig daemon status .
+ig daemon stop .
+
+# Auto-restart on macOS reboot (launchd)
+ig daemon install .
+ig daemon uninstall .
 ```
 
 ### Explore codebase
@@ -244,17 +252,21 @@ Trigrams:     23 keys → 47 candidate files
 Sparse grams:  3 keys →  4 candidate files (12x better)
 ```
 
-### On-disk format
+### On-disk format (v7)
 
 The index lives in `.ig/` at the project root:
 
-| File           | Format                                            | Size (1,284 files) |
-| -------------- | ------------------------------------------------- | ------------------ |
-| `metadata.bin` | bincode — file paths, mtimes, git SHA             | 84 KB              |
-| `lexicon.bin`  | Hash table: `[NgramKey:u64, offset:u32, len:u32]` | 30 MB              |
-| `postings.bin` | Sorted `DocId:u32` arrays, concatenated           | 25 MB              |
+| File           | Format                                               | Size (1,552 files) |
+| -------------- | ---------------------------------------------------- | ------------------ |
+| `metadata.bin` | bincode — file paths, mtimes, git SHA                | 111 KB             |
+| `lexicon.bin`  | Hash table: `[NgramKey:u64, offset:u32, byte_len:u32]` | 31 MB           |
+| `postings.bin` | Delta + VByte encoded posting lists, concatenated    | 7.1 MB             |
 
-The lexicon is memory-mapped (`mmap`). Postings are memory-mapped. Metadata is deserialized via `bincode` (~1ms).
+The lexicon is memory-mapped (`mmap`). Postings are memory-mapped and VByte-compressed (~50-60% smaller than raw u32). Metadata is deserialized via `bincode` (~1ms).
+
+**Overlay index** (incremental updates): when <100 files change, ig writes `overlay.bin` + `overlay_lex.bin` + `tombstones.bin` instead of rebuilding. Query-time merge is transparent.
+
+**Streaming SPIMI pipeline**: files are processed in batches of 1,000 (parallel rayon read + ngram extraction per batch). Each batch's ngrams are fed into a bounded-memory accumulator (128MB budget), flushed to disk segments when full, then the batch is freed. The lexicon hash table is written directly via mmap (no heap allocation). This keeps RAM proportional to the number of unique n-grams, not the number of files.
 
 ### Default exclusions
 
@@ -266,27 +278,89 @@ Files larger than 1 MB are also skipped by default (`--max-file-size` to overrid
 
 ## Benchmarks
 
-Measured with `time` on iautos/apps/web (1,284 source files, Next.js project). Debian, AMD Ryzen, NVMe SSD.
+Measured on a Laravel project (1,552 PHP/JS source files) and a Rust project (68 source files). Apple M4 Max, macOS 15.5, ripgrep 15.1.
 
-### Wall time (process start to exit)
+### CLI: ig vs ripgrep (1,552 files)
 
-| Query                             | Candidates | ig (CLI)   | ripgrep |
-| --------------------------------- | ---------- | ---------- | ------- |
-| `"fetchSellerListings"` (4 hits)  | 4 / 1,284  | **~3ms**   | ~11ms   |
-| `"useRouter"` --type ts (74 hits) | 74 / 1,284 | **~3ms**   | ~11ms   |
-| `"ZZZZNOTFOUND"` (0 hits)         | 0 / 1,284  | **~3ms**   | ~11ms   |
-| Daemon mode (any query)           | —          | **~0.2ms** | N/A     |
+Wall time includes process startup (~15ms on macOS). Average of 5 runs.
 
-> ig wall time is ~3ms regardless of candidate count because the bottleneck is process startup + mmap, not the search itself. The daemon bypasses this entirely.
+| #  | Query                                 | ig (CLI) | ripgrep | Speedup |
+| -- | ------------------------------------- | -------- | ------- | ------- |
+| 1  | Literal rare: `"DistributionController"` | **19ms** | 53ms    | 2.7x    |
+| 2  | Literal common: `"function"`          | 67ms     | **33ms**| 0.5x    |
+| 3  | Case-insensitive: `"exception"`       | **21ms** | 40ms    | 1.9x    |
+| 4  | Regex: `"public function [a-z]+\("`   | **23ms** | 30ms    | 1.3x    |
+| 5  | Type filter: `"class "` (php only)    | **24ms** | 30ms    | 1.2x    |
+| 6  | Zero results: `"ZZZNOTFOUND"`         | **19ms** | 29ms    | 1.5x    |
+| 7  | Files only: `"Route::"`               | **19ms** | 30ms    | 1.6x    |
+| 8  | Short pattern: `"fn"`                 | **20ms** | 30ms    | 1.5x    |
+| 9  | Glob filter: `"extends"` in blade     | **18ms** | 24ms    | 1.3x    |
+| 10 | Stats mode: `"middleware"`             | **20ms** | 30ms    | 1.5x    |
 
-### ig vs ripgrep
+> **Note:** `"fn"` was 59ms before (brute-force), now 20ms thanks to bigram-indexed fallback. `"function"` triggers the escape hatch (>60% candidates → brute-force) which is slower but honest.
+
+### Daemon mode: actual search time (1,552 files)
+
+The daemon keeps the index in memory. These are the **server-side search times** (no process startup), extracted from JSON responses:
+
+| Query                      | Candidates   | Search time |
+| -------------------------- | ------------ | ----------- |
+| `"DistributionController"` | 2 / 1,552    | **0.26ms**  |
+| `"function"`               | 974 / 1,552  | 17.54ms     |
+| `"exception"`              | 39 / 1,552   | **1.54ms**  |
+| `"ZZZNOTFOUND"`            | 0 / 1,552    | **0.02ms**  |
+| `"middleware"`              | 30 / 1,552   | **1.22ms**  |
+| `"Route::"`                | 4 / 1,552    | **0.18ms**  |
+| `"class "`                 | 897 / 1,552  | 11.36ms     |
+
+> Rare patterns with few candidates: **sub-millisecond**. Common patterns touching hundreds of files are slower due to regex verification on each candidate.
+
+### Index build performance
+
+| Operation            | Time   | Notes                                      |
+| -------------------- | ------ | ------------------------------------------ |
+| Fresh build          | 480ms  | 1,552 files, SPIMI streaming, 2 segments   |
+| Incremental (no-op)  | 28ms   | Git diff detects no changes                |
+| Index size           | 36 MB  | lexicon 31MB + postings 7MB + metadata 111KB |
+| Peak RAM (1.5K files)| 440 MB | Streaming batch + mmap lexicon             |
+| Peak RAM (92K files) | 6.8 GB | Down from 17.9 GB pre-streaming (-62%)     |
+
+### Scaling curve — ig gets faster on larger projects
+
+| Project | Files | ig search | rg search | Speedup | Build RSS |
+|---------|------:|----------|----------|---------|----------|
+| laravel-app | 49 | 19ms | 21ms | 1.1x | 28 MB |
+| distribution-app | 1,552 | 70ms | 33ms | 0.5x | 440 MB |
+| **Next.js** | **24,760** | **627ms** | **1,490ms** | **2.4x** | 860 MB |
+| **Linux kernel** | **92,585** | **1,290ms** | **5,119ms** | **4.0x** | 6.8 GB |
+
+> On the Linux kernel (92K files), a zero-result search takes **28ms with ig vs 5,279ms with rg** — a **189x speedup**.
+
+### Daemon latency distribution (1,001 queries, p50/p95/p99)
+
+| Metric | Value |
+|--------|-------|
+| p50 | **0.71ms** |
+| p95 | 4.51ms |
+| p99 | 4.69ms |
+| Throughput | **312 QPS** (effective) / **2,695 QPS** (server-side) |
+
+### Overlay — incremental rebuild
+
+| Changed files | Time | vs full rebuild |
+|--------------|------|----------------|
+| 0 (no-op) | 28ms | — |
+| 1-100 files | 28-91ms | **6x faster** |
+| 1,552 (all) | 568ms | full SPIMI |
+
+### ig vs ripgrep — when to use which
 
 |          | ig                                                            | ripgrep                                      |
 | -------- | ------------------------------------------------------------- | -------------------------------------------- |
 | Best at  | Projects with persistent index, agent loops, repeated queries | One-off searches, no setup, cold filesystems |
-| Weakness | Index build time (~0.2s), larger memory footprint             | Scans all files every time                   |
+| Weakness | Process startup (~15ms), short patterns fall back to brute    | Scans all files every time, no daemon mode   |
 
-> **Honest note:** On very large directories (21K+ files), ripgrep with warm disk cache can match ig's speed because its SIMD-optimized scanning is extremely fast. ig's advantage grows with repeated queries and agent usage patterns where the daemon mode shines.
+> **Honest note:** On small projects (<100 files), both tools are equally fast (~20ms, dominated by process startup). ig's advantage shows on **large projects** (2.4-189x faster on 25K-92K files) and on **repeated queries** (daemon mode: sub-ms with rayon-parallel verification). Common patterns that match >60% of candidates trigger an escape hatch that falls back to brute-force scan — this is slower than ripgrep but avoids false economy from index overhead. Short patterns (<3 chars) now use a bigram-indexed fallback instead of full brute-force. See [full benchmark report](benchmarks/REPORT.md) for all 10 tests.
 
 ## Agent Integration
 
@@ -337,8 +411,12 @@ ig query "useRouter" /path/to/project
 ig
 ├── index/
 │   ├── ngram.rs      — Sparse n-gram extraction (port of danlark1/sparse_ngrams)
-│   ├── writer.rs     — Index build: walk → ngrams → hash table + postings
-│   ├── reader.rs     — Index query: mmap lexicon + postings
+│   ├── vbyte.rs      — Delta + VByte codec for posting list compression
+│   ├── spimi.rs      — SPIMI segment builder (bounded-memory accumulation)
+│   ├── merge.rs      — K-way merge of segments + lexicon hash table builder
+│   ├── overlay.rs    — Incremental overlay index + tombstone bitmap
+│   ├── writer.rs     — Index build: SPIMI pipeline + overlay path
+│   ├── reader.rs     — Index query: mmap lexicon + VByte postings + overlay merge
 │   ├── postings.rs   — Sorted merge intersection/union
 │   └── metadata.rs   — Binary + JSON metadata (bincode)
 ├── query/
@@ -352,7 +430,7 @@ ig
 ├── symbols.rs        — Symbol definition extraction (multi-language)
 ├── setup.rs          — AI agent auto-configuration
 ├── update.rs         — Background update checker
-├── daemon.rs         — Unix socket server + client
+├── daemon.rs         — Unix socket server + client + start/stop/install lifecycle
 ├── watch.rs          — File watcher (notify crate) + auto-rebuild
 └── walk.rs           — Gitignore-aware file walking + 38 default exclusions
 ```

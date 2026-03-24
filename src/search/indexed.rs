@@ -55,7 +55,27 @@ pub fn search_indexed(
     }
 
     let candidates = reader.resolve(&query);
-    let _candidate_count = candidates.len();
+
+    // Escape hatch: if index can't filter enough (>60% of files are candidates),
+    // fall back to brute-force — avoids index overhead (mmap, VByte decode, hash probe)
+    // that exceeds rg's direct-scan cost at high candidate ratios.
+    if total_files > 0 && candidates.len() * 100 / total_files > 60 {
+        let results = fallback::search_brute_force(
+            root,
+            pattern,
+            case_insensitive,
+            config,
+            type_filter,
+            glob_filter,
+        )?;
+        let stats = SearchStats {
+            total_files,
+            candidate_files: candidates.len(),
+            search_duration: start.elapsed(),
+            used_index: false,
+        };
+        return Ok((results, stats));
+    }
 
     let regex = RegexBuilder::new(pattern)
         .case_insensitive(case_insensitive)

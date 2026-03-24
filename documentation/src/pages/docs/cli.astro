@@ -162,12 +162,13 @@ import DocsLayout from "@/layouts/docs.astro"
 <span class="theme-gold">instant-grep index status</span>
 ──────────────────────────
 <span class="theme-blue">Location:</span>    /home/user/project/.ig/
-<span class="theme-blue">Version:</span>     5
-<span class="theme-blue">Files:</span>       <span class="theme-gold">1,247</span>
+<span class="theme-blue">Version:</span>     7
+<span class="theme-blue">Files:</span>       <span class="theme-gold">1,552</span>
 <span class="theme-blue">N-grams:</span>     <span class="theme-gold">48,392</span>
-<span class="theme-blue">Lexicon:</span>     2.1 MB
-<span class="theme-blue">Postings:</span>    218 KB
-<span class="theme-blue">Built:</span>       2025-03-22 14:30:12`}></code></pre>
+<span class="theme-blue">Lexicon:</span>     31 MB
+<span class="theme-blue">Postings:</span>    7.1 MB
+<span class="theme-blue">Metadata:</span>    111 KB
+<span class="theme-blue">Built:</span>       2026-03-24 10:12:08`}></code></pre>
       </div>
     </section>
 
@@ -196,7 +197,7 @@ import DocsLayout from "@/layouts/docs.astro"
       <div class="flex items-start gap-3 p-4 rounded-lg border border-border bg-secondary/30">
         <span class="text-lg mt-0.5 theme-orange">💡</span>
         <div class="text-sm text-muted-foreground">
-          Combine with <code class="font-mono">ig daemon</code> for best results:
+          Combine with <code class="font-mono">ig daemon start</code> for best results:
           watch keeps the index fresh, daemon keeps it in memory.
           Together they give you permanent sub-ms search on a live codebase.
         </div>
@@ -212,20 +213,36 @@ import DocsLayout from "@/layouts/docs.astro"
       </div>
 
       <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        Start the Sage Mode daemon — a Unix socket server that keeps the index mmap'd in process memory.
+        Manage the Sage Mode daemon — a Unix socket server that keeps the index mmap'd in process memory.
+        Full lifecycle: start, stop, check status, or install as a launchd service for auto-restart on macOS.
         Use <code class="font-mono">ig query</code> to send queries to the running daemon.
-        Ideal for AI agents making repeated searches.
       </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-5">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> daemon start   [PATH]    <span class="theme-comment"># start daemon in background</span>
+<span class="theme-blue">ig</span> daemon stop    [PATH]    <span class="theme-comment"># stop running daemon</span>
+<span class="theme-blue">ig</span> daemon status  [PATH]    <span class="theme-comment"># check if daemon is running</span>
+<span class="theme-blue">ig</span> daemon install [PATH]    <span class="theme-comment"># install launchd service (macOS auto-restart)</span>
+<span class="theme-blue">ig</span> daemon uninstall [PATH]  <span class="theme-comment"># remove launchd service</span>`}></code></pre>
+      </div>
 
       <div class="code-block rounded-xl overflow-hidden mb-4">
         <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">usage</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Start daemon in background</span>
-<span class="theme-blue">ig</span> daemon . &
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Start daemon</span>
+<span class="theme-blue">ig</span> daemon start .
 
 [sage-mode] Daemon started
 [sage-mode] Socket: .ig/daemon.sock
-[sage-mode] Index loaded: 1,247 files (2.3 MB)
-[sage-mode] Ready for queries...`}></code></pre>
+[sage-mode] Index loaded: 1,552 files (36 MB)
+[sage-mode] Ready for queries...
+
+<span class="theme-orange"># Check status</span>
+<span class="theme-blue">ig</span> daemon status .
+[sage-mode] Running (PID 12345) · socket: .ig/daemon.sock
+
+<span class="theme-orange"># Install as launchd service for auto-restart (macOS)</span>
+<span class="theme-blue">ig</span> daemon install .`}></code></pre>
       </div>
     </section>
 

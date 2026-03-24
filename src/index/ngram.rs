@@ -6,6 +6,10 @@ pub type NgramKey = u64;
 /// Default max n-gram length for covering algorithm.
 pub const DEFAULT_MAX_NGRAM_LEN: usize = 16;
 
+/// Tracks weight function changes. Bump when `bigram_weight` logic changes
+/// so that stale indexes are detected and rebuilt.
+pub const WEIGHT_VERSION: u32 = 2;
+
 /// Hash a bigram (2 consecutive bytes) using Murmur2-like constants.
 /// Port of danlark1/sparse_ngrams HashBigram.
 #[inline]
@@ -16,6 +20,73 @@ fn hash_bigram(a: u8, b: u8) -> u32 {
         .wrapping_mul(MUL1)
         .wrapping_add((b as u64).wrapping_mul(MUL2));
     (v.wrapping_add(!v >> 47)) as u32
+}
+
+/// Corpus-tuned bigram weight for the sparse n-gram algorithm.
+///
+/// Wraps `hash_bigram` with frequency-based adjustments so that n-gram
+/// boundaries land on semantically meaningful positions (word boundaries,
+/// structural delimiters, rare character pairs) rather than at arbitrary
+/// hash-maximum positions.
+///
+/// Key insight: weight = inverse of expected frequency.
+///   - Rare pairs   → high weight → n-gram boundary placed here → more selective keys
+///   - Common pairs  → low weight  → absorbed into interior of an n-gram
+///
+/// CRITICAL: this function MUST be identical at index-time and query-time.
+#[inline]
+fn bigram_weight(a: u8, b: u8) -> u32 {
+    let base = hash_bigram(a, b) as u64;
+
+    // --- Boost rare / structurally meaningful pairs (2x) ---
+
+    // camelCase boundary: lowercase followed by uppercase
+    let camel = a.is_ascii_lowercase() && b.is_ascii_uppercase();
+
+    // snake_case boundary: lowercase followed by underscore
+    let snake = a.is_ascii_lowercase() && b == b'_';
+
+    if camel || snake {
+        return (base.wrapping_mul(2) & 0xFFFF_FFFF) as u32;
+    }
+
+    // --- Boost structural delimiters (3/2x = 1.5x) ---
+    // Braces and parens carry high information content in code.
+    let structural = matches!(b, b'{' | b'}' | b'(' | b')');
+    if structural {
+        return (base.wrapping_mul(3).wrapping_div(2) & 0xFFFF_FFFF) as u32;
+    }
+
+    // --- Penalise high-frequency pairs (0.5x) ---
+
+    // space + lowercase letter (very common in prose and code)
+    let space_lower = a == b' ' && b.is_ascii_lowercase();
+
+    // newline + space/tab (indentation lines — extremely frequent)
+    let indent = a == b'\n' && (b == b' ' || b == b'\t');
+
+    // double-space
+    let double_space = a == b' ' && b == b' ';
+
+    // common English / code bigrams
+    let common_pair = matches!(
+        (a, b),
+        (b'e', b' ')
+            | (b't', b' ')
+            | (b'i', b'n')
+            | (b'e', b'r')
+            | (b'r', b'e')
+            | (b'o', b'n')
+            | (b't', b'h')
+            | (b'h', b'e')
+            | (b'a', b'n')
+    );
+
+    if space_lower || indent || double_space || common_pair {
+        return (base.wrapping_div(2)) as u32;
+    }
+
+    base as u32
 }
 
 /// Hash an n-gram (variable-length byte slice) into a NgramKey.
@@ -49,7 +120,7 @@ pub fn build_all_ngrams(data: &[u8]) -> Vec<(usize, usize)> {
 
     for i in 0..data.len() - 1 {
         let p = HashAndPos {
-            hash: hash_bigram(data[i], data[i + 1]),
+            hash: bigram_weight(data[i], data[i + 1]),
             pos: i,
         };
 
@@ -88,7 +159,7 @@ pub fn build_covering_ngrams(data: &[u8], max_ngram_len: usize) -> Vec<(usize, u
 
     for i in 0..data.len() - 1 {
         let p = HashAndPos {
-            hash: hash_bigram(data[i], data[i + 1]),
+            hash: bigram_weight(data[i], data[i + 1]),
             pos: i,
         };
 
@@ -130,12 +201,23 @@ pub fn build_covering_ngrams(data: &[u8], max_ngram_len: usize) -> Vec<(usize, u
 
 /// Extract unique NgramKeys from a byte slice using sparse n-grams.
 /// This is the main entry point for indexing.
+/// Includes explicit bigram keys so that 2-character queries can use the index
+/// instead of falling back to brute-force scan.
 pub fn extract_sparse_ngrams(data: &[u8]) -> Vec<NgramKey> {
     let ranges = build_all_ngrams(data);
     let mut keys: Vec<NgramKey> = ranges
         .iter()
         .map(|&(start, end)| hash_ngram(&data[start..end]))
         .collect();
+
+    // Add bigram keys for every consecutive byte pair.
+    // This enables index-based lookup for 2-character patterns.
+    if data.len() >= 2 {
+        for window in data.windows(2) {
+            keys.push(hash_ngram(window));
+        }
+    }
+
     keys.sort_unstable();
     keys.dedup();
     keys
@@ -210,15 +292,16 @@ mod tests {
         let data = b"chester ";
         let ranges = build_covering_ngrams(data, DEFAULT_MAX_NGRAM_LEN);
         let strings = collect_ngram_strings(data, &ranges);
-        // Expected from danlark1: {"chest","ster","er "}
+        // With corpus-tuned weights (WEIGHT_VERSION 2), "er " gets a penalty
+        // (common bigram "er" + space-lower), shifting boundaries:
+        // {"chest","er ","ter","ste"}
         assert_eq!(
             strings.len(),
-            3,
-            "expected 3 covering ngrams, got {:?}",
+            4,
+            "expected 4 covering ngrams, got {:?}",
             strings
         );
         assert!(strings.contains(&"chest".to_string()));
-        assert!(strings.contains(&"ster".to_string()));
         assert!(strings.contains(&"er ".to_string()));
     }
 
@@ -252,5 +335,68 @@ mod tests {
     fn test_hash_ngram_different_inputs() {
         assert_ne!(hash_ngram(b"hello"), hash_ngram(b"world"));
         assert_eq!(hash_ngram(b"test"), hash_ngram(b"test"));
+    }
+
+    #[test]
+    fn test_bigram_weight_deterministic() {
+        let w1 = bigram_weight(b'h', b'e');
+        let w2 = bigram_weight(b'h', b'e');
+        assert_eq!(w1, w2, "bigram_weight must be deterministic");
+    }
+
+    #[test]
+    fn test_bigram_weight_camel_case_boost() {
+        // camelCase boundary: lowercase → uppercase gets 2x boost
+        let base = hash_bigram(b'm', b'N');
+        let weighted = bigram_weight(b'm', b'N');
+        assert_eq!(weighted, ((base as u64).wrapping_mul(2) & 0xFFFF_FFFF) as u32);
+    }
+
+    #[test]
+    fn test_bigram_weight_snake_case_boost() {
+        // snake_case boundary: lowercase → underscore gets 2x boost
+        let base = hash_bigram(b'x', b'_');
+        let weighted = bigram_weight(b'x', b'_');
+        assert_eq!(weighted, ((base as u64).wrapping_mul(2) & 0xFFFF_FFFF) as u32);
+    }
+
+    #[test]
+    fn test_bigram_weight_structural_boost() {
+        // Structural delimiters get 1.5x boost
+        let base = hash_bigram(b'f', b'(');
+        let weighted = bigram_weight(b'f', b'(');
+        assert_eq!(
+            weighted,
+            ((base as u64).wrapping_mul(3).wrapping_div(2) & 0xFFFF_FFFF) as u32
+        );
+    }
+
+    #[test]
+    fn test_bigram_weight_common_pair_penalty() {
+        // Common bigram "he" gets 0.5x penalty
+        let base = hash_bigram(b'h', b'e');
+        let weighted = bigram_weight(b'h', b'e');
+        assert_eq!(weighted, (base as u64).wrapping_div(2) as u32);
+    }
+
+    #[test]
+    fn test_bigram_weight_space_lower_penalty() {
+        // space + lowercase gets 0.5x penalty
+        let base = hash_bigram(b' ', b'a');
+        let weighted = bigram_weight(b' ', b'a');
+        assert_eq!(weighted, (base as u64).wrapping_div(2) as u32);
+    }
+
+    #[test]
+    fn test_bigram_weight_neutral_unchanged() {
+        // Plain lowercase pair not in the common list → no adjustment
+        let base = hash_bigram(b'x', b'y');
+        let weighted = bigram_weight(b'x', b'y');
+        assert_eq!(weighted, base, "neutral pair should keep base weight");
+    }
+
+    #[test]
+    fn test_weight_version_constant() {
+        assert_eq!(WEIGHT_VERSION, 2);
     }
 }

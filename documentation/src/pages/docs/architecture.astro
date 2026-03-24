@@ -98,14 +98,42 @@ import DocsLayout from "@/layouts/docs.astro"
             cls: "theme-gold",
             title: "Index Build Pipeline",
             fns: ["build_index()", "write_lexicon()", "write_postings()"],
-            desc: "Walks filesystem, builds and serializes the index",
+            desc: "Walks filesystem, drives the SPIMI pipeline, serializes the index",
+          },
+          {
+            file: "src/index/spimi.rs",
+            cls: "theme-gold",
+            title: "SPIMI Index Build",
+            fns: ["SpimiBuildPipeline", "flush_segment()", "merge_segments()"],
+            desc: "Single-Pass In-Memory Indexing with 128MB RAM budget — segments flushed to disk when budget is hit",
+          },
+          {
+            file: "src/index/merge.rs",
+            cls: "theme-blue",
+            title: "Segment Merge",
+            fns: ["merge_postings()", "merge_lexicons()"],
+            desc: "Merges SPIMI segments into the final index with VByte-encoded postings",
+          },
+          {
+            file: "src/index/vbyte.rs",
+            cls: "theme-green",
+            title: "VByte Compression",
+            fns: ["vbyte_encode()", "vbyte_decode()", "delta_encode()"],
+            desc: "Variable-byte delta encoding for posting lists — ~50–60% smaller postings.bin",
+          },
+          {
+            file: "src/index/overlay.rs",
+            cls: "theme-orange-bright",
+            title: "Overlay Incremental Index",
+            fns: ["OverlayIndex", "build_overlay()", "merge_overlay()"],
+            desc: "For <100 changed files: builds a small overlay index, merges on read. Avoids full rebuild.",
           },
           {
             file: "src/index/reader.rs",
             cls: "theme-blue",
             title: "Index Query",
             fns: ["query_index()", "intersect_postings()", "mmap_open()"],
-            desc: "mmap-backed hash table + posting list intersection",
+            desc: "mmap-backed hash table + posting list intersection. Decodes VByte postings on the fly.",
           },
           {
             file: "src/query/extract.rs",
@@ -118,8 +146,8 @@ import DocsLayout from "@/layouts/docs.astro"
             file: "src/daemon.rs",
             cls: "theme-orange-bright",
             title: "Sage Mode Daemon",
-            fns: ["start_daemon()", "handle_connection()", "serve_query()"],
-            desc: "Unix socket server for sub-ms repeated queries",
+            fns: ["start_daemon()", "stop_daemon()", "daemon_status()", "install_launchd()", "uninstall_launchd()"],
+            desc: "Unix socket server with full lifecycle: start/stop/status/install/uninstall + launchd auto-restart",
           },
           {
             file: "src/main.rs",
@@ -147,22 +175,62 @@ import DocsLayout from "@/layouts/docs.astro"
       </div>
     </section>
 
+    <!-- SPIMI + Incremental -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
+        <span class="theme-gold">⚡</span>
+        v1.0.0 — SPIMI Build Pipeline &amp; Overlay Index
+      </h2>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-6">
+        <div class="energy-card rounded-xl p-5 bg-card/50">
+          <div class="text-sm font-mono font-bold mb-3 theme-gold">SPIMI Index Build</div>
+          <p class="text-xs text-muted-foreground leading-relaxed mb-3">
+            v1.0.0 uses a Single-Pass In-Memory Indexing (SPIMI) pipeline with a 128MB RAM budget.
+            When the budget is hit, a segment is flushed to disk. After all files are processed,
+            segments are merge-sorted into the final index.
+          </p>
+          <div class="code-block rounded-lg p-3 text-xs font-mono space-y-1">
+            <div class="text-muted-foreground/60">spimi.rs → merge.rs → writer.rs</div>
+            <div class="theme-gold">flush_segment() when RSS &gt; 128MB</div>
+            <div class="theme-green">merge_segments() → final index</div>
+            <div class="text-muted-foreground/60 mt-2">1,552 files → 2 segments → 450ms</div>
+          </div>
+        </div>
+        <div class="energy-card rounded-xl p-5 bg-card/50">
+          <div class="text-sm font-mono font-bold mb-3 theme-orange-bright">Overlay Incremental Index</div>
+          <p class="text-xs text-muted-foreground leading-relaxed mb-3">
+            When fewer than 100 files have changed since the last build, ig builds a small overlay index
+            for the changed files only. Queries merge the base index and overlay on read —
+            no full rebuild required.
+          </p>
+          <div class="code-block rounded-lg p-3 text-xs font-mono space-y-1">
+            <div class="text-muted-foreground/60">overlay.rs</div>
+            <div class="theme-orange-bright">OverlayIndex + build_overlay()</div>
+            <div class="theme-green">Incremental (no-op): 25ms</div>
+            <div class="text-muted-foreground/60 mt-2">Full rebuild: 450ms (if &gt;100 files changed)</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- On-disk format -->
     <section class="mb-12">
       <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
         <span class="theme-orange">💾</span>
-        On-disk Format (.ig/ directory)
+        On-disk Format (.ig/ directory) — INDEX_VERSION 7
       </h2>
       <p class="text-sm text-muted-foreground mb-5">
         Three binary files, all memory-mapped for zero-copy access.
         <code class="font-mono">INDEX_VERSION</code> must be bumped when the format changes.
+        v7: postings are VByte delta-encoded; <code class="font-mono">file_ngrams</code> removed from metadata (÷300 smaller).
       </p>
 
       <div class="code-block rounded-xl overflow-hidden">
         <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="pipeline-comment">.ig/</span>
 <span class="theme-blue">├── lexicon.bin</span>    <span class="pipeline-comment">— Hash table: u64(n-gram hash) → u32(posting offset) + u32(count)</span>
-<span class="theme-orange-bright">├── postings.bin</span>   <span class="pipeline-comment">— Sorted u32[] file IDs per n-gram (delta-encoded)</span>
-<span class="theme-gold">└── metadata.bin</span>   <span class="pipeline-comment">— u32 version + u64[] mtime + []string file paths (null-separated)</span>`}></code></pre>
+<span class="theme-orange-bright">├── postings.bin</span>   <span class="pipeline-comment">— VByte delta-encoded file ID lists per n-gram (~50–60% smaller vs v6)</span>
+<span class="theme-gold">└── metadata.bin</span>   <span class="pipeline-comment">— u32 version + u64[] mtime + []string file paths (no file_ngrams in v7)</span>`}></code></pre>
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
@@ -172,11 +240,11 @@ import DocsLayout from "@/layouts/docs.astro"
         </div>
         <div class="p-4 rounded-lg border border-border bg-secondary/30">
           <div class="text-xs font-mono font-bold mb-2 theme-orange-bright">postings.bin</div>
-          <div class="text-xs text-muted-foreground">Concatenated sorted lists of file IDs. Each list referenced by lexicon offset + length. Intersection runs in O(n+m).</div>
+          <div class="text-xs text-muted-foreground">VByte delta-encoded sorted file ID lists. Reader decodes on the fly during intersection. ~50–60% smaller than raw u32[] in v6.</div>
         </div>
         <div class="p-4 rounded-lg border border-border bg-secondary/30">
           <div class="text-xs font-mono font-bold mb-2 theme-gold">metadata.bin</div>
-          <div class="text-xs text-muted-foreground">Maps file IDs to paths. Stores mtimes for incremental rebuild detection. First 4 bytes: INDEX_VERSION.</div>
+          <div class="text-xs text-muted-foreground">Maps file IDs to paths. Stores mtimes for incremental detection. First 4 bytes: INDEX_VERSION (7). No longer stores file_ngrams.</div>
         </div>
       </div>
     </section>
@@ -293,10 +361,20 @@ import DocsLayout from "@/layouts/docs.astro"
       </div>
 
       <div class="code-block rounded-xl overflow-hidden">
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-orange"># Start Sage Mode</span>
-<span class="theme-blue">ig</span> daemon .  <span class="pipeline-comment"># runs in background, socket at .ig/daemon.sock</span>
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-orange"># Start Sage Mode (background)</span>
+<span class="theme-blue">ig</span> daemon start .  <span class="pipeline-comment"># socket at .ig/daemon.sock</span>
 
-<span class="theme-orange"># Query via socket (0.3ms)</span>
+<span class="theme-orange"># Check status</span>
+<span class="theme-blue">ig</span> daemon status .
+
+<span class="theme-orange"># Stop daemon</span>
+<span class="theme-blue">ig</span> daemon stop .
+
+<span class="theme-orange"># Install as launchd service (auto-restart on macOS)</span>
+<span class="theme-blue">ig</span> daemon install .
+<span class="theme-blue">ig</span> daemon uninstall .
+
+<span class="theme-orange"># Query via socket (sub-ms)</span>
 <span class="theme-blue">ig</span> query <span class="theme-gold">"async fn"</span> .`}></code></pre>
       </div>
     </section>

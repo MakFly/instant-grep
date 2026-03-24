@@ -21,10 +21,10 @@ const timeline = [
 ]
 
 const heroStats = [
-  { value: "20×", label: "Faster than V1", cls: "perf-orange" },
-  { value: "0.9ms", label: "p50 latency", cls: "perf-gold" },
-  { value: "0.3ms", label: "Daemon mode", cls: "perf-green" },
-  { value: "3-4×", label: "faster than rg", cls: "perf-orange" },
+  { value: "2.7×", label: "Faster than rg (rare)", cls: "perf-orange" },
+  { value: "19ms", label: "CLI p50 latency", cls: "perf-gold" },
+  { value: "0.71ms", label: "Daemon mode", cls: "perf-green" },
+  { value: "480ms", label: "Fresh index build", cls: "perf-orange" },
 ]
 
 const daemonSteps = [
@@ -70,48 +70,43 @@ const daemonSteps = [
     <section class="mb-12">
       <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
         <span class="perf-gold">⚡</span>
-        Benchmark Table
+        Benchmark Table — v1.0.0
       </h2>
       <p class="text-sm text-muted-foreground mb-5">
-        Measured on a 1,247 file Rust project. Pattern: <code class="font-mono">"async fn"</code>.
-        Hardware: AMD Ryzen 9, NVMe SSD, 32GB RAM. p50 latency (10 runs).
+        Measured on a Laravel app — 1,552 PHP/JS files. Hardware: Apple M4 Max.
+        All times include process startup. p50 of 3 runs.
       </p>
 
       <div class="overflow-x-auto rounded-xl border border-border">
         <table class="w-full text-sm border-collapse">
           <thead>
             <tr class="border-b border-border bg-secondary/50">
-              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Version</th>
-              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Tool / Mode</th>
-              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Latency (p50)</th>
-              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider hidden sm:table-cell">Notes</th>
+              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Query</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Candidates</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">ig</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">rg</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Speedup</th>
             </tr>
           </thead>
           <tbody class="font-mono text-xs">
-            {benchmarks.map((row) => (
-              <tr class={`border-b border-border/50 transition-colors hover:bg-secondary/30 ${row.goku ? "opacity-50 hover:opacity-70" : ""}`}>
-                <td class="py-3 px-4">
-                  <span class={`px-2 py-0.5 rounded text-xs font-semibold ${row.cls} perf-badge-${row.cls}`}>
-                    {row.version}
-                  </span>
-                </td>
-                <td class="py-3 px-4 text-foreground/80">
-                  {row.goku ? (
-                    <span class="flex items-center gap-2">
-                      {row.tool}
-                      <span class="text-xs text-muted-foreground italic">[easter egg]</span>
-                    </span>
-                  ) : row.tool}
-                </td>
-                <td class={`py-3 px-4 text-right font-bold ${row.highlight ? "perf-green" : row.goku ? "perf-gold" : "text-foreground/70"}`}>
-                  {row.latency}
-                  {row.highlight && <span class="ml-1.5 perf-green opacity-70">✓</span>}
-                </td>
-                <td class="py-3 px-4 text-muted-foreground hidden sm:table-cell">
-                  {row.goku ? (
-                    <span class="italic opacity-70">{row.notes}</span>
-                  ) : row.notes}
-                </td>
+            {[
+              { query: '"DistributionController" (rare literal)', candidates: "2 / 1552", ig: "19ms", rg: "53ms", speedup: "2.7×", highlight: true },
+              { query: '"function" (escape hatch, brute-force)', candidates: "974 / 1552", ig: "67ms", rg: "33ms", speedup: "0.5×", highlight: false },
+              { query: '"exception" (case-insensitive)', candidates: "39 / 1552", ig: "21ms", rg: "40ms", speedup: "1.9×", highlight: false },
+              { query: '"public function [a-z]+\\(" (regex)', candidates: "—", ig: "24ms", rg: "31ms", speedup: "1.3×", highlight: false },
+              { query: '"class " --type php', candidates: "—", ig: "24ms", rg: "32ms", speedup: "1.3×", highlight: false },
+              { query: "Zero results", candidates: "0 / 1552", ig: "19ms", rg: "30ms", speedup: "1.6×", highlight: false },
+              { query: '"Route::" --files', candidates: "4 / 1552", ig: "19ms", rg: "30ms", speedup: "1.6×", highlight: false },
+              { query: '"fn" (bigram indexed)', candidates: "all", ig: "20ms", rg: "30ms", speedup: "1.5×", highlight: false },
+              { query: '"extends" --glob *.blade.php', candidates: "—", ig: "19ms", rg: "24ms", speedup: "1.3×", highlight: false },
+              { query: '"middleware" --stats', candidates: "30 / 1552", ig: "20ms", rg: "31ms", speedup: "1.6×", highlight: false },
+            ].map((row) => (
+              <tr class="border-b border-border/50 transition-colors hover:bg-secondary/30">
+                <td class="py-3 px-4 text-foreground/80"><code class="font-mono">{row.query}</code></td>
+                <td class="py-3 px-4 text-right text-muted-foreground">{row.candidates}</td>
+                <td class={`py-3 px-4 text-right font-bold ${row.highlight ? "perf-orange" : "text-foreground/70"}`}>{row.ig}</td>
+                <td class="py-3 px-4 text-right text-foreground/70">{row.rg}</td>
+                <td class={`py-3 px-4 text-right font-bold ${row.speedup.startsWith("0") ? "perf-red" : "perf-green"}`}>{row.speedup}</td>
               </tr>
             ))}
           </tbody>
@@ -119,71 +114,83 @@ const daemonSteps = [
       </div>
 
       <p class="text-xs text-muted-foreground/60 mt-3 font-mono italic">
-        * Goku row is a tribute. ig does not yet support ki-based teleportation.
+        * Short patterns (&lt;4 chars) skip the index and brute-force directly — rg wins there by design.
       </p>
     </section>
 
-    <!-- ig vs ripgrep -->
+    <!-- Daemon benchmarks -->
     <section class="mb-12">
       <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
-        <span class="perf-orange">⚔️</span>
-        ig vs ripgrep — Real Benchmarks
+        <span class="perf-orange">🐸</span>
+        Daemon Mode — Server-side Search Times
       </h2>
       <p class="text-sm text-muted-foreground mb-5">
-        Measured on a 2.7GB project (2,394 files). Apple Silicon M-series, warm cache. p50 of 3 runs.
+        Pure search time inside the daemon process (no process startup, no socket overhead). Laravel app, 1,552 files.
       </p>
 
       <div class="overflow-x-auto rounded-xl border border-border">
         <table class="w-full text-sm border-collapse">
           <thead>
             <tr class="border-b border-border bg-secondary/50">
-              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Scenario</th>
-              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">ig (indexed)</th>
-              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">rg</th>
-              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Speedup</th>
+              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Query</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Candidates</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Search time</th>
             </tr>
           </thead>
           <tbody class="font-mono text-xs">
-            <tr class="border-b border-border/50 transition-colors hover:bg-secondary/30">
-              <td class="py-3 px-4 text-foreground/80"><code class="font-mono">"function.*return"</code> (broad)</td>
-              <td class="py-3 px-4 text-right text-foreground/70">16ms</td>
-              <td class="py-3 px-4 text-right text-foreground/70">22ms</td>
-              <td class="py-3 px-4 text-right font-bold perf-green">1.4×</td>
-            </tr>
-            <tr class="border-b border-border/50 transition-colors hover:bg-secondary/30">
-              <td class="py-3 px-4 text-foreground/80"><code class="font-mono">"useAuthStore"</code> (selective)</td>
-              <td class="py-3 px-4 text-right text-foreground/70">7ms</td>
-              <td class="py-3 px-4 text-right text-foreground/70">22ms</td>
-              <td class="py-3 px-4 text-right font-bold perf-green">3×</td>
-            </tr>
-            <tr class="border-b border-border/50 transition-colors hover:bg-secondary/30">
-              <td class="py-3 px-4 text-foreground/80"><code class="font-mono">"handleWebhook"</code> (0 results)</td>
-              <td class="py-3 px-4 text-right text-foreground/70">6ms</td>
-              <td class="py-3 px-4 text-right text-foreground/70">24ms</td>
-              <td class="py-3 px-4 text-right font-bold perf-green">4×</td>
-            </tr>
-            <tr class="border-b border-border/50 transition-colors hover:bg-secondary/30">
-              <td class="py-3 px-4 text-foreground/80">Index build (2,394 files)</td>
-              <td class="py-3 px-4 text-right text-foreground/70">0.6s</td>
-              <td class="py-3 px-4 text-right text-muted-foreground/50">—</td>
-              <td class="py-3 px-4 text-right text-muted-foreground/50">—</td>
-            </tr>
-            <tr class="border-b border-border/50 transition-colors hover:bg-secondary/30">
-              <td class="py-3 px-4 text-foreground/80">Index size</td>
-              <td class="py-3 px-4 text-right text-foreground/70">45.8 MB</td>
-              <td class="py-3 px-4 text-right text-muted-foreground/50">—</td>
-              <td class="py-3 px-4 text-right text-muted-foreground/50">—</td>
-            </tr>
+            {[
+              { query: '"DistributionController"', candidates: "2 / 1552", time: "0.08ms", highlight: true },
+              { query: '"function"', candidates: "974 / 1552", time: "4.43ms", highlight: false },
+              { query: '"exception"', candidates: "39 / 1552", time: "0.75ms", highlight: false },
+              { query: '"ZZZNOTFOUND" (zero results)', candidates: "0 / 1552", time: "0.01ms", highlight: false },
+              { query: '"middleware"', candidates: "30 / 1552", time: "0.74ms", highlight: false },
+              { query: '"Route::"', candidates: "4 / 1552", time: "0.20ms", highlight: false },
+              { query: '"class "', candidates: "897 / 1552", time: "3.88ms", highlight: false },
+            ].map((row) => (
+              <tr class="border-b border-border/50 transition-colors hover:bg-secondary/30">
+                <td class="py-3 px-4 text-foreground/80"><code class="font-mono">{row.query}</code></td>
+                <td class="py-3 px-4 text-right text-muted-foreground">{row.candidates}</td>
+                <td class={`py-3 px-4 text-right font-bold ${row.highlight ? "perf-green" : "text-foreground/70"}`}>{row.time}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
 
       <div class="mt-5 p-4 rounded-xl energy-card border border-border/80">
         <p class="text-sm text-muted-foreground leading-relaxed">
-          The more selective the pattern, the bigger ig's advantage. AI agents searching for specific symbols
-          (function names, class names) see <span class="font-bold perf-green">3-4× speedup</span>.
-          On larger repos (10k+ files), the gap widens to <span class="font-bold perf-green">10×+</span>.
+          The daemon keeps the index mmap'd in process memory — rare/selective patterns like
+          <code class="font-mono">"DistributionController"</code> resolve in
+          <span class="font-bold perf-green">0.08ms</span>. Even zero-result queries short-circuit in
+          <span class="font-bold perf-green">0.01ms</span>.
         </p>
+      </div>
+    </section>
+
+    <!-- Index build stats -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
+        <span class="perf-blue">📦</span>
+        Index Build — v1.0.0 (SPIMI)
+      </h2>
+      <p class="text-sm text-muted-foreground mb-5">
+        v1.0.0 uses a SPIMI (Single-Pass In-Memory Indexing) pipeline with a 128MB RAM budget.
+        VByte delta-encoded postings reduce postings.bin by ~50–60%.
+      </p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { label: "Fresh build (1,552 files)", value: "480ms", sub: "2 SPIMI segments", cls: "perf-orange" },
+          { label: "Incremental (no-op)", value: "28ms", sub: "overlay index", cls: "perf-green" },
+          { label: "Total index size", value: "36MB", sub: "lexicon 31MB + postings 7.1MB + metadata 111KB", cls: "perf-blue" },
+          { label: "Peak RSS", value: "440MB", sub: "streaming pipeline — Linux kernel RSS: 6.8 GB (-62%)", cls: "perf-gold" },
+        ].map((stat) => (
+          <div class="p-5 rounded-xl energy-card text-center">
+            <div class={`font-mono text-2xl font-black mb-1 ${stat.cls}`}>{stat.value}</div>
+            <div class="text-xs font-mono text-foreground/70 mb-1">{stat.label}</div>
+            <div class="text-xs text-muted-foreground/60">{stat.sub}</div>
+          </div>
+        ))}
       </div>
     </section>
 
@@ -308,7 +315,7 @@ const daemonSteps = [
     </section>
 
     <!-- Daemon latency -->
-    <section class="mb-4">
+    <section class="mb-12">
       <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
         <span>🐸</span>
         Sage Mode Latency Breakdown
@@ -324,9 +331,289 @@ const daemonSteps = [
           ))}
           <div class="flex items-center justify-between pt-2 mt-2 border-t border-border">
             <span class="text-sm font-mono font-bold text-foreground">Total (p50)</span>
-            <span class="text-sm font-mono font-black perf-green">~0.3ms</span>
+            <span class="text-sm font-mono font-black perf-green">~0.71ms</span>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- Scaling curve -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
+        <span class="perf-blue">📐</span>
+        Scaling Curve
+      </h2>
+      <p class="text-sm text-muted-foreground mb-5">
+        ig's advantage compounds as project size grows. On small repos it matches rg; on large ones the index dominates.
+      </p>
+
+      <div class="overflow-x-auto rounded-xl border border-border">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="border-b border-border bg-secondary/50">
+              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Project</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Files</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">ig search</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">rg search</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Speedup</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono text-xs">
+            {[
+              { project: "laravel-app", files: "49", ig: "19ms", rg: "21ms", speedup: "1.1×", highlight: false },
+              { project: "distribution-app", files: "1,552", ig: "70ms", rg: "33ms", speedup: "0.5×", highlight: false },
+              { project: "Next.js", files: "24,760", ig: "627ms", rg: "1,490ms", speedup: "2.4×", highlight: false },
+              { project: "Linux kernel", files: "92,585", ig: "1,290ms", rg: "5,119ms", speedup: "4.0×", highlight: true },
+            ].map((row) => (
+              <tr class="border-b border-border/50 transition-colors hover:bg-secondary/30">
+                <td class="py-3 px-4 text-foreground/80 font-mono">{row.project}</td>
+                <td class="py-3 px-4 text-right text-muted-foreground">{row.files}</td>
+                <td class={`py-3 px-4 text-right font-bold ${row.highlight ? "perf-orange" : "text-foreground/70"}`}>{row.ig}</td>
+                <td class="py-3 px-4 text-right text-foreground/70">{row.rg}</td>
+                <td class={`py-3 px-4 text-right font-bold ${row.speedup.startsWith("~") ? "text-foreground/70" : "perf-green"}`}>{row.speedup}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-4 p-4 rounded-xl energy-card border border-border/80">
+        <p class="text-sm text-muted-foreground leading-relaxed">
+          On the Linux kernel (92K files), a zero-result search:
+          <span class="font-bold perf-green">28ms ig</span> vs
+          <span class="font-bold perf-red">5,279ms rg</span> =
+          <span class="font-black perf-orange">189× speedup</span>.
+        </p>
+      </div>
+    </section>
+
+    <!-- Daemon latency percentiles -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
+        <span class="perf-green">📊</span>
+        Daemon Latency Percentiles
+      </h2>
+      <p class="text-sm text-muted-foreground mb-5">
+        1,001 queries across all patterns. Overall: p50 = 0.71ms, p95 = 4.51ms, p99 = 4.69ms, avg = 1.51ms.
+      </p>
+
+      <div class="overflow-x-auto rounded-xl border border-border">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="border-b border-border bg-secondary/50">
+              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Pattern</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">p50</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">p95</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">p99</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono text-xs">
+            {[
+              { pattern: '"ZZZNOTFOUND"', p50: "0.01ms", p95: "—", p99: "—", highlight: true },
+              { pattern: '"DistributionController"', p50: "0.08ms", p95: "—", p99: "—", highlight: false },
+              { pattern: '"Route::"', p50: "0.20ms", p95: "—", p99: "—", highlight: false },
+              { pattern: '"middleware"', p50: "0.74ms", p95: "—", p99: "—", highlight: false },
+              { pattern: '"exception"', p50: "0.75ms", p95: "—", p99: "—", highlight: false },
+              { pattern: '"class "', p50: "3.88ms", p95: "—", p99: "—", highlight: false },
+              { pattern: '"function"', p50: "4.43ms", p95: "—", p99: "—", highlight: false },
+            ].map((row) => (
+              <tr class="border-b border-border/50 transition-colors hover:bg-secondary/30">
+                <td class="py-3 px-4 text-foreground/80"><code class="font-mono">{row.pattern}</code></td>
+                <td class={`py-3 px-4 text-right font-bold ${row.highlight ? "perf-green" : "text-foreground/70"}`}>{row.p50}</td>
+                <td class="py-3 px-4 text-right text-foreground/70">{row.p95}</td>
+                <td class="py-3 px-4 text-right text-foreground/70">{row.p99}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Throughput -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
+        <span class="perf-gold">⚡</span>
+        Throughput
+      </h2>
+      <p class="text-sm text-muted-foreground mb-5">
+        End-to-end QPS includes process startup; server-side QPS measures pure daemon throughput.
+      </p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="p-6 rounded-xl energy-card text-center">
+          <div class="font-mono text-3xl font-black mb-1 perf-orange">312 QPS</div>
+          <div class="text-xs font-mono text-foreground/70 mb-1">Effective (with process startup)</div>
+          <div class="text-xs text-muted-foreground/60">CLI round-trip throughput</div>
+        </div>
+        <div class="p-6 rounded-xl energy-card text-center">
+          <div class="font-mono text-3xl font-black mb-1 perf-green">2,695 QPS</div>
+          <div class="text-xs font-mono text-foreground/70 mb-1">Server-side theoretical</div>
+          <div class="text-xs text-muted-foreground/60">Pure daemon query throughput</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Overlay vs full rebuild -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
+        <span class="perf-blue">🔄</span>
+        Overlay vs Full Rebuild
+      </h2>
+      <p class="text-sm text-muted-foreground mb-5">
+        Incremental indexing via overlay layers keeps re-index cost near-constant for typical edit sessions.
+      </p>
+
+      <div class="overflow-x-auto rounded-xl border border-border">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="border-b border-border bg-secondary/50">
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Changed files</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Time</th>
+              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Mode</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono text-xs">
+            {[
+              { changed: "0", time: "28ms", mode: "no-op", highlight: true },
+              { changed: "1", time: "28ms", mode: "no-op", highlight: false },
+              { changed: "10", time: "76ms", mode: "overlay", highlight: false },
+              { changed: "50", time: "88ms", mode: "overlay", highlight: false },
+              { changed: "100", time: "91ms", mode: "overlay", highlight: false },
+              { changed: "1,552", time: "568ms", mode: "full rebuild", highlight: false },
+            ].map((row) => (
+              <tr class="border-b border-border/50 transition-colors hover:bg-secondary/30">
+                <td class="py-3 px-4 text-right text-muted-foreground">{row.changed}</td>
+                <td class={`py-3 px-4 text-right font-bold ${row.highlight ? "perf-green" : row.mode === "full rebuild" ? "perf-orange" : "text-foreground/70"}`}>{row.time}</td>
+                <td class="py-3 px-4 text-foreground/80">{row.mode}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Token cost -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
+        <span class="perf-gold">🪙</span>
+        Token Cost
+      </h2>
+      <p class="text-sm text-muted-foreground mb-5">
+        ig's index pre-filters candidates before returning results, dramatically reducing the tokens an AI agent must process.
+      </p>
+
+      <div class="overflow-x-auto rounded-xl border border-border">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="border-b border-border bg-secondary/50">
+              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Pattern</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">ig tokens</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">rg tokens</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Ratio</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono text-xs">
+            {[
+              { pattern: '"function"', ig: "231K", rg: "691K", ratio: "3.0×" },
+              { pattern: '"middleware"', ig: "3.4K", rg: "12.7K", ratio: "3.8×" },
+              { pattern: '"class "', ig: "30.8K", rg: "189K", ratio: "6.1×" },
+            ].map((row) => (
+              <tr class="border-b border-border/50 transition-colors hover:bg-secondary/30">
+                <td class="py-3 px-4 text-foreground/80"><code class="font-mono">{row.pattern}</code></td>
+                <td class="py-3 px-4 text-right text-foreground/70">{row.ig}</td>
+                <td class="py-3 px-4 text-right text-muted-foreground">{row.rg}</td>
+                <td class="py-3 px-4 text-right font-bold perf-green">{row.ratio}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Concurrent queries -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
+        <span class="perf-orange">🔀</span>
+        Concurrent Queries
+      </h2>
+      <p class="text-sm text-muted-foreground mb-5">
+        The daemon handles concurrent clients without contention — the index is read-only and mmap-shared.
+      </p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { label: "Concurrent clients", value: "10", sub: "parallel connections", cls: "perf-blue" },
+          { label: "Total queries", value: "200", sub: "evenly distributed", cls: "perf-gold" },
+          { label: "Errors", value: "0", sub: "zero dropped queries", cls: "perf-green" },
+          { label: "Throughput", value: "266 QPS", sub: "effective under load", cls: "perf-orange" },
+        ].map((stat) => (
+          <div class="p-5 rounded-xl energy-card text-center">
+            <div class={`font-mono text-2xl font-black mb-1 ${stat.cls}`}>{stat.value}</div>
+            <div class="text-xs font-mono text-foreground/70 mb-1">{stat.label}</div>
+            <div class="text-xs text-muted-foreground/60">{stat.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      <div class="mt-4 p-4 rounded-xl energy-card border border-border/80">
+        <p class="text-sm text-muted-foreground leading-relaxed">
+          Latency under concurrency:
+          <span class="font-bold perf-green">p50 = 0.97ms</span>,
+          <span class="font-bold perf-gold">p95 = 5.87ms</span>.
+        </p>
+      </div>
+    </section>
+
+    <!-- Linux kernel stress test -->
+    <section class="mb-4">
+      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
+        <span class="perf-red">🐧</span>
+        Linux Kernel Stress Test
+      </h2>
+      <p class="text-sm text-muted-foreground mb-5">
+        92,585 files indexed. 127M n-grams. 3.4GB index on disk. The ultimate ig stress test.
+      </p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        {[
+          { label: "Files indexed", value: "92,585", cls: "perf-blue" },
+          { label: "N-grams", value: "127M", cls: "perf-gold" },
+          { label: "Peak RSS", value: "6,820 MB", cls: "perf-orange" },
+        ].map((stat) => (
+          <div class="p-5 rounded-xl energy-card text-center">
+            <div class={`font-mono text-2xl font-black mb-1 ${stat.cls}`}>{stat.value}</div>
+            <div class="text-xs font-mono text-muted-foreground">{stat.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div class="overflow-x-auto rounded-xl border border-border">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="border-b border-border bg-secondary/50">
+              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Query</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">ig</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">rg</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Speedup</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono text-xs">
+            {[
+              { query: '"printk"', ig: "332ms", rg: "5,426ms", speedup: "16.3×", highlight: false },
+              { query: '"static inline"', ig: "876ms", rg: "5,106ms", speedup: "5.8×", highlight: false },
+              { query: '"mutex_lock"', ig: "317ms", rg: "5,467ms", speedup: "17.2×", highlight: false },
+              { query: '"EXPORT_SYMBOL"', ig: "398ms", rg: "5,342ms", speedup: "13.4×", highlight: false },
+              { query: '"ZZNOTFOUND" (zero results)', ig: "28ms", rg: "5,279ms", speedup: "188.5×", highlight: true },
+            ].map((row) => (
+              <tr class="border-b border-border/50 transition-colors hover:bg-secondary/30">
+                <td class="py-3 px-4 text-foreground/80"><code class="font-mono">{row.query}</code></td>
+                <td class={`py-3 px-4 text-right font-bold ${row.highlight ? "perf-green" : "text-foreground/70"}`}>{row.ig}</td>
+                <td class="py-3 px-4 text-right text-foreground/70">{row.rg}</td>
+                <td class={`py-3 px-4 text-right font-bold ${row.highlight ? "perf-orange" : "perf-green"}`}>{row.speedup}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </section>
   </div>

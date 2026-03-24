@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-pub const INDEX_VERSION: u32 = 7;
+pub const INDEX_VERSION: u32 = 8;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexMetadata {
@@ -32,9 +32,12 @@ impl IndexMetadata {
         let encoded = bincode::serialize(self).context("serialize metadata")?;
         std::fs::write(&bin_path, &encoded).context("write metadata.bin")?;
 
-        let json_path = ig_dir.join("metadata.json");
-        let file = File::create(&json_path).context("create metadata.json")?;
-        serde_json::to_writer_pretty(BufWriter::new(file), self).context("write metadata.json")?;
+        if std::env::var("IG_DEBUG").is_ok() {
+            let json_path = ig_dir.join("metadata.json");
+            let file = File::create(&json_path).context("create metadata.json")?;
+            serde_json::to_writer_pretty(BufWriter::new(file), self)
+                .context("write metadata.json")?;
+        }
 
         Ok(())
     }

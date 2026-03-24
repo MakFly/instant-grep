@@ -111,17 +111,17 @@ mod tests {
 
     #[test]
     fn test_is_newer_true() {
-        // CURRENT_VERSION is "0.2.0"
-        assert!(is_newer("0.3.0"));
-        assert!(is_newer("0.2.1"));
-        assert!(is_newer("1.0.0"));
+        // CURRENT_VERSION is determined at compile time from Cargo.toml
+        // Use versions guaranteed to be newer than any realistic current version
+        assert!(is_newer("99.0.0"));
+        assert!(is_newer("99.99.99"));
     }
 
     #[test]
     fn test_is_newer_false() {
-        assert!(!is_newer("0.1.0"));
-        assert!(!is_newer("0.2.0")); // same version is not newer
         assert!(!is_newer("0.0.1"));
+        assert!(!is_newer("0.1.0"));
+        assert!(!is_newer(CURRENT_VERSION)); // same version is not newer
     }
 
     #[test]

@@ -134,11 +134,11 @@ import DocsLayout from "@/layouts/docs.astro"
 
 <span class="theme-blue">◆</span> Gathering chakra... scanning directory tree
 <span class="theme-gold">◆</span> Skipping 38 excluded directories (node_modules, target, .git, ...)
-<span class="theme-orange-bright">◆</span> Building sparse n-gram index: 1,247 files
-<span class="theme-green">✓</span> Index built in 147ms
-   lexicon:  2.1 MB  (.ig/lexicon.bin)
-   postings: 0.2 MB  (.ig/postings.bin)
-   metadata: 0.0 MB  (.ig/metadata.bin)`}></code></pre>
+<span class="theme-orange-bright">◆</span> Building sparse n-gram index: 1,552 files (SPIMI, 2 segments)
+<span class="theme-green">✓</span> Index built in 450ms
+   lexicon:  31 MB   (.ig/lexicon.bin)
+   postings: 7.1 MB  (.ig/postings.bin)
+   metadata: 111 KB  (.ig/metadata.bin)`}></code></pre>
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 my-6">
@@ -148,7 +148,7 @@ import DocsLayout from "@/layouts/docs.astro"
         </div>
         <div class="p-4 rounded-lg energy-card bg-card/50 text-center">
           <div class="font-mono text-xl font-bold mb-1 theme-blue">postings.bin</div>
-          <div class="text-xs text-muted-foreground">Sorted file ID lists for each n-gram</div>
+          <div class="text-xs text-muted-foreground">VByte delta-encoded file ID lists per n-gram</div>
         </div>
         <div class="p-4 rounded-lg energy-card bg-card/50 text-center">
           <div class="font-mono text-xl font-bold mb-1 theme-gold">metadata.bin</div>

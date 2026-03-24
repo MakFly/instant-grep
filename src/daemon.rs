@@ -2,16 +2,20 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
+use notify::{Event, RecursiveMode, Watcher};
 use regex::bytes::RegexBuilder;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::index::reader::IndexReader;
+use crate::index::writer;
 use crate::query::extract::regex_to_query;
 use crate::search::matcher::{self, SearchConfig};
 use crate::util::ig_dir;
+use crate::walk::DEFAULT_MAX_FILE_SIZE;
 
 #[derive(Deserialize)]
 struct QueryRequest {
@@ -151,6 +155,9 @@ pub fn start_daemon(root: &Path) -> Result<()> {
     let sock_cleanup = sock_path.clone();
     ctrlc_cleanup(sock_cleanup);
 
+    // Spawn background file watcher thread for automatic index rebuilds
+    spawn_file_watcher(&root);
+
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
@@ -168,6 +175,81 @@ pub fn start_daemon(root: &Path) -> Result<()> {
     }
 
     let _ = std::fs::remove_file(&sock_path);
+    Ok(())
+}
+
+/// Spawn a background thread that watches the project for file changes and rebuilds the index.
+/// Uses the same debounce and filtering logic as `ig watch`.
+fn spawn_file_watcher(root: &Path) {
+    let root = root.to_path_buf();
+
+    std::thread::spawn(move || {
+        if let Err(e) = run_file_watcher(&root) {
+            eprintln!("File watcher failed to start: {}", e);
+        }
+    });
+}
+
+/// Run the file watcher loop (blocking). Called from the watcher thread.
+fn run_file_watcher(root: &Path) -> Result<()> {
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
+        if let Ok(event) = res {
+            let dominated_by_ig = event
+                .paths
+                .iter()
+                .all(|p| p.to_string_lossy().contains(".ig/"));
+            if !dominated_by_ig {
+                let _ = tx.send(event);
+            }
+        }
+    })
+    .context("create file watcher")?;
+
+    watcher
+        .watch(root, RecursiveMode::Recursive)
+        .context("watch directory")?;
+
+    eprintln!("File watcher active: auto-rebuilding index on changes");
+
+    let debounce = Duration::from_millis(500);
+    let mut last_rebuild = Instant::now();
+
+    loop {
+        match rx.recv_timeout(Duration::from_secs(1)) {
+            Ok(_event) => {
+                // Debounce: wait for changes to settle
+                while rx.recv_timeout(debounce).is_ok() {}
+
+                if last_rebuild.elapsed() > Duration::from_secs(1) {
+                    let start = Instant::now();
+                    match writer::build_index(root, true, DEFAULT_MAX_FILE_SIZE) {
+                        Ok(meta) => {
+                            eprintln!(
+                                "Watcher rebuilt: {} files, {} trigrams in {:.0}ms",
+                                meta.file_count,
+                                meta.ngram_count,
+                                start.elapsed().as_secs_f64() * 1000.0,
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!("Watcher rebuild error: {}", e);
+                        }
+                    }
+                    last_rebuild = Instant::now();
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // No changes, keep watching
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                eprintln!("File watcher channel disconnected");
+                break;
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -262,52 +344,63 @@ fn process_query(line: &str, reader: &IndexReader, root: &Path, reloaded: bool) 
         files_only: req.files_only,
     };
 
-    let mut results = Vec::new();
+    // Collect candidate paths, applying type filter
+    let candidate_paths: Vec<(u32, String)> = candidates
+        .iter()
+        .filter_map(|doc_id| {
+            let rel_path = reader.file_path(*doc_id).to_string();
 
-    for doc_id in &candidates {
-        let rel_path = reader.file_path(*doc_id);
-
-        if let Some(ref ft) = req.file_type {
-            let ext = rel_path.rsplit('.').next().unwrap_or("");
-            if ext != ft.as_str() {
-                continue;
-            }
-        }
-
-        match matcher::match_file(root, rel_path, &regex, &config) {
-            Ok(Some(file_matches)) => {
-                if req.files_only {
-                    results.push(MatchResult {
-                        file: file_matches.path,
-                        line: None,
-                        text: None,
-                        count: None,
-                    });
-                } else if req.count_only {
-                    results.push(MatchResult {
-                        file: file_matches.path,
-                        line: None,
-                        text: None,
-                        count: Some(file_matches.match_count),
-                    });
-                } else {
-                    for m in &file_matches.matches {
-                        if m.is_context {
-                            continue;
-                        }
-                        results.push(MatchResult {
-                            file: file_matches.path.clone(),
-                            line: Some(m.line_number),
-                            text: Some(String::from_utf8_lossy(&m.line).to_string()),
-                            count: None,
-                        });
-                    }
+            if let Some(ref ft) = req.file_type {
+                let ext = rel_path.rsplit('.').next().unwrap_or("");
+                if ext != ft.as_str() {
+                    return None;
                 }
             }
-            Ok(None) => {}
-            Err(_) => {}
-        }
-    }
+
+            Some((*doc_id, rel_path))
+        })
+        .collect();
+
+    // Parallel regex verification with rayon
+    let results: Vec<MatchResult> = candidate_paths
+        .par_iter()
+        .filter_map(|(_doc_id, rel_path)| {
+            match matcher::match_file(root, rel_path, &regex, &config) {
+                Ok(Some(file_matches)) => {
+                    if req.files_only {
+                        Some(vec![MatchResult {
+                            file: file_matches.path,
+                            line: None,
+                            text: None,
+                            count: None,
+                        }])
+                    } else if req.count_only {
+                        Some(vec![MatchResult {
+                            file: file_matches.path,
+                            line: None,
+                            text: None,
+                            count: Some(file_matches.match_count),
+                        }])
+                    } else {
+                        let matches: Vec<MatchResult> = file_matches
+                            .matches
+                            .iter()
+                            .filter(|m| !m.is_context)
+                            .map(|m| MatchResult {
+                                file: file_matches.path.clone(),
+                                line: Some(m.line_number),
+                                text: Some(String::from_utf8_lossy(&m.line).to_string()),
+                                count: None,
+                            })
+                            .collect();
+                        if matches.is_empty() { None } else { Some(matches) }
+                    }
+                }
+                _ => None,
+            }
+        })
+        .flatten()
+        .collect();
 
     QueryResponse {
         results: Some(results),
