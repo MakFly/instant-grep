@@ -298,7 +298,8 @@ fn prepare_pattern(pattern: &str, word_regexp: bool, fixed_strings: bool) -> Str
 /// Core search logic shared between `ig "pattern"` and `ig search "pattern"`.
 #[allow(clippy::too_many_arguments)]
 fn do_search(opts: &SearchOpts) -> Result<()> {
-    let root = resolve_root(opts.path);
+    // Detect single-file search: if path points to a file, scope search to it
+    let (root, path_filter) = resolve_root_and_filter(opts.path);
     let pattern = prepare_pattern(opts.pattern, opts.word_regexp, opts.fixed_strings);
     let pattern = pattern.as_str();
     let (before, after) = match opts.context {
@@ -325,6 +326,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
             &config,
             opts.file_type,
             opts.glob,
+            path_filter.as_deref(),
         )?;
         let mut printer = Printer::new(use_color, opts.json);
         for file_matches in &results {
@@ -347,6 +349,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
             &config,
             opts.file_type,
             opts.glob,
+            path_filter.as_deref(),
         )?;
         let mut printer = Printer::new(use_color, opts.json);
         for file_matches in &results {
@@ -370,6 +373,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
         &config,
         opts.file_type,
         opts.glob,
+        path_filter.as_deref(),
     )?;
     let mut printer = Printer::new(use_color, opts.json);
     for file_matches in &results {
@@ -410,6 +414,32 @@ fn resolve_root(path: Option<&str>) -> PathBuf {
         None => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
     };
     find_root(&base)
+}
+
+/// Like resolve_root, but also detects single-file paths.
+/// Returns (project_root, Some(relative_path)) when path points to a file.
+fn resolve_root_and_filter(path: Option<&str>) -> (PathBuf, Option<String>) {
+    let base = match path {
+        Some(p) => PathBuf::from(p),
+        None => return (std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")), None),
+    };
+
+    if base.is_file() {
+        let root = find_root(&base);
+        if let Ok(rel) = base.canonicalize().and_then(|abs| {
+            root.canonicalize().map(|root_abs| {
+                abs.strip_prefix(&root_abs)
+                    .unwrap_or(&abs)
+                    .to_string_lossy()
+                    .to_string()
+            })
+        }) {
+            return (root, Some(rel));
+        }
+        return (root, None);
+    }
+
+    (find_root(&base), None)
 }
 
 fn dir_size(path: &std::path::Path) -> u64 {

@@ -31,6 +31,25 @@ impl IndexReader {
         let postings_file = File::open(ig_dir.join("postings.bin")).context("open postings.bin")?;
         let postings = unsafe { Mmap::map(&postings_file).context("mmap postings.bin")? };
 
+        // Hint the OS about expected access patterns for mmap'd files
+        #[cfg(unix)]
+        {
+            unsafe {
+                // Lexicon is small and always needed — prefault into page cache
+                libc::madvise(
+                    lexicon.as_ptr() as *mut libc::c_void,
+                    lexicon.len(),
+                    libc::MADV_WILLNEED,
+                );
+                // Postings are accessed randomly via offset lookups — disable readahead
+                libc::madvise(
+                    postings.as_ptr() as *mut libc::c_void,
+                    postings.len(),
+                    libc::MADV_RANDOM,
+                );
+            }
+        }
+
         let table_size = lexicon.len() / LEXICON_ENTRY_SIZE;
 
         // Try to load overlay if it exists

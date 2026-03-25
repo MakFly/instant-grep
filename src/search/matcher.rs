@@ -50,47 +50,65 @@ pub fn match_file(
         return Ok(None);
     }
 
-    // Find all match positions
-    let mut match_lines: Vec<(usize, Range<usize>)> = Vec::new(); // (line_number, range_in_line)
-    let mut line_starts: Vec<usize> = vec![0];
+    // ── files_only: single regex.find() suffices — no line_starts, no iteration ──
+    if config.files_only {
+        return if regex.find(content).is_some() {
+            Ok(Some(FileMatches {
+                path: rel_path.to_string(),
+                matches: Vec::new(),
+                match_count: 1,
+            }))
+        } else {
+            Ok(None)
+        };
+    }
 
-    // Build line index
+    // ── count_only: count matches, no line_starts needed ──
+    if config.count_only {
+        let match_count = regex.find_iter(content).count();
+        return if match_count > 0 {
+            Ok(Some(FileMatches {
+                path: rel_path.to_string(),
+                matches: Vec::new(),
+                match_count,
+            }))
+        } else {
+            Ok(None)
+        };
+    }
+
+    // ── Full output: collect match byte-ranges first, THEN build line_starts ──
+    // This keeps 2 passes for matching files (same as before) but only 1 pass
+    // for non-matching files (saves the O(N) line_starts scan on false positives).
+    let match_positions: Vec<Range<usize>> = regex
+        .find_iter(content)
+        .map(|m| m.start()..m.end())
+        .collect();
+
+    if match_positions.is_empty() {
+        return Ok(None);
+    }
+
+    // NOW build line index — only for files with confirmed matches
+    let mut line_starts: Vec<usize> = vec![0];
     for (i, &byte) in content.iter().enumerate() {
         if byte == b'\n' {
             line_starts.push(i + 1);
         }
     }
 
-    let mut match_count = 0;
+    let match_count = match_positions.len();
+    let mut match_lines: Vec<(usize, Range<usize>)> = Vec::with_capacity(match_count);
 
-    for m in regex.find_iter(content) {
-        match_count += 1;
-
-        if config.count_only || config.files_only {
-            continue;
-        }
-
-        // Find which line this match is on
-        let line_idx = match line_starts.binary_search(&m.start()) {
+    for m in &match_positions {
+        let line_idx = match line_starts.binary_search(&m.start) {
             Ok(idx) => idx,
             Err(idx) => idx.saturating_sub(1),
         };
 
         let line_start = line_starts[line_idx];
-        let range_in_line = (m.start() - line_start)..(m.end() - line_start);
+        let range_in_line = (m.start - line_start)..(m.end - line_start);
         match_lines.push((line_idx, range_in_line));
-    }
-
-    if match_count == 0 {
-        return Ok(None);
-    }
-
-    if config.count_only || config.files_only {
-        return Ok(Some(FileMatches {
-            path: rel_path.to_string(),
-            matches: Vec::new(),
-            match_count,
-        }));
     }
 
     // Collect unique lines to display (including context)

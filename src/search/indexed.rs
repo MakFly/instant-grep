@@ -27,6 +27,7 @@ pub fn search_indexed(
     config: &SearchConfig,
     type_filter: Option<&str>,
     glob_filter: Option<&str>,
+    path_filter: Option<&str>,
 ) -> Result<(Vec<FileMatches>, SearchStats)> {
     let ig = ig_dir(root);
     let start = Instant::now();
@@ -44,6 +45,7 @@ pub fn search_indexed(
             config,
             type_filter,
             glob_filter,
+            path_filter,
         )?;
         let stats = SearchStats {
             total_files,
@@ -56,10 +58,11 @@ pub fn search_indexed(
 
     let candidates = reader.resolve(&query);
 
-    // Escape hatch: if index can't filter enough (>60% of files are candidates),
-    // fall back to brute-force — avoids index overhead (mmap, VByte decode, hash probe)
-    // that exceeds rg's direct-scan cost at high candidate ratios.
-    if total_files > 0 && candidates.len() * 100 / total_files > 60 {
+    // Escape hatch: if index can't filter enough (>85% of files are candidates),
+    // fall back to brute-force. Raised from 60% because lazy line_starts makes
+    // the indexed path efficient even with many candidates (false positives bail at
+    // regex.find() without any line_starts work).
+    if total_files > 0 && candidates.len() * 100 / total_files > 85 {
         let results = fallback::search_brute_force(
             root,
             pattern,
@@ -67,6 +70,7 @@ pub fn search_indexed(
             config,
             type_filter,
             glob_filter,
+            path_filter,
         )?;
         let stats = SearchStats {
             total_files,
@@ -83,11 +87,18 @@ pub fn search_indexed(
         .build()
         .context("invalid regex")?;
 
-    // Collect candidate paths, applying type/glob filters
+    // Collect candidate paths, applying type/glob/path filters
     let candidate_paths: Vec<(u32, String)> = candidates
         .iter()
         .filter_map(|doc_id| {
             let rel_path = reader.file_path(*doc_id).to_string();
+
+            // Apply single-file filter
+            if let Some(pf) = path_filter
+                && rel_path != pf
+            {
+                return None;
+            }
 
             // Apply type filter
             if let Some(ft) = type_filter

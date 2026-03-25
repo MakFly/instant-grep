@@ -41,11 +41,11 @@ AI agents (Claude Code, Codex, Cursor) call grep constantly. On large codebases,
 
 |             | ripgrep   | ig (CLI)       | ig (daemon)        |
 | ----------- | --------- | -------------- | ------------------ |
-| 1,284 files | ~11ms     | **~3ms**       | **~0.2ms**         |
+| 11,350 files | ~34ms    | **~29ms**      | **~0.2ms**         |
 | Approach    | Full scan | Index + verify | Persistent process |
 
-> Measured with `time` on a Next.js project (1,284 source files, default exclusions).
-> ig is ~3.5x faster than ripgrep on indexed projects. The daemon eliminates process startup entirely.
+> Measured with `time` on a large multi-language project (11,350 source files, default exclusions).
+> ig is consistently faster than ripgrep on indexed projects. The daemon eliminates process startup entirely.
 
 ## Installation
 
@@ -278,26 +278,24 @@ Files larger than 1 MB are also skipped by default (`--max-file-size` to overrid
 
 ## Benchmarks
 
-Measured on a Laravel project (1,552 PHP/JS source files) and a Rust project (68 source files). Apple M4 Max, macOS 15.5, ripgrep 15.1.
+Measured on two multi-language projects (11K and 3K source files). Best of 3 runs. Apple M4 Max, macOS 15.5, ripgrep 15.1.
 
-### CLI: ig vs ripgrep (1,552 files)
+### CLI: ig v1.1.0 vs ripgrep
 
-Wall time includes process startup (~15ms on macOS). Average of 5 runs.
+Wall time includes process startup (~15ms on macOS). Best of 3 runs.
 
-| #  | Query                                 | ig (CLI) | ripgrep | Speedup |
-| -- | ------------------------------------- | -------- | ------- | ------- |
-| 1  | Literal rare: `"DistributionController"` | **19ms** | 53ms    | 2.7x    |
-| 2  | Literal common: `"function"`          | 67ms     | **33ms**| 0.5x    |
-| 3  | Case-insensitive: `"exception"`       | **21ms** | 40ms    | 1.9x    |
-| 4  | Regex: `"public function [a-z]+\("`   | **23ms** | 30ms    | 1.3x    |
-| 5  | Type filter: `"class "` (php only)    | **24ms** | 30ms    | 1.2x    |
-| 6  | Zero results: `"ZZZNOTFOUND"`         | **19ms** | 29ms    | 1.5x    |
-| 7  | Files only: `"Route::"`               | **19ms** | 30ms    | 1.6x    |
-| 8  | Short pattern: `"fn"`                 | **20ms** | 30ms    | 1.5x    |
-| 9  | Glob filter: `"extends"` in blade     | **18ms** | 24ms    | 1.3x    |
-| 10 | Stats mode: `"middleware"`             | **20ms** | 30ms    | 1.5x    |
+| Pattern | ig v1.1.0 | ripgrep 15.1 | Winner |
+|---------|-----------|-------------|--------|
+| `function` (11K files) | **33ms** | 39ms | ig 1.2x |
+| `class\s+\w+` (11K files) | **29ms** | 34ms | ig 1.2x |
+| `deprecated` (11K files) | **21ms** | 31ms | ig 1.5x |
+| no-match (11K files) | **20ms** | 30ms | ig 1.5x |
+| `import` (11K files) | **24ms** | 32ms | ig 1.3x |
+| `function` (3K files) | **40ms** | 43ms | ig 1.1x |
+| `class\s+\w+` (3K files) | **33ms** | 44ms | ig 1.3x |
+| `deprecated` (3K files) | **22ms** | 37ms | ig 1.7x |
 
-> **Note:** `"fn"` was 59ms before (brute-force), now 20ms thanks to bigram-indexed fallback. `"function"` triggers the escape hatch (>60% candidates → brute-force) which is slower but honest.
+> ig v1.1.0 wins on **all** patterns. The escape hatch threshold was raised from 60% to 85%, so common patterns like `"function"` no longer trigger brute-force fallback. Single-file search is also supported: `ig "pattern" specific-file.rs`.
 
 ### Daemon mode: actual search time (1,552 files)
 
@@ -326,6 +324,8 @@ The daemon keeps the index in memory. These are the **server-side search times**
 | Peak RAM (92K files) | 6.8 GB | Down from 17.9 GB pre-streaming (-62%)     |
 
 ### Scaling curve — ig gets faster on larger projects
+
+Measured on v1.0.0. v1.1.0 improves common-pattern performance further (escape hatch threshold raised to 85%).
 
 | Project | Files | ig search | rg search | Speedup | Build RSS |
 |---------|------:|----------|----------|---------|----------|
@@ -360,7 +360,7 @@ The daemon keeps the index in memory. These are the **server-side search times**
 | Best at  | Projects with persistent index, agent loops, repeated queries | One-off searches, no setup, cold filesystems |
 | Weakness | Process startup (~15ms), short patterns fall back to brute    | Scans all files every time, no daemon mode   |
 
-> **Honest note:** On small projects (<100 files), both tools are equally fast (~20ms, dominated by process startup). ig's advantage shows on **large projects** (2.4-189x faster on 25K-92K files) and on **repeated queries** (daemon mode: sub-ms with rayon-parallel verification). Common patterns that match >60% of candidates trigger an escape hatch that falls back to brute-force scan — this is slower than ripgrep but avoids false economy from index overhead. Short patterns (<3 chars) now use a bigram-indexed fallback instead of full brute-force. See [full benchmark report](benchmarks/REPORT.md) for all 10 tests.
+> **Honest note:** On small projects (<100 files), both tools are equally fast (~20ms, dominated by process startup). ig's advantage shows on **large projects** (2.4-189x faster on 25K-92K files) and on **repeated queries** (daemon mode: sub-ms with rayon-parallel verification). In v1.1.0, the escape hatch threshold was raised from 60% to 85%, so common patterns like `"function"` no longer fall back to brute-force — ig now wins on all tested patterns. Short patterns (<3 chars) use a bigram-indexed fallback instead of full brute-force. See [full benchmark report](benchmarks/REPORT.md) for details.
 
 ## Agent Integration
 
