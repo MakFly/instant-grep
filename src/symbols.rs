@@ -49,6 +49,11 @@ pub fn extract_symbols(
     Ok(symbols)
 }
 
+/// Public wrapper for smart.rs to extract symbols from text.
+pub fn extract_from_text_pub(file: &str, text: &str, lang: Lang, symbols: &mut Vec<SymbolMatch>) {
+    extract_from_text(file, text, lang, symbols);
+}
+
 fn extract_from_text(file: &str, text: &str, lang: Lang, symbols: &mut Vec<SymbolMatch>) {
     let patterns = lang.patterns();
     if patterns.is_empty() {
@@ -137,7 +142,7 @@ fn classify_kind(matched: &str, lang: Lang) -> &'static str {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum Lang {
+pub enum Lang {
     Rust,
     TypeScript,
     JavaScript,
@@ -148,7 +153,7 @@ enum Lang {
 }
 
 impl Lang {
-    fn from_ext(ext: &str) -> Self {
+    pub fn from_ext(ext: &str) -> Self {
         match ext {
             "rs" => Lang::Rust,
             "ts" | "tsx" => Lang::TypeScript,
@@ -161,7 +166,7 @@ impl Lang {
         }
     }
 
-    fn patterns(&self) -> &'static str {
+    pub fn patterns(&self) -> &'static str {
         match self {
             Lang::Rust => r"^\s*(pub(\(crate\))?\s+)?(async\s+)?(fn|struct|enum|trait|impl|type|mod|const|static)\s+",
             Lang::TypeScript | Lang::JavaScript => r"^\s*(export\s+)?(default\s+)?(async\s+)?(function\*?\s+|class\s+|interface\s+|type\s+|enum\s+|const\s+\w+\s*=\s*(async\s+)?\()",

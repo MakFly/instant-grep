@@ -158,14 +158,37 @@ ig files .
 ig files -t rust              # only Rust files
 ig files --json               # JSON output for agents
 
+# Compact directory listing (token-optimized)
+ig ls                         # dirs grouped, files with sizes
+ig ls src/                    # specific directory
+
+# Read files with smart filtering
+ig read src/main.rs           # numbered lines
+ig read src/main.rs -s        # signatures + imports only (2x fewer tokens)
+
+# 2-line smart summary per file
+ig smart                      # all files in project
+ig smart src/                 # specific directory
+ig smart src/main.rs          # single file
+
 # Extract symbol definitions
 ig symbols .                  # all functions/classes/structs
 ig symbols -t ts              # only TypeScript symbols
-ig symbols --json             # JSON output for agents
 
 # Show full code block at a specific line
 ig context src/main.rs 42     # shows the enclosing function/class
-ig context --json src/main.rs 42
+
+# Generate project context for AI agents
+ig pack                       # generates .ig/context.md (tree + summaries)
+```
+
+### Token savings
+
+`ig` tracks how many bytes it saves vs. raw `cat`/`ls`/`grep` output:
+
+```bash
+ig gain                       # show savings dashboard
+ig gain --clear               # reset history
 ```
 
 ### Shell completions
@@ -182,6 +205,11 @@ ig completions fish > ~/.config/fish/completions/ig.fish
 # Auto-configure Claude Code, Codex, Gemini CLI to use ig
 ig setup
 ```
+
+`ig setup` automatically:
+- Adds `Bash(ig *)` permission to Claude Code
+- Installs a `PreToolUse` hook that rewrites `cat`/`grep`/`ls`/`tree`/`find` → `ig` equivalents
+- Adds search instructions to `CLAUDE.md`
 
 ### All flags
 
@@ -204,9 +232,14 @@ ig search <PATTERN> [PATH]       # explicit subcommand (also works)
   -w, --word-regexp            Match whole words only
   -F, --fixed-strings          Treat pattern as literal (not regex)
 
+ig ls [PATH]                     # compact directory listing
+ig read <FILE> [-s|--signatures] # read file (signatures-only mode)
+ig smart [PATH]                  # 2-line file summaries
+ig pack [PATH]                   # generate .ig/context.md
 ig files [PATH]                  # list project files
 ig symbols [PATH]                # extract symbol definitions
 ig context <FILE> <LINE>         # show enclosing code block
+ig gain [--clear]                # token savings dashboard
 ig completions <SHELL>           # generate shell completions
 ig setup                         # configure AI CLI agents
 ```
@@ -395,15 +428,36 @@ ig daemon /path/to/project &
 ig query "useRouter" /path/to/project
 ```
 
+### Token optimization (ig vs RTK vs baseline)
+
+`ig` reduces token consumption for AI agents through smart file reading, compact directory listings, and pre-generated project context. Measured on a 1,285-file Next.js project with `claude -p`:
+
+| Approach | Time | Turns | Cost | vs Baseline |
+|----------|-----:|------:|-----:|-------------|
+| **ig** (context.md + ls + smart) | **18s** | **4** | **$0.15** | 2.5x faster, 51% cheaper |
+| **RTK** (ls + smart + read) | 19s | 4 | $0.15 | 2.3x faster, 50% cheaper |
+| Baseline (ls + cat + tree) | 45s | 2 | $0.30 | — |
+
+Key features:
+- **`ig pack`** generates `.ig/context.md` — a compact project map (tree + file summaries + public APIs) that agents read in a single call instead of 10+ shell commands
+- **`ig read --signatures`** shows only imports and function signatures (2x fewer bytes than `cat`)
+- **`ig ls`** produces a compact directory listing (81% fewer bytes than `ls -la`)
+- **`ig rewrite`** + PreToolUse hook transparently intercepts `cat`/`grep`/`ls`/`tree`/`find` and redirects to `ig` equivalents
+- **`ig gain`** shows a savings dashboard (bytes saved per command)
+
 ### Compared to alternatives
 
-|                      | ig    | ripgrep | Cursor search  | MCP grep server  |
-| -------------------- | ----- | ------- | -------------- | ---------------- |
-| Index-based          | Yes   | No      | Yes            | No               |
-| Latency              | 1.5ms | ~95ms   | ~13ms          | ~95ms + overhead |
-| Token cost           | 4K    | 4K      | N/A (internal) | 145K             |
-| Works with any agent | Yes   | Yes     | Cursor only    | Needs MCP client |
-| Daemon mode          | Yes   | No      | Built-in       | No               |
+|                      | ig    | RTK   | ripgrep | MCP grep server  |
+| -------------------- | ----- | ----- | ------- | ---------------- |
+| Index-based search   | Yes   | No    | No      | No               |
+| Search latency       | 1.5ms | N/A   | ~95ms   | ~95ms + overhead |
+| Token optimization   | Yes   | Yes   | No      | No               |
+| Project context pack | Yes   | No    | No      | No               |
+| Command rewriting    | Code read/search | All CLI | No | No          |
+| Token cost (schema)  | 4K    | 4K    | 4K      | 145K             |
+| Daemon mode          | Yes   | No    | No      | No               |
+
+> ig and RTK are complementary: ig optimizes code reading and search, RTK optimizes git, npm, cargo, docker output. Both use the same Claude Code hook protocol.
 
 ## Architecture
 
@@ -428,7 +482,14 @@ ig
 │   └── matcher.rs    — File-level regex matching + line extraction
 ├── context.rs        — Code block extraction
 ├── symbols.rs        — Symbol definition extraction (multi-language)
-├── setup.rs          — AI agent auto-configuration
+├── read.rs           — Smart file reading (full + signatures-only mode)
+├── smart.rs          — 2-line heuristic file summaries
+├── pack.rs           — Project context generator (.ig/context.md)
+├── ls.rs             — Compact directory listing
+├── rewrite.rs        — Command rewriting engine (cat→ig read, grep→ig, etc.)
+├── tracking.rs       — Token savings tracking (JSONL history)
+├── gain.rs           — Savings dashboard
+├── setup.rs          — AI agent auto-configuration + hook installation
 ├── update.rs         — Background update checker
 ├── daemon.rs         — Unix socket server + client + start/stop/install lifecycle
 ├── watch.rs          — File watcher (notify crate) + auto-rebuild

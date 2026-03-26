@@ -36,7 +36,7 @@ pub fn build_index(
     let existing_meta = load_existing_metadata(&ig);
     let current_git_commit = get_git_head(&root);
 
-    if let Some(ref meta) = existing_meta
+    let result = if let Some(ref meta) = existing_meta
         && meta.version == INDEX_VERSION
     {
         // Check if existing overlay is too large and needs compaction
@@ -44,50 +44,111 @@ pub fn build_index(
             if overlay_reader.needs_compaction(meta.file_count) {
                 eprintln!("Overlay too large, compacting...");
                 overlay::clear_overlay(&ig);
-                return full_rebuild(&root, use_default_excludes, max_file_size, &current_git_commit);
+                full_rebuild(&root, use_default_excludes, max_file_size, &current_git_commit)?
+            } else {
+                // Fall through to changed-files check below
+                check_and_rebuild(&root, &ig, use_default_excludes, max_file_size, &current_git_commit, meta)?
             }
+        } else {
+            check_and_rebuild(&root, &ig, use_default_excludes, max_file_size, &current_git_commit, meta)?
+        }
+    } else {
+        // Clear any existing overlay before full rebuild
+        overlay::clear_overlay(&ig);
+        full_rebuild(&root, use_default_excludes, max_file_size, &current_git_commit)?
+    };
+
+    // Generate tree.txt and context.md alongside index artifacts
+    generate_tree(&root, &ig);
+    crate::pack::generate_context_quiet(&root, &ig);
+
+    Ok(result)
+}
+
+fn check_and_rebuild(
+    root: &Path,
+    ig: &Path,
+    use_default_excludes: bool,
+    max_file_size: u64,
+    current_git_commit: &Option<String>,
+    meta: &IndexMetadata,
+) -> Result<IndexMetadata> {
+    let changed = detect_changed_files(root, meta, current_git_commit);
+    if let Some(changed_paths) = changed {
+        if changed_paths.is_empty() {
+            eprintln!("Index is up to date");
+            return Ok(meta.clone());
         }
 
-        let changed = detect_changed_files(&root, meta, &current_git_commit);
-        if let Some(changed_paths) = changed {
-            if changed_paths.is_empty() {
-                eprintln!("Index is up to date");
-                return Ok(meta.clone());
-            }
+        if changed_paths.len() <= OVERLAY_THRESHOLD {
+            eprintln!(
+                "Detected {} changed files, building overlay...",
+                changed_paths.len()
+            );
+            return incremental_overlay(
+                root,
+                use_default_excludes,
+                max_file_size,
+                current_git_commit,
+                meta,
+                &changed_paths,
+            );
+        } else {
+            eprintln!(
+                "Detected {} changed files (>{} threshold), full rebuild...",
+                changed_paths.len(),
+                OVERLAY_THRESHOLD
+            );
+        }
+    }
 
-            // Use overlay for small changes, full rebuild for large changes
-            if changed_paths.len() <= OVERLAY_THRESHOLD {
-                eprintln!(
-                    "Detected {} changed files, building overlay...",
-                    changed_paths.len()
-                );
-                return incremental_overlay(
-                    &root,
-                    use_default_excludes,
-                    max_file_size,
-                    &current_git_commit,
-                    meta,
-                    &changed_paths,
-                );
-            } else {
-                eprintln!(
-                    "Detected {} changed files (>{} threshold), full rebuild...",
-                    changed_paths.len(),
-                    OVERLAY_THRESHOLD
-                );
+    overlay::clear_overlay(ig);
+    full_rebuild(root, use_default_excludes, max_file_size, current_git_commit)
+}
+
+/// Generate `.ig/tree.txt` — a depth-3 directory tree for AI agent onboarding.
+/// Uses the same exclude list as the index walker. Runs in <1ms on typical projects.
+fn generate_tree(root: &Path, ig: &Path) {
+    use std::collections::BTreeSet;
+
+    let tree_path = ig.join("tree.txt");
+
+    // Collect directories up to depth 3 from walked files
+    let paths = match walk_files(root, true, 0, None, None) {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+
+    let mut dirs: BTreeSet<String> = BTreeSet::new();
+    for path in &paths {
+        if let Ok(rel) = path.strip_prefix(root) {
+            let components: Vec<_> = rel.components().collect();
+            // Add parent directories up to depth 3
+            for depth in 1..=3.min(components.len()) {
+                let dir: String = components[..depth]
+                    .iter()
+                    .map(|c| c.as_os_str().to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                if depth < components.len() {
+                    // It's a directory (has children)
+                    dirs.insert(format!("{}/ ", dir));
+                } else {
+                    // It's a file at this depth
+                    dirs.insert(dir);
+                }
             }
         }
     }
 
-    // Clear any existing overlay before full rebuild
-    overlay::clear_overlay(&ig);
+    // Write simple flat listing (fast to generate, easy for LLMs to parse)
+    let mut output = String::with_capacity(dirs.len() * 40);
+    for entry in &dirs {
+        output.push_str(entry.trim_end());
+        output.push('\n');
+    }
 
-    full_rebuild(
-        &root,
-        use_default_excludes,
-        max_file_size,
-        &current_git_commit,
-    )
+    let _ = fs::write(&tree_path, output.as_bytes());
 }
 
 /// Streaming full rebuild: processes files in batches of BATCH_SIZE.

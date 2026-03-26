@@ -4,8 +4,10 @@ use std::time::Duration;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 use crate::context::BlockResult;
+use crate::read::ReadResult;
 use crate::search::indexed::SearchStats;
 use crate::search::matcher::{FileMatches, LineMatch};
+use crate::smart::SmartSummary;
 use crate::symbols::SymbolMatch;
 
 pub struct Printer {
@@ -298,6 +300,56 @@ impl Printer {
             let _ = write!(self.stdout, " │ ");
             let _ = self.stdout.reset();
             let _ = writeln!(self.stdout, "{}", text);
+        }
+    }
+
+    pub fn print_read(&mut self, result: &ReadResult) {
+        if self.json_mode {
+            for (num, line) in &result.lines {
+                let _ = writeln!(
+                    self.stdout,
+                    "{{\"file\":\"{}\",\"line\":{},\"text\":\"{}\"}}",
+                    escape_json(&result.file),
+                    num,
+                    escape_json(line)
+                );
+            }
+            return;
+        }
+
+        for (num, line) in &result.lines {
+            let _ = self.stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)).set_dimmed(true));
+            let _ = write!(self.stdout, "{:>4}: ", num);
+            let _ = self.stdout.reset();
+            let _ = writeln!(self.stdout, "{}", line);
+        }
+    }
+
+    pub fn print_smart(&mut self, summaries: &[SmartSummary]) {
+        if self.json_mode {
+            for s in summaries {
+                let _ = writeln!(
+                    self.stdout,
+                    "{{\"file\":\"{}\",\"role\":\"{}\",\"public_api\":\"{}\"}}",
+                    escape_json(&s.file),
+                    escape_json(&s.role),
+                    escape_json(&s.public_api)
+                );
+            }
+            return;
+        }
+
+        for s in summaries {
+            let _ = self.stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)));
+            let _ = write!(self.stdout, "{}", s.file);
+            let _ = self.stdout.reset();
+            let _ = write!(self.stdout, " — {}", s.role);
+            if !s.public_api.is_empty() {
+                let _ = self.stdout.set_color(ColorSpec::new().set_dimmed(true));
+                let _ = write!(self.stdout, " / {}", s.public_api);
+                let _ = self.stdout.reset();
+            }
+            let _ = writeln!(self.stdout);
         }
     }
 }

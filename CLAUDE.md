@@ -23,10 +23,18 @@ Pipeline: `regex → regex-syntax Extractor → covering sparse n-grams → hash
 ## Key files
 
 - `src/index/ngram.rs` — core algorithm (hash_bigram, build_all_ngrams, build_covering_ngrams)
-- `src/index/writer.rs` — index build pipeline
+- `src/index/writer.rs` — index build pipeline (also generates tree.txt + context.md)
 - `src/index/reader.rs` — index query (mmap + hash table)
 - `src/query/extract.rs` — regex → NgramQuery conversion
 - `src/daemon.rs` — Unix socket daemon for sub-ms queries
+- `src/read.rs` — smart file reading (full + signatures-only mode)
+- `src/smart.rs` — 2-line heuristic file summaries
+- `src/pack.rs` — project context generator (.ig/context.md)
+- `src/ls.rs` — compact directory listing
+- `src/rewrite.rs` — command rewriting engine for PreToolUse hook
+- `src/tracking.rs` — token savings tracking (JSONL history)
+- `src/gain.rs` — savings dashboard
+- `src/setup.rs` — AI agent auto-configuration + hook installation
 
 ## Commands
 
@@ -41,8 +49,14 @@ ig query <pattern> [path]    # query daemon
 ig files [path]              # list project files
 ig symbols [path]            # extract symbol definitions
 ig context <file> <line>     # show enclosing code block
+ig ls [path]                 # compact directory listing
+ig read <file> [-s]          # smart file reading (signatures mode)
+ig smart [path]              # 2-line file summaries
+ig pack [path]               # generate .ig/context.md
+ig gain [--clear]            # token savings dashboard
+ig rewrite <cmd>             # rewrite command to ig equivalent (used by hooks)
 ig completions <shell>       # generate shell completions
-ig setup                     # configure AI CLI agents
+ig setup                     # configure AI CLI agents + install hooks
 ```
 
 ## Conventions

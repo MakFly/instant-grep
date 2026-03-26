@@ -1,12 +1,19 @@
 mod cli;
 mod context;
 mod daemon;
+mod gain;
 mod index;
+mod ls;
 mod output;
+mod pack;
 mod query;
+mod read;
+mod rewrite;
 mod search;
 mod setup;
+mod smart;
 mod symbols;
+mod tracking;
 mod update;
 mod util;
 mod walk;
@@ -211,6 +218,111 @@ fn main() -> Result<()> {
                 !json && atty::is(atty::Stream::Stdout) && std::env::var("NO_COLOR").is_err();
             let mut printer = Printer::new(use_color, json);
             printer.print_context(&block);
+        }
+
+        Some(Commands::Read { file, signatures }) => {
+            let path = std::path::Path::new(&file);
+            let original_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+            let result = read::read_file(path, signatures)?;
+            let use_color =
+                !json && atty::is(atty::Stream::Stdout) && std::env::var("NO_COLOR").is_err();
+            let mut printer = Printer::new(use_color, json);
+            printer.print_read(&result);
+
+            // Track savings (cat would output original_size bytes)
+            let output_bytes: u64 = result.lines.iter().map(|(_, l)| l.len() as u64 + 7).sum(); // +7 for line num prefix
+            tracking::log_savings(&tracking::TrackEntry {
+                command: if signatures { format!("ig read -s {}", file) } else { format!("ig read {}", file) },
+                original_bytes: original_size,
+                output_bytes,
+                project: std::env::current_dir()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default(),
+            });
+        }
+
+        Some(Commands::Smart { path }) => {
+            let root = resolve_root(path.as_deref());
+            let max_size = max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
+            let use_excludes = !no_default_excludes;
+
+            let base_path = path.as_deref().map(std::path::Path::new);
+            let use_color =
+                !json && atty::is(atty::Stream::Stdout) && std::env::var("NO_COLOR").is_err();
+            let mut printer = Printer::new(use_color, json);
+
+            if let Some(p) = base_path
+                && p.is_file()
+            {
+                // Single file
+                let s = smart::smart_summarize_file(p, &root)?;
+                printer.print_smart(&[s]);
+            } else {
+                // Directory — use the specified path if it's a subdir, otherwise root
+                let scan_dir = if let Some(p) = base_path
+                    && p.is_dir()
+                {
+                    p.canonicalize().unwrap_or_else(|_| root.clone())
+                } else {
+                    root.clone()
+                };
+                let summaries = smart::smart_summarize(
+                    &scan_dir,
+                    use_excludes,
+                    max_size,
+                    file_type.as_deref(),
+                    glob.as_deref(),
+                )?;
+                printer.print_smart(&summaries);
+            }
+        }
+
+        Some(Commands::Pack { path }) => {
+            let root = resolve_root(path.as_deref());
+            let max_size = max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
+            let use_excludes = !no_default_excludes;
+            let start = Instant::now();
+
+            // Ensure index exists first (tree.txt is generated during indexing)
+            ensure_index(&root, use_excludes, max_size)?;
+
+            let output = pack::generate_context(&root, use_excludes, max_size)?;
+            let elapsed = start.elapsed();
+            let lines = output.lines().count();
+            let ig = ig_dir(&root);
+            eprintln!(
+                "Generated .ig/context.md: {} lines in {:.1}s",
+                lines,
+                elapsed.as_secs_f64(),
+            );
+            eprintln!("Path: {}", ig.join("context.md").display());
+        }
+
+        Some(Commands::Ls { path }) => {
+            let target = path.as_deref().unwrap_or(".");
+            let result = ls::compact_ls(std::path::Path::new(target))?;
+            let output = ls::format_ls(&result);
+            print!("{}", output);
+
+            // Track savings: estimate ls -la output as ~80 bytes/entry
+            let estimated_original = (result.total_files + result.total_dirs) as u64 * 80;
+            let output_bytes = output.len() as u64;
+            tracking::log_savings(&tracking::TrackEntry {
+                command: format!("ig ls {}", target),
+                original_bytes: estimated_original,
+                output_bytes,
+                project: std::env::current_dir()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default(),
+            });
+        }
+
+        Some(Commands::Rewrite { command }) => {
+            rewrite::run_rewrite(&command);
+        }
+
+        Some(Commands::Gain { clear }) => {
+            gain::show_gain(clear);
         }
 
         Some(Commands::Completions { shell }) => {

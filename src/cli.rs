@@ -133,6 +133,48 @@ pub enum Commands {
         line: usize,
     },
 
+    /// Read a file with optional signatures-only mode
+    Read {
+        /// File path to read
+        file: String,
+
+        /// Show only imports and symbol signatures
+        #[arg(short = 's', long)]
+        signatures: bool,
+    },
+
+    /// Show 2-line smart summary for each file
+    Smart {
+        /// File or directory to summarize (default: current dir)
+        path: Option<String>,
+    },
+
+    /// Generate .ig/context.md (tree + smart summaries + symbols)
+    Pack {
+        /// Directory to pack (default: current dir)
+        path: Option<String>,
+    },
+
+    /// Compact directory listing (token-optimized for AI agents)
+    Ls {
+        /// Directory to list (default: current dir)
+        path: Option<String>,
+    },
+
+    /// Rewrite a shell command to its ig equivalent (used by hooks)
+    #[command(hide = true)]
+    Rewrite {
+        /// The command to rewrite
+        command: String,
+    },
+
+    /// Show token savings dashboard
+    Gain {
+        /// Clear tracking history
+        #[arg(long)]
+        clear: bool,
+    },
+
     /// Generate shell completions (bash, zsh, fish, powershell)
     Completions {
         /// Shell to generate completions for

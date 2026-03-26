@@ -363,6 +363,96 @@ matches = search_codebase(<span class="theme-gold">"async fn"</span>, <span clas
         </div>
       </div>
     </section>
+
+    <!-- Token optimization -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
+        <span class="theme-green">📦</span>
+        Token Optimization
+      </h2>
+
+      <p class="text-sm text-muted-foreground mb-5 leading-relaxed">
+        Beyond fast search, ig reduces token consumption through smart file reading, compact listings, and pre-generated project context.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-6">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">new commands (v1.2.0)</div>
+        <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Compact directory listing (81% fewer tokens vs ls -la)</span>
+<span class="theme-blue">ig</span> ls src/
+
+<span class="theme-orange"># Smart file reading — signatures + imports only</span>
+<span class="theme-blue">ig</span> read src/main.rs --signatures
+
+<span class="theme-orange"># 2-line summary per file (role + public API)</span>
+<span class="theme-blue">ig</span> smart src/
+
+<span class="theme-orange"># Generate project context for AI agents</span>
+<span class="theme-blue">ig</span> pack  <span class="theme-comment"># writes .ig/context.md (auto-generated on ig index)</span>
+
+<span class="theme-orange"># Token savings dashboard</span>
+<span class="theme-blue">ig</span> gain`}></code></pre>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        <code class="font-mono theme-blue">ig setup</code> installs a PreToolUse hook that transparently rewrites shell commands to ig equivalents:
+      </p>
+
+      <div class="overflow-x-auto mb-6">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-xs font-mono text-muted-foreground border-b border-border">
+              <th class="pb-2 pr-4">Agent command</th>
+              <th class="pb-2 pr-4">Rewritten to</th>
+              <th class="pb-2">Token savings</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono text-xs">
+            <tr class="border-b border-border/30">
+              <td class="py-2 pr-4"><code>cat file.ts</code></td>
+              <td class="py-2 pr-4"><code class="theme-blue">ig read file.ts</code></td>
+              <td class="py-2 theme-green">+line numbers</td>
+            </tr>
+            <tr class="border-b border-border/30">
+              <td class="py-2 pr-4"><code>grep -rn pattern .</code></td>
+              <td class="py-2 pr-4"><code class="theme-blue">ig "pattern"</code></td>
+              <td class="py-2 theme-green">indexed, sub-ms</td>
+            </tr>
+            <tr class="border-b border-border/30">
+              <td class="py-2 pr-4"><code>ls -la src/</code></td>
+              <td class="py-2 pr-4"><code class="theme-blue">ig ls src/</code></td>
+              <td class="py-2 theme-green">81% fewer bytes</td>
+            </tr>
+            <tr class="border-b border-border/30">
+              <td class="py-2 pr-4"><code>tree</code></td>
+              <td class="py-2 pr-4"><code class="theme-blue">cat .ig/tree.txt</code></td>
+              <td class="py-2 theme-green">pre-generated</td>
+            </tr>
+            <tr>
+              <td class="py-2 pr-4"><code>find . -name "*.ts"</code></td>
+              <td class="py-2 pr-4"><code class="theme-blue">ig files --glob "*.ts"</code></td>
+              <td class="py-2 theme-green">indexed listing</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="p-5 rounded-xl border border-border bg-secondary/30">
+        <div class="text-xs font-mono font-bold mb-3 theme-gold">Benchmark: project exploration (1,285-file Next.js app)</div>
+        <div class="grid grid-cols-3 gap-4 text-center">
+          {[
+            { label: "ig", value: "18s", sub: "4 turns · $0.15", cls: "theme-blue" },
+            { label: "RTK", value: "19s", sub: "4 turns · $0.15", cls: "theme-muted" },
+            { label: "Baseline", value: "45s", sub: "2 turns · $0.30", cls: "theme-red" },
+          ].map((item) => (
+            <div class="p-4 rounded-xl energy-card bg-card/50">
+              <div class={`font-mono text-xl font-black mb-1 ${item.cls}`}>{item.value}</div>
+              <div class="text-xs text-foreground/70 font-mono mb-0.5">{item.label}</div>
+              <div class="text-xs text-muted-foreground/50">{item.sub}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
   </div>
 </DocsLayout>
 
