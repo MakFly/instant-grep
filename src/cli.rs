@@ -198,6 +198,17 @@ pub enum Commands {
         command: Vec<String>,
     },
 
+    /// Discover missed token-saving opportunities in Claude Code sessions
+    Discover {
+        /// Only scan sessions from the last N days (default: 30)
+        #[arg(long, default_value = "30")]
+        since: u32,
+
+        /// Maximum entries to show per section (default: 15)
+        #[arg(long, default_value = "15")]
+        limit: usize,
+    },
+
     /// Generate shell completions (bash, zsh, fish, powershell)
     Completions {
         /// Shell to generate completions for

@@ -1,6 +1,7 @@
 mod cli;
 mod context;
 mod daemon;
+mod discover;
 mod gain;
 mod git;
 mod index;
@@ -342,6 +343,10 @@ fn main() -> Result<()> {
                     std::process::exit(1);
                 });
             std::process::exit(status.code().unwrap_or(1));
+        }
+
+        Some(Commands::Discover { since, limit }) => {
+            discover::run_discover(since, limit);
         }
 
         Some(Commands::Completions { shell }) => {
