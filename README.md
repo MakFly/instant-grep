@@ -57,10 +57,18 @@ Download the prebuilt binary for your platform (Linux x86_64, macOS x86_64, macO
 curl -fsSL https://raw.githubusercontent.com/MakFly/instant-grep/main/install.sh | bash
 ```
 
+> This installs the binary and automatically runs `ig setup` to configure your AI agents (Claude Code, Codex).
+
 This installs `ig` to `~/.local/bin/`. Set a custom directory with `IG_INSTALL_DIR`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/MakFly/instant-grep/main/install.sh | IG_INSTALL_DIR=/usr/local/bin bash
+```
+
+### Homebrew (macOS / Linux)
+
+```bash
+brew install MakFly/tap/ig
 ```
 
 ### Download binary manually
@@ -70,6 +78,7 @@ Grab the latest binary from [Releases](https://github.com/MakFly/instant-grep/re
 | Platform                | Binary             |
 | ----------------------- | ------------------ |
 | Linux x86_64            | `ig-linux-x86_64`  |
+| Linux ARM64             | `ig-linux-aarch64` |
 | macOS x86_64            | `ig-macos-x86_64`  |
 | macOS ARM (M1/M2/M3/M4) | `ig-macos-aarch64` |
 
@@ -78,6 +87,31 @@ Grab the latest binary from [Releases](https://github.com/MakFly/instant-grep/re
 curl -fsSL https://github.com/MakFly/instant-grep/releases/latest/download/ig-linux-x86_64 -o ~/.local/bin/ig
 chmod +x ~/.local/bin/ig
 ```
+
+```bash
+# Verify installation
+ig --version
+```
+
+### Upgrade
+
+Re-run the install script (same as initial install):
+```bash
+curl -fsSL https://raw.githubusercontent.com/MakFly/instant-grep/main/install.sh | bash
+```
+
+Or with Homebrew: `brew upgrade ig`
+
+### Uninstall
+
+```bash
+rm ~/.local/bin/ig          # remove binary
+rm -rf /path/to/project/.ig # remove project indexes
+# To undo ig setup changes, remove the ig-rewrite.sh hook entry
+# from ~/.claude/settings.json and the Search Tools section from ~/.claude/CLAUDE.md
+```
+
+> **Windows:** Not directly supported. Use WSL2 (Windows Subsystem for Linux) with the Linux binary.
 
 ### Build from source
 
@@ -313,11 +347,11 @@ Files larger than 1 MB are also skipped by default (`--max-file-size` to overrid
 
 Measured on two multi-language projects (11K and 3K source files). Best of 3 runs. Apple M4 Max, macOS 15.5, ripgrep 15.1.
 
-### CLI: ig v1.1.0 vs ripgrep
+### CLI: ig v1.3.0 vs ripgrep
 
 Wall time includes process startup (~15ms on macOS). Best of 3 runs.
 
-| Pattern | ig v1.1.0 | ripgrep 15.1 | Winner |
+| Pattern | ig v1.3.0 | ripgrep 15.1 | Winner |
 |---------|-----------|-------------|--------|
 | `function` (11K files) | **33ms** | 39ms | ig 1.2x |
 | `class\s+\w+` (11K files) | **29ms** | 34ms | ig 1.2x |

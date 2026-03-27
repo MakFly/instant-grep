@@ -12,7 +12,13 @@ OS="$(uname -s)"
 ARCH="$(uname -m)"
 
 case "$OS" in
-  Linux)  ARTIFACT="ig-linux-x86_64" ;;
+  Linux)
+    case "$ARCH" in
+      aarch64|arm64) ARTIFACT="ig-linux-aarch64" ;;
+      x86_64)        ARTIFACT="ig-linux-x86_64" ;;
+      *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+    esac
+    ;;
   Darwin)
     case "$ARCH" in
       arm64|aarch64) ARTIFACT="ig-macos-aarch64" ;;
@@ -53,6 +59,9 @@ if ! echo "$PATH" | grep -q "$INSTALL_DIR"; then
   echo "Add to your shell config:"
   echo "  export PATH=\"$INSTALL_DIR:\$PATH\""
 fi
+
+echo ""
+echo "Ready! Try: ig \"hello\" ."
 
 # Auto-configure AI CLI agents
 echo ""

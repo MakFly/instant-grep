@@ -44,7 +44,11 @@ ig search <pattern> [path]   # search (explicit)
 ig index [path]              # build/rebuild index
 ig status [path]             # show stats
 ig watch [path]              # auto-rebuild on file changes
-ig daemon [path]             # start daemon
+ig daemon start [path]       # start daemon
+ig daemon stop [path]        # stop daemon
+ig daemon status [path]      # check status
+ig daemon install [path]     # auto-restart on reboot (macOS)
+ig daemon uninstall [path]   # remove auto-restart
 ig query <pattern> [path]    # query daemon
 ig files [path]              # list project files
 ig symbols [path]            # extract symbol definitions
@@ -54,7 +58,7 @@ ig read <file> [-s]          # smart file reading (signatures mode)
 ig smart [path]              # 2-line file summaries
 ig pack [path]               # generate .ig/context.md
 ig gain [--clear]            # token savings dashboard
-ig rewrite <cmd>             # rewrite command to ig equivalent (used by hooks)
+ig rewrite <cmd>             # rewrite command to ig equivalent (hook-internal, hidden from --help)
 ig completions <shell>       # generate shell completions
 ig setup                     # configure AI CLI agents + install hooks
 ```
