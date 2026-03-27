@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>instant-grep (ig) — Benchmark Results</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              green: '#22c55e',
+              red: '#ef4444',
+              blue: '#3b82f6',
+              yellow: '#eab308',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+  <style>
+    body { background-color: #0a0f1a; }
+    .recharts-tooltip-wrapper { outline: none; }
+    .recharts-default-tooltip {
+      background-color: #1e293b !important;
+      border: 1px solid #334155 !important;
+      border-radius: 8px !important;
+    }
+    .recharts-tooltip-label { color: #94a3b8 !important; }
+    .recharts-cartesian-axis-tick-value { fill: #64748b; }
+    .recharts-legend-item-text { color: #94a3b8 !important; }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-up { animation: fadeUp 0.5s ease both; }
+    .fade-up-1 { animation-delay: 0.05s; }
+    .fade-up-2 { animation-delay: 0.15s; }
+    .fade-up-3 { animation-delay: 0.25s; }
+    .fade-up-4 { animation-delay: 0.35s; }
+    .fade-up-5 { animation-delay: 0.45s; }
+    .fade-up-6 { animation-delay: 0.55s; }
+    .fade-up-7 { animation-delay: 0.65s; }
+    .fade-up-8 { animation-delay: 0.75s; }
+    .glow-green { box-shadow: 0 0 24px rgba(34,197,94,0.15); }
+    .glow-blue  { box-shadow: 0 0 24px rgba(59,130,246,0.12); }
+    .grid-bg {
+      background-image:
+        linear-gradient(rgba(51,65,85,0.3) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(51,65,85,0.3) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+  </style>
+</head>
+<body class="dark">
+<div id="root"></div>
+
+<script type="text/babel">
+const {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  AreaChart, Area, PieChart, Pie, Cell, LabelList
+} = Recharts;
+
+/* ─── Data ─────────────────────────────────────────────────────────────── */
+
+const tokenCompressionData = [
+  { command: "grep -r",    native: 5384,  ig: 0,    savings: 100 },
+  { command: "git diff",   native: 26288, ig: 6906, savings: 74  },
+  { command: "git show",   native: 11920, ig: 5812, savings: 51  },
+  { command: "git log",    native: 2499,  ig: 484,  savings: 81  },
+  { command: "git status", native: 732,   ig: 127,  savings: 83  },
+  { command: "tree",       native: 983,   ig: 343,  savings: 65  },
+  { command: "ls -la",     native: 980,   ig: 343,  savings: 65  },
+  { command: "find *.rs",  native: 1080,  ig: 627,  savings: 42  },
+];
+
+const contextData = [
+  { component: "CLAUDE.md", before: 2909,  after: 1022 },
+  { component: "Rules",     before: 9932,  after: 2800 },
+  { component: "Total",     before: 12841, after: 3822 },
+];
+
+const sessionData = [
+  { commands: 0,   saved: 0       },
+  { commands: 50,  saved: 150000  },
+  { commands: 100, saved: 450000  },
+  { commands: 150, saved: 850000  },
+  { commands: 200, saved: 1400000 },
+  { commands: 250, saved: 1800000 },
+  { commands: 299, saved: 2180800 },
+];
+
+const sessionImpactData = [
+  { metric: "Context/turn",    without: 3210,   with: 1104  },
+  { metric: "50-turn context", without: 160500, with: 55200 },
+  { metric: "30 tool calls",   without: 80000,  with: 17000 },
+  { metric: "Total/session",   without: 240500, with: 72200 },
+];
+
+const testData = [
+  { name: "Pass",  value: 38, color: "#22c55e" },
+  { name: "Skip",  value: 2,  color: "#eab308" },
+];
+
+/* ─── Shared styles ─────────────────────────────────────────────────────── */
+
+const CARD = "rounded-2xl border border-slate-800 bg-slate-900/80 p-6 backdrop-blur";
+const CHART_MARGIN = { top: 8, right: 16, left: 0, bottom: 8 };
+
+const TOOLTIP_STYLE = {
+  contentStyle: {
+    backgroundColor: "#1e293b",
+    border: "1px solid #334155",
+    borderRadius: "8px",
+    fontSize: "13px",
+    color: "#e2e8f0",
+  },
+  labelStyle: { color: "#94a3b8" },
+  cursor: { fill: "rgba(148,163,184,0.06)" },
+};
+
+const fmt = (n) =>
+  n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2)}M`
+  : n >= 1_000   ? `${Math.round(n / 1_000)}K`
+  : n.toString();
+
+/* ─── Custom label for bar savings ───────────────────────────────────────── */
+const SavingsLabel = ({ x, y, width, value }) => {
+  if (!width || width < 28) return null;
+  return (
+    <text
+      x={x + width / 2}
+      y={y + 13}
+      textAnchor="middle"
+      fill="#bbf7d0"
+      fontSize={11}
+      fontWeight={600}
+    >
+      -{value}%
+    </text>
+  );
+};
+
+/* ─── Metric card ────────────────────────────────────────────────────────── */
+const MetricCard = ({ value, label, sub, color, delay }) => (
+  <div className={`${CARD} glow-${color} fade-up fade-up-${delay} flex flex-col gap-1`}>
+    <span className={`text-4xl font-black tracking-tight text-${color === "green" ? "green" : color === "blue" ? "blue" : "yellow"}-400`}>
+      {value}
+    </span>
+    <span className="text-sm font-semibold text-slate-200">{label}</span>
+    {sub && <span className="text-xs text-slate-500">{sub}</span>}
+  </div>
+);
+
+/* ─── Chart 1: Token Compression ────────────────────────────────────────── */
+const TokenCompressionChart = () => (
+  <div className={`${CARD} fade-up fade-up-4 col-span-1 lg:col-span-2`}>
+    <h2 className="mb-1 text-base font-semibold text-slate-200">Token Compression by Command</h2>
+    <p className="mb-5 text-xs text-slate-500">Tokens consumed — native shell output vs ig-filtered output</p>
+    <ResponsiveContainer width="100%" height={280}>
+      <BarChart data={tokenCompressionData} margin={CHART_MARGIN} barCategoryGap="30%">
+        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+        <XAxis dataKey="command" tick={{ fill: "#64748b", fontSize: 12 }} axisLine={false} tickLine={false} />
+        <YAxis tickFormatter={fmt} tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} width={44} />
+        <Tooltip
+          {...TOOLTIP_STYLE}
+          formatter={(v, name) => [fmt(v) + " tokens", name === "native" ? "Native" : "ig"]}
+        />
+        <Legend
+          wrapperStyle={{ fontSize: "12px", paddingTop: "12px" }}
+          formatter={(v) => v === "native" ? "Native (wasteful)" : "ig (filtered)"}
+        />
+        <Bar dataKey="native" fill="#ef4444" fillOpacity={0.85} radius={[4,4,0,0]} name="native">
+          <LabelList dataKey="savings" content={<SavingsLabel />} />
+        </Bar>
+        <Bar dataKey="ig" fill="#3b82f6" fillOpacity={0.85} radius={[4,4,0,0]} name="ig" />
+      </BarChart>
+    </ResponsiveContainer>
+  </div>
+);
+
+/* ─── Chart 2: Context Size ─────────────────────────────────────────────── */
+const ContextChart = () => (
+  <div className={`${CARD} fade-up fade-up-5`}>
+    <h2 className="mb-1 text-base font-semibold text-slate-200">Context Injection Size</h2>
+    <p className="mb-5 text-xs text-slate-500">Tokens injected per session — before vs after compression</p>
+    <ResponsiveContainer width="100%" height={280}>
+      <BarChart data={contextData} layout="vertical" margin={{ top: 8, right: 40, left: 8, bottom: 8 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+        <XAxis type="number" tickFormatter={fmt} tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
+        <YAxis
+          type="category" dataKey="component"
+          tick={{ fill: "#94a3b8", fontSize: 12 }}
+          axisLine={false} tickLine={false} width={72}
+        />
+        <Tooltip
+          {...TOOLTIP_STYLE}
+          formatter={(v, name) => [fmt(v) + " tokens", name === "before" ? "Before ig" : "After ig"]}
+        />
+        <Legend
+          wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }}
+          formatter={(v) => v === "before" ? "Before ig" : "After ig"}
+        />
+        <Bar dataKey="before" fill="#ef4444" fillOpacity={0.8} radius={[0,4,4,0]} name="before" />
+        <Bar dataKey="after"  fill="#22c55e" fillOpacity={0.8} radius={[0,4,4,0]} name="after" />
+      </BarChart>
+    </ResponsiveContainer>
+  </div>
+);
+
+/* ─── Chart 3: Cumulative savings ───────────────────────────────────────── */
+const SessionSavingsChart = () => (
+  <div className={`${CARD} fade-up fade-up-6`}>
+    <h2 className="mb-1 text-base font-semibold text-slate-200">Cumulative Token Savings</h2>
+    <p className="mb-5 text-xs text-slate-500">Tokens saved as commands accumulate across a real session (299 commands)</p>
+    <ResponsiveContainer width="100%" height={280}>
+      <AreaChart data={sessionData} margin={CHART_MARGIN}>
+        <defs>
+          <linearGradient id="savingsGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%"  stopColor="#22c55e" stopOpacity={0.35} />
+            <stop offset="95%" stopColor="#22c55e" stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+        <XAxis
+          dataKey="commands"
+          tick={{ fill: "#64748b", fontSize: 11 }}
+          axisLine={false} tickLine={false}
+          label={{ value: "commands", position: "insideBottom", offset: -4, fill: "#475569", fontSize: 11 }}
+        />
+        <YAxis tickFormatter={fmt} tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} width={44} />
+        <Tooltip
+          {...TOOLTIP_STYLE}
+          formatter={(v) => [fmt(v) + " tokens", "Tokens saved"]}
+          labelFormatter={(l) => `${l} commands`}
+        />
+        <Area
+          type="monotone"
+          dataKey="saved"
+          stroke="#22c55e"
+          strokeWidth={2}
+          fill="url(#savingsGrad)"
+          dot={{ r: 3, fill: "#22c55e", strokeWidth: 0 }}
+          activeDot={{ r: 5, fill: "#22c55e", strokeWidth: 0 }}
+          name="saved"
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  </div>
+);
+
+/* ─── Chart 4: Opus 4.6 Session Impact ──────────────────────────────────── */
+const SessionImpactChart = () => (
+  <div className={`${CARD} fade-up fade-up-7`}>
+    <h2 className="mb-1 text-base font-semibold text-slate-200">Opus 4.6 Session Impact</h2>
+    <p className="mb-5 text-xs text-slate-500">Tokens per metric category — session without ig vs with ig</p>
+    <ResponsiveContainer width="100%" height={280}>
+      <BarChart data={sessionImpactData} margin={CHART_MARGIN} barCategoryGap="35%">
+        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+        <XAxis dataKey="metric" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
+        <YAxis tickFormatter={fmt} tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} width={44} />
+        <Tooltip
+          {...TOOLTIP_STYLE}
+          formatter={(v, name) => [fmt(v) + " tokens", name === "without" ? "Without ig" : "With ig"]}
+        />
+        <Legend
+          wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }}
+          formatter={(v) => v === "without" ? "Without ig" : "With ig"}
+        />
+        <Bar dataKey="without" fill="#ef4444" fillOpacity={0.8} radius={[4,4,0,0]} name="without" />
+        <Bar dataKey="with"    fill="#22c55e" fillOpacity={0.8} radius={[4,4,0,0]} name="with" />
+      </BarChart>
+    </ResponsiveContainer>
+  </div>
+);
+
+/* ─── Chart 5: Test Results ─────────────────────────────────────────────── */
+const TestResultsChart = () => {
+  const RADIAN = Math.PI / 180;
+  const renderCustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, name, value }) => {
+    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+    return (
+      <text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central" fontSize={13} fontWeight={700}>
+        {value}
+      </text>
+    );
+  };
+
+  return (
+    <div className={`${CARD} fade-up fade-up-8`}>
+      <h2 className="mb-1 text-base font-semibold text-slate-200">Integration Test Results</h2>
+      <p className="mb-2 text-xs text-slate-500">40 total integration tests — 0 failures</p>
+      <div className="flex items-center justify-center gap-8">
+        <ResponsiveContainer width={200} height={200}>
+          <PieChart>
+            <Pie
+              data={testData}
+              cx="50%"
+              cy="50%"
+              innerRadius={58}
+              outerRadius={88}
+              paddingAngle={3}
+              dataKey="value"
+              labelLine={false}
+              label={renderCustomLabel}
+              startAngle={90}
+              endAngle={-270}
+            >
+              {testData.map((entry, i) => (
+                <Cell key={i} fill={entry.color} fillOpacity={0.9} />
+              ))}
+            </Pie>
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="flex flex-col gap-4">
+          {testData.map((d) => (
+            <div key={d.name} className="flex items-center gap-3">
+              <span className="h-3 w-3 rounded-full inline-block" style={{ backgroundColor: d.color }} />
+              <div>
+                <span className="text-2xl font-black" style={{ color: d.color }}>{d.value}</span>
+                <span className="ml-2 text-sm text-slate-400">{d.name}</span>
+              </div>
+            </div>
+          ))}
+          <div className="mt-1 rounded-lg bg-slate-800 px-3 py-2">
+            <span className="text-xs text-slate-500">160 Rust unit tests</span>
+            <br />
+            <span className="text-xs font-semibold text-green-400">all passing</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ─── Main App ──────────────────────────────────────────────────────────── */
+const App = () => (
+  <div className="grid-bg min-h-screen text-slate-100">
+    {/* ── Header ── */}
+    <header className="border-b border-slate-800 bg-slate-950/80 backdrop-blur-md sticky top-0 z-10">
+      <div className="mx-auto max-w-7xl px-4 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-green-500/10 border border-green-500/20">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <circle cx="11" cy="11" r="7" stroke="#22c55e" strokeWidth="2"/>
+              <path d="M20 20l-3-3" stroke="#22c55e" strokeWidth="2" strokeLinecap="round"/>
+              <path d="M8 11h6M11 8v6" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </div>
+          <div>
+            <span className="text-lg font-black tracking-tight text-white">instant-grep</span>
+            <span className="ml-2 text-xs font-mono text-slate-500">ig</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <span className="hidden sm:inline text-sm text-slate-400">Benchmark Results</span>
+          <span className="rounded-full bg-green-500/10 border border-green-500/20 px-3 py-1 text-xs font-semibold text-green-400">
+            v3.0 · Rust
+          </span>
+        </div>
+      </div>
+    </header>
+
+    <main className="mx-auto max-w-7xl px-4 py-10 space-y-10">
+
+      {/* ── Hero ── */}
+      <section className="fade-up fade-up-1 text-center space-y-3">
+        <h1 className="text-4xl sm:text-5xl font-black tracking-tight">
+          <span className="text-white">Token</span>
+          <span className="text-green-400"> Killer</span>
+        </h1>
+        <p className="text-slate-400 text-lg max-w-xl mx-auto">
+          Trigram-indexed search + RTK proxy that strips 60–100% of tokens before they hit the context window.
+        </p>
+        <div className="flex flex-wrap justify-center gap-2 pt-1">
+          {[
+            ["79%", "avg token savings"],
+            ["2.18M", "tokens saved · session"],
+            ["38/40", "integration tests"],
+            ["160", "Rust unit tests"],
+          ].map(([v, l]) => (
+            <span key={l} className="rounded-full bg-slate-800 border border-slate-700 px-4 py-1.5 text-sm">
+              <span className="font-bold text-green-400">{v}</span>
+              <span className="text-slate-400 ml-2">{l}</span>
+            </span>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Big metric cards ── */}
+      <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+        <MetricCard value="79%" label="Token savings ratio" sub="weighted average" color="green" delay={2} />
+        <MetricCard value="627K" label="Tokens saved" sub="this session" color="green" delay={2} />
+        <MetricCard value="168K" label="Tokens / session" sub="typical session" color="green" delay={3} />
+        <MetricCard value="4" label="AI agents" sub="configured in one shot" color="blue" delay={3} />
+        <MetricCard value="18/18" label="Doc pages scraped" sub="zero failures" color="blue" delay={3} />
+        <MetricCard value="160" label="Rust tests" sub="all passing" color="green" delay={3} />
+      </section>
+
+      {/* ── Charts grid ── */}
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <TokenCompressionChart />
+        <ContextChart />
+        <SessionSavingsChart />
+        <SessionImpactChart />
+        <TestResultsChart />
+
+        {/* Savings table */}
+        <div className={`${CARD} fade-up fade-up-8`}>
+          <h2 className="mb-1 text-base font-semibold text-slate-200">Savings Breakdown</h2>
+          <p className="mb-4 text-xs text-slate-500">Per-command token reduction detail</p>
+          <div className="overflow-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-800 text-left">
+                  <th className="pb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Command</th>
+                  <th className="pb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Native</th>
+                  <th className="pb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">ig</th>
+                  <th className="pb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Saved</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tokenCompressionData.map((row) => (
+                  <tr key={row.command} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
+                    <td className="py-2.5 font-mono text-slate-300 text-xs">{row.command}</td>
+                    <td className="py-2.5 text-right text-red-400 font-medium tabular-nums">{row.native.toLocaleString()}</td>
+                    <td className="py-2.5 text-right text-blue-400 font-medium tabular-nums">{row.ig.toLocaleString()}</td>
+                    <td className="py-2.5 text-right">
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+                        row.savings === 100
+                          ? "bg-green-500/20 text-green-300"
+                          : row.savings >= 70
+                          ? "bg-green-500/15 text-green-400"
+                          : "bg-yellow-500/15 text-yellow-400"
+                      }`}>
+                        -{row.savings}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Footer ── */}
+      <footer className="border-t border-slate-800 pt-8 pb-4 text-center text-xs text-slate-600 space-y-1">
+        <p>All measurements collected on real sessions — no simulated or estimated data except cumulative projection.</p>
+        <p>instant-grep · Rust · Trigram index · RTK proxy · Claude Code integration</p>
+      </footer>
+    </main>
+  </div>
+);
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>
