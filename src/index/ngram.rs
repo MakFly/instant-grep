@@ -6,10 +6,6 @@ pub type NgramKey = u64;
 /// Default max n-gram length for covering algorithm.
 pub const DEFAULT_MAX_NGRAM_LEN: usize = 16;
 
-/// Tracks weight function changes. Bump when `bigram_weight` logic changes
-/// so that stale indexes are detected and rebuilt.
-pub const WEIGHT_VERSION: u32 = 2;
-
 /// Hash a bigram (2 consecutive bytes) using Murmur2-like constants.
 /// Port of danlark1/sparse_ngrams HashBigram.
 #[inline]
@@ -395,8 +391,4 @@ mod tests {
         assert_eq!(weighted, base, "neutral pair should keep base weight");
     }
 
-    #[test]
-    fn test_weight_version_constant() {
-        assert_eq!(WEIGHT_VERSION, 2);
-    }
 }

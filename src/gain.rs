@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 
 use crate::tracking;
+use crate::util::format_bytes;
 
 pub fn show_gain(clear: bool) {
     if clear {
@@ -37,7 +38,6 @@ pub fn show_gain(clear: bool) {
         let stats = by_cmd.entry(key).or_default();
         stats.count += 1;
         stats.input_bytes += entry.original_bytes;
-        stats.output_bytes += entry.output_bytes;
         stats.saved_bytes += entry.saved_bytes;
     }
 
@@ -123,7 +123,6 @@ pub fn show_gain(clear: bool) {
 struct CmdStats {
     count: u64,
     input_bytes: u64,
-    output_bytes: u64,
     saved_bytes: u64,
 }
 
@@ -142,16 +141,6 @@ fn command_key(cmd: &str) -> String {
     }
 }
 
-fn format_bytes(bytes: u64) -> String {
-    if bytes < 1024 {
-        format!("{}B", bytes)
-    } else if bytes < 1024 * 1024 {
-        format!("{:.1}K", bytes as f64 / 1024.0)
-    } else {
-        format!("{:.1}M", bytes as f64 / (1024.0 * 1024.0))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,12 +151,5 @@ mod tests {
         assert_eq!(command_key("ig ls src/"), "ig ls");
         assert_eq!(command_key("ig \"pattern\""), "ig search");
         assert_eq!(command_key("ig smart src/"), "ig smart");
-    }
-
-    #[test]
-    fn test_format_bytes() {
-        assert_eq!(format_bytes(500), "500B");
-        assert_eq!(format_bytes(5120), "5.0K");
-        assert_eq!(format_bytes(1_048_576), "1.0M");
     }
 }

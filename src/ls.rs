@@ -6,6 +6,8 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result};
 
+use crate::util::format_bytes;
+
 pub struct LsResult {
     pub dirs: Vec<String>,
     pub files: Vec<(String, u64)>,
@@ -75,7 +77,7 @@ pub fn format_ls(result: &LsResult) -> String {
             // No extra separator — keep compact
         }
         for (name, size) in &result.files {
-            output.push_str(&format!("{}  {}\n", name, format_size(*size)));
+            output.push_str(&format!("{}  {}\n", name, format_bytes(*size)));
         }
     }
 
@@ -103,16 +105,6 @@ pub fn format_ls(result: &LsResult) -> String {
     output
 }
 
-fn format_size(bytes: u64) -> String {
-    if bytes < 1024 {
-        format!("{}B", bytes)
-    } else if bytes < 1024 * 1024 {
-        format!("{:.1}K", bytes as f64 / 1024.0)
-    } else {
-        format!("{:.1}M", bytes as f64 / (1024.0 * 1024.0))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,11 +128,11 @@ mod tests {
     }
 
     #[test]
-    fn test_format_size() {
-        assert_eq!(format_size(500), "500B");
-        assert_eq!(format_size(1024), "1.0K");
-        assert_eq!(format_size(1536), "1.5K");
-        assert_eq!(format_size(1_048_576), "1.0M");
+    fn test_format_bytes() {
+        assert_eq!(format_bytes(500), "500B");
+        assert_eq!(format_bytes(1024), "1.0K");
+        assert_eq!(format_bytes(1536), "1.5K");
+        assert_eq!(format_bytes(1_048_576), "1.0M");
     }
 
     #[test]

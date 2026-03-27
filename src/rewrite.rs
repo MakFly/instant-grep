@@ -142,11 +142,18 @@ fn rewrite_rg(parts: &[&str]) -> Option<String> {
     let mut pattern = None;
     let mut path = None;
     let mut case_flag = "";
+    let mut type_filter: Option<&str> = None;
     let mut skip_next = false;
+    let mut next_is_type = false;
 
     for part in parts.iter().skip(1) {
         if skip_next {
             skip_next = false;
+            continue;
+        }
+        if next_is_type {
+            type_filter = Some(*part);
+            next_is_type = false;
             continue;
         }
         if *part == "-i" || *part == "--ignore-case" {
@@ -154,7 +161,9 @@ fn rewrite_rg(parts: &[&str]) -> Option<String> {
             continue;
         }
         if part.starts_with('-') {
-            if *part == "-t" || *part == "--type" || *part == "-g" || *part == "--glob" {
+            if *part == "-t" || *part == "--type" {
+                next_is_type = true;
+            } else if *part == "-g" || *part == "--glob" {
                 skip_next = true;
             }
             continue;
@@ -167,20 +176,20 @@ fn rewrite_rg(parts: &[&str]) -> Option<String> {
     }
 
     let pattern = pattern?;
+    let type_arg = match type_filter {
+        Some(t) => format!(" --type {}", t),
+        None => String::new(),
+    };
     match path {
-        Some(p) => Some(format!("ig{} \"{}\" {}", case_flag, pattern, p)),
-        None => Some(format!("ig{} \"{}\"", case_flag, pattern)),
+        Some(p) => Some(format!("ig{}{} \"{}\" {}", case_flag, type_arg, pattern, p)),
+        None => Some(format!("ig{}{} \"{}\"", case_flag, type_arg, pattern)),
     }
 }
 
 /// tree → cat .ig/tree.txt (if exists) or ig ls
-fn rewrite_tree(parts: &[&str]) -> Option<String> {
-    // Only rewrite plain `tree` or `tree -L N`
-    if parts.len() == 1 {
-        Some("cat .ig/tree.txt 2>/dev/null || ig ls".to_string())
-    } else {
-        None
-    }
+fn rewrite_tree(_parts: &[&str]) -> Option<String> {
+    // Always rewrite tree (with or without flags like -L N -I pattern)
+    Some("cat .ig/tree.txt 2>/dev/null || ig ls".to_string())
 }
 
 /// find . -name "*.ts" → ig files --glob "*.ts"
@@ -189,9 +198,25 @@ fn rewrite_find(parts: &[&str]) -> Option<String> {
     let name_idx = parts.iter().position(|p| *p == "-name" || *p == "-iname")?;
     let pattern = parts.get(name_idx + 1)?;
 
-    // Skip if there are other complex flags
+    // Skip if there are destructive or complex action flags
     if parts.iter().any(|p| *p == "-exec" || *p == "-delete" || *p == "-print0") {
         return None;
+    }
+
+    // Allow -type f (file-only filter — always safe to ignore since ig only indexes files)
+    // Reject other -type values (d, l, etc.)
+    let mut i = 1;
+    while i < parts.len() {
+        if parts[i] == "-type" {
+            if let Some(val) = parts.get(i + 1) {
+                if *val != "f" {
+                    return None;
+                }
+                i += 2;
+                continue;
+            }
+        }
+        i += 1;
     }
 
     Some(format!("ig files --glob {}", pattern))
@@ -260,12 +285,37 @@ mod tests {
     }
 
     #[test]
+    fn test_rewrite_rg_type_flag() {
+        // Bug fix: -t flag value must be forwarded as --type to ig
+        assert_eq!(
+            rewrite_command("rg -t ts pattern"),
+            Some("ig --type ts \"pattern\"".into())
+        );
+        assert_eq!(
+            rewrite_command("rg -t rs useState src/"),
+            Some("ig --type rs \"useState\" src/".into())
+        );
+        assert_eq!(
+            rewrite_command("rg -i -t ts pattern"),
+            Some("ig -i --type ts \"pattern\"".into())
+        );
+    }
+
+    #[test]
     fn test_rewrite_tree() {
         assert_eq!(
             rewrite_command("tree"),
             Some("cat .ig/tree.txt 2>/dev/null || ig ls".into())
         );
-        assert_eq!(rewrite_command("tree -L 3 -I node_modules"), None);
+        // Bug fix: tree with flags must also be rewritten
+        assert_eq!(
+            rewrite_command("tree -L 3 -I node_modules"),
+            Some("cat .ig/tree.txt 2>/dev/null || ig ls".into())
+        );
+        assert_eq!(
+            rewrite_command("tree -L 2"),
+            Some("cat .ig/tree.txt 2>/dev/null || ig ls".into())
+        );
     }
 
     #[test]
@@ -274,6 +324,13 @@ mod tests {
             rewrite_command("find . -name \"*.ts\""),
             Some("ig files --glob \"*.ts\"".into())
         );
+        // Bug fix: -type f must be allowed (ig only indexes files anyway)
+        assert_eq!(
+            rewrite_command("find . -type f -name \"*.rs\""),
+            Some("ig files --glob \"*.rs\"".into())
+        );
+        // -type d (directory) should not be rewritten
+        assert_eq!(rewrite_command("find . -type d -name src"), None);
         // Don't rewrite find with -exec
         assert_eq!(rewrite_command("find . -name \"*.ts\" -exec rm {} ;"), None);
     }

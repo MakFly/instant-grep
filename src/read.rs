@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::{Context as _, Result, bail};
 
 use crate::symbols::Lang;
-use crate::util::is_binary;
+use crate::util::{is_binary, is_preamble_line};
 
 pub struct ReadResult {
     pub file: String,
@@ -51,7 +51,7 @@ pub fn read_file(file: &Path, signatures_only: bool) -> Result<ReadResult> {
         }
 
         // Keep imports
-        if is_import_line(trimmed) {
+        if is_preamble_line(trimmed) {
             lines.push((i + 1, line.to_string()));
             continue;
         }
@@ -67,17 +67,6 @@ pub fn read_file(file: &Path, signatures_only: bool) -> Result<ReadResult> {
     }
 
     Ok(ReadResult { file: file_str, lines })
-}
-
-fn is_import_line(trimmed: &str) -> bool {
-    trimmed.starts_with("use ")
-        || trimmed.starts_with("import ")
-        || trimmed.starts_with("from ")
-        || trimmed.starts_with("require(")
-        || trimmed.starts_with("const ") && trimmed.contains("require(")
-        || trimmed.starts_with("#include")
-        || trimmed.starts_with("package ")
-        || trimmed.starts_with("module ")
 }
 
 #[cfg(test)]

@@ -49,60 +49,17 @@ impl MemoryBudget {
         self.current = 0;
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn current(&self) -> usize {
         self.current
     }
 }
 
 /// Info about a written segment file.
-#[allow(dead_code)]
 pub struct SegmentInfo {
     pub path: PathBuf,
+    #[allow(dead_code)]
     pub ngram_count: u32,
-}
-
-/// Build SPIMI segments from file_data.
-///
-/// Iterates `file_data` sequentially, accumulating postings in an AHashMap.
-/// When the memory budget is exceeded, flushes the current map to a segment file.
-///
-/// Returns: list of segment files and a parallel Vec of (IndexedFile-data) for metadata.
-#[allow(dead_code)]
-pub fn build_segments(
-    file_data: &[(String, u64, u64, Vec<NgramKey>)],
-    memory_budget: usize,
-    segment_dir: &Path,
-) -> Result<Vec<SegmentInfo>> {
-    fs::create_dir_all(segment_dir).context("create segment directory")?;
-
-    let mut budget = MemoryBudget::new(memory_budget);
-    let mut postings_map: AHashMap<NgramKey, Vec<DocId>> = AHashMap::new();
-    let mut segments: Vec<SegmentInfo> = Vec::new();
-    let mut segment_id: u32 = 0;
-
-    for (new_id, (_rel_path, _size, _mtime, ngrams)) in file_data.iter().enumerate() {
-        for &key in ngrams {
-            let is_new = !postings_map.contains_key(&key);
-            postings_map.entry(key).or_default().push(new_id as DocId);
-            budget.track_posting(is_new);
-        }
-
-        if budget.should_flush() && !postings_map.is_empty() {
-            let info = flush_segment(&mut postings_map, segment_dir, segment_id)?;
-            segments.push(info);
-            segment_id += 1;
-            budget.reset();
-        }
-    }
-
-    // Flush remaining postings
-    if !postings_map.is_empty() {
-        let info = flush_segment(&mut postings_map, segment_dir, segment_id)?;
-        segments.push(info);
-    }
-
-    Ok(segments)
 }
 
 /// Flush the current postings map to a segment file.
@@ -214,6 +171,44 @@ impl SegmentReader {
             posting_bytes,
         })
     }
+}
+
+#[cfg(test)]
+/// Build SPIMI segments from file_data. Test helper — production code calls flush_segment directly.
+pub fn build_segments(
+    file_data: &[(String, u64, u64, Vec<NgramKey>)],
+    memory_budget: usize,
+    segment_dir: &Path,
+) -> Result<Vec<SegmentInfo>> {
+    fs::create_dir_all(segment_dir).context("create segment directory")?;
+
+    let mut budget = MemoryBudget::new(memory_budget);
+    let mut postings_map: AHashMap<NgramKey, Vec<DocId>> = AHashMap::new();
+    let mut segments: Vec<SegmentInfo> = Vec::new();
+    let mut segment_id: u32 = 0;
+
+    for (new_id, (_rel_path, _size, _mtime, ngrams)) in file_data.iter().enumerate() {
+        for &key in ngrams {
+            let is_new = !postings_map.contains_key(&key);
+            postings_map.entry(key).or_default().push(new_id as DocId);
+            budget.track_posting(is_new);
+        }
+
+        if budget.should_flush() && !postings_map.is_empty() {
+            let info = flush_segment(&mut postings_map, segment_dir, segment_id)?;
+            segments.push(info);
+            segment_id += 1;
+            budget.reset();
+        }
+    }
+
+    // Flush remaining postings
+    if !postings_map.is_empty() {
+        let info = flush_segment(&mut postings_map, segment_dir, segment_id)?;
+        segments.push(info);
+    }
+
+    Ok(segments)
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 
 use crate::symbols::{self, Lang};
-use crate::util::is_binary;
+use crate::util::{is_binary, is_preamble_line};
 use crate::walk;
 
 pub struct SmartSummary {
@@ -91,6 +91,14 @@ pub fn smart_summarize_file(file: &Path, root: &Path) -> Result<SmartSummary> {
 /// L1: Extract the role/description of the file.
 /// Priority: first doc comment > first meaningful non-import line > filename
 fn extract_role(text: &str, lang: Lang) -> String {
+    // Compile symbol regex once, outside the per-line loop.
+    let sym_patterns = lang.patterns();
+    let sym_regex = if !sym_patterns.is_empty() {
+        regex::Regex::new(sym_patterns).ok()
+    } else {
+        None
+    };
+
     // Try to find a doc comment at the top
     for line in text.lines().take(20) {
         let trimmed = line.trim();
@@ -132,12 +140,9 @@ fn extract_role(text: &str, lang: Lang) -> String {
         }
 
         // First meaningful code line — use it as role hint
-        let sym_patterns = lang.patterns();
-        if !sym_patterns.is_empty() {
-            if let Ok(re) = regex::Regex::new(sym_patterns) {
-                if re.is_match(line) {
-                    return truncate(trimmed.trim_end_matches('{').trim(), 80);
-                }
+        if let Some(ref re) = sym_regex {
+            if re.is_match(line) {
+                return truncate(trimmed.trim_end_matches('{').trim(), 80);
             }
         }
 
@@ -200,29 +205,6 @@ fn extract_symbol_name(sig: &str) -> Option<String> {
     }
 
     None
-}
-
-fn is_preamble_line(trimmed: &str) -> bool {
-    trimmed.starts_with("use ")
-        || trimmed.starts_with("import ")
-        || trimmed.starts_with("from ")
-        || trimmed.starts_with("require(")
-        || trimmed.starts_with("#include")
-        || trimmed.starts_with("package ")
-        || trimmed.starts_with("module ")
-        || trimmed.starts_with("#!")
-        || trimmed.starts_with("#[")
-        || trimmed.starts_with("mod ")
-        || trimmed.starts_with("extern ")
-        // React/Next.js directives — not useful as role description
-        || trimmed == "\"use client\""
-        || trimmed == "\"use client\";"
-        || trimmed == "'use client'"
-        || trimmed == "'use client';"
-        || trimmed == "\"use server\""
-        || trimmed == "\"use server\";"
-        || trimmed == "'use server'"
-        || trimmed == "'use server';"
 }
 
 fn truncate(s: &str, max: usize) -> String {

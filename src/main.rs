@@ -188,8 +188,7 @@ fn main() -> Result<()> {
                 file_type.as_deref(),
                 glob.as_deref(),
             )?;
-            let use_color =
-                !json && atty::is(atty::Stream::Stdout) && std::env::var("NO_COLOR").is_err();
+            let use_color = util::use_color(json);
             let mut printer = Printer::new(use_color, json);
             printer.print_file_list(&files, &root);
         }
@@ -205,8 +204,7 @@ fn main() -> Result<()> {
                 file_type.as_deref(),
                 glob.as_deref(),
             )?;
-            let use_color =
-                !json && atty::is(atty::Stream::Stdout) && std::env::var("NO_COLOR").is_err();
+            let use_color = util::use_color(json);
             let mut printer = Printer::new(use_color, json);
             printer.print_symbols(&syms);
         }
@@ -214,8 +212,7 @@ fn main() -> Result<()> {
         Some(Commands::Context { file, line }) => {
             let path = std::path::Path::new(&file);
             let block = context::extract_block(path, line)?;
-            let use_color =
-                !json && atty::is(atty::Stream::Stdout) && std::env::var("NO_COLOR").is_err();
+            let use_color = util::use_color(json);
             let mut printer = Printer::new(use_color, json);
             printer.print_context(&block);
         }
@@ -224,8 +221,7 @@ fn main() -> Result<()> {
             let path = std::path::Path::new(&file);
             let original_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
             let result = read::read_file(path, signatures)?;
-            let use_color =
-                !json && atty::is(atty::Stream::Stdout) && std::env::var("NO_COLOR").is_err();
+            let use_color = util::use_color(json);
             let mut printer = Printer::new(use_color, json);
             printer.print_read(&result);
 
@@ -247,8 +243,7 @@ fn main() -> Result<()> {
             let use_excludes = !no_default_excludes;
 
             let base_path = path.as_deref().map(std::path::Path::new);
-            let use_color =
-                !json && atty::is(atty::Stream::Stdout) && std::env::var("NO_COLOR").is_err();
+            let use_color = util::use_color(json);
             let mut printer = Printer::new(use_color, json);
 
             if let Some(p) = base_path
@@ -427,8 +422,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
     let max_size = opts.max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
     let use_excludes = !opts.no_default_excludes;
 
-    let use_color =
-        !opts.json && atty::is(atty::Stream::Stdout) && std::env::var("NO_COLOR").is_err();
+    let use_color = util::use_color(opts.json);
 
     if opts.no_index {
         let results = search::fallback::search_brute_force(
@@ -469,11 +463,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
         }
 
         // Build index after results are printed (user sees output immediately)
-        let root_clone = root.clone();
-        let handle = std::thread::spawn(move || {
-            let _ = writer::build_index(&root_clone, use_excludes, max_size);
-        });
-        let _ = handle.join();
+        let _ = writer::build_index(&root, use_excludes, max_size);
 
         return Ok(());
     }

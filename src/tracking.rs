@@ -74,7 +74,6 @@ pub struct HistoryEntry {
     pub original_bytes: u64,
     pub output_bytes: u64,
     pub saved_bytes: u64,
-    pub savings_pct: f64,
 }
 
 /// Read all history entries.
@@ -95,14 +94,12 @@ pub fn read_history() -> Vec<HistoryEntry> {
             let in_bytes = extract_json_u64(line, "in")?;
             let out_bytes = extract_json_u64(line, "out")?;
             let saved = extract_json_u64(line, "saved")?;
-            let pct = extract_json_f64(line, "pct").unwrap_or(0.0);
 
             Some(HistoryEntry {
                 command: cmd,
                 original_bytes: in_bytes,
                 output_bytes: out_bytes,
                 saved_bytes: saved,
-                savings_pct: pct,
             })
         })
         .collect()
@@ -132,14 +129,6 @@ fn extract_json_u64(json: &str, key: &str) -> Option<u64> {
     rest[..end].parse().ok()
 }
 
-fn extract_json_f64(json: &str, key: &str) -> Option<f64> {
-    let pattern = format!("\"{}\":", key);
-    let start = json.find(&pattern)? + pattern.len();
-    let rest = json[start..].trim_start();
-    let end = rest.find(|c: char| !c.is_ascii_digit() && c != '.').unwrap_or(rest.len());
-    rest[..end].parse().ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,12 +144,6 @@ mod tests {
         let json = r#"{"cmd":"ig read","in":5000,"out":2500}"#;
         assert_eq!(extract_json_u64(json, "in"), Some(5000));
         assert_eq!(extract_json_u64(json, "out"), Some(2500));
-    }
-
-    #[test]
-    fn test_extract_json_f64() {
-        let json = r#"{"pct":73.5,"cmd":"ig read"}"#;
-        assert_eq!(extract_json_f64(json, "pct"), Some(73.5));
     }
 
     #[test]

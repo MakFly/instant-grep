@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::Result;
+use rayon::prelude::*;
 use regex::Regex;
 
 use crate::util::is_binary;
@@ -21,30 +22,34 @@ pub fn extract_symbols(
     glob_filter: Option<&str>,
 ) -> Result<Vec<SymbolMatch>> {
     let files = walk::walk_files(root, use_default_excludes, max_file_size, type_filter, glob_filter)?;
-    let mut symbols = Vec::new();
 
-    for path in &files {
-        let content = match std::fs::read(path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
+    let symbols: Vec<SymbolMatch> = files
+        .par_iter()
+        .flat_map(|path| {
+            let content = match std::fs::read(path) {
+                Ok(c) => c,
+                Err(_) => return Vec::new(),
+            };
 
-        if is_binary(&content) {
-            continue;
-        }
+            if is_binary(&content) {
+                return Vec::new();
+            }
 
-        let text = match std::str::from_utf8(&content) {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
+            let text = match std::str::from_utf8(&content) {
+                Ok(t) => t,
+                Err(_) => return Vec::new(),
+            };
 
-        let rel_path = path.strip_prefix(root).unwrap_or(path);
-        let rel_str = rel_path.to_string_lossy();
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let lang = Lang::from_ext(ext);
+            let rel_path = path.strip_prefix(root).unwrap_or(path);
+            let rel_str = rel_path.to_string_lossy();
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let lang = Lang::from_ext(ext);
 
-        extract_from_text(&rel_str, text, lang, &mut symbols);
-    }
+            let mut file_syms = Vec::new();
+            extract_from_text(&rel_str, text, lang, &mut file_syms);
+            file_syms
+        })
+        .collect();
 
     Ok(symbols)
 }

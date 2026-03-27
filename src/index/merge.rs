@@ -52,18 +52,6 @@ impl PartialOrd for HeapEntry {
     }
 }
 
-/// Merge all segment files into final postings.bin (backward-compatible).
-///
-/// Returns the merged entries (key, byte_offset, byte_length) for lexicon construction.
-/// Internally uses the streaming path and reads entries back from the temp file.
-pub fn merge_segments(
-    segments: &[SegmentInfo],
-    postings_path: &Path,
-) -> Result<Vec<MergedEntry>> {
-    let result = merge_segments_streaming(segments, postings_path)?;
-    read_entries_from_file(&result.entries_path, result.entry_count)
-}
-
 /// Merge all segment files into final postings.bin (streaming / low-RAM).
 ///
 /// Writes each MergedEntry to a temp file as it's produced instead of collecting
@@ -237,28 +225,6 @@ fn write_entry(w: &mut BufWriter<File>, key: NgramKey, offset: u32, length: u32)
     Ok(())
 }
 
-/// Read entries back from a temp file into a Vec (used by backward-compat `merge_segments`).
-fn read_entries_from_file(path: &Path, count: usize) -> Result<Vec<MergedEntry>> {
-    if count == 0 {
-        return Ok(Vec::new());
-    }
-    let file = File::open(path).context("open entries temp file")?;
-    let mmap = unsafe { Mmap::map(&file).context("mmap entries temp file")? };
-    let mut entries = Vec::with_capacity(count);
-    for i in 0..count {
-        let base = i * ENTRY_FILE_SIZE;
-        let key = u64::from_le_bytes(mmap[base..base + 8].try_into().unwrap());
-        let byte_offset = u32::from_le_bytes(mmap[base + 8..base + 12].try_into().unwrap());
-        let byte_length = u32::from_le_bytes(mmap[base + 12..base + 16].try_into().unwrap());
-        entries.push(MergedEntry {
-            key,
-            byte_offset,
-            byte_length,
-        });
-    }
-    Ok(entries)
-}
-
 /// Build the lexicon hash table from merged entries.
 ///
 /// Returns the table as a byte vector ready to write to lexicon.bin.
@@ -297,56 +263,6 @@ pub fn build_lexicon(entries: &[MergedEntry]) -> Vec<u8> {
     }
 
     table
-}
-
-/// Build the lexicon hash table and write directly to a mmap'd file.
-/// Avoids allocating the full hash table on the heap — the OS manages pages.
-/// Prefer `build_lexicon_mmap_from_file` for the streaming path.
-#[allow(dead_code)]
-pub fn build_lexicon_mmap(entries: &[MergedEntry], path: &Path) -> Result<()> {
-    let table_size = next_prime((entries.len() as f64 * 1.3) as usize);
-    if table_size == 0 {
-        File::create(path).context("create empty lexicon.bin")?;
-        return Ok(());
-    }
-
-    const ENTRY_SIZE: usize = 16;
-    let byte_size = table_size * ENTRY_SIZE;
-
-    // Create file with exact size, mmap it as writable
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(path)
-        .context("create lexicon.bin")?;
-    file.set_len(byte_size as u64)
-        .context("set lexicon.bin size")?;
-
-    let mut mmap = unsafe { MmapMut::map_mut(&file).context("mmap lexicon.bin for write")? };
-    // mmap is zero-filled on fresh file (sentinel value 0 = empty slot)
-
-    for entry in entries {
-        let stored_key = entry.key + 1; // sentinel: 0 = empty
-        let mut slot = (stored_key as usize) % table_size;
-        loop {
-            let base = slot * ENTRY_SIZE;
-            let existing = u64::from_le_bytes(
-                mmap[base..base + 8].try_into().unwrap(),
-            );
-            if existing == 0 {
-                mmap[base..base + 8].copy_from_slice(&stored_key.to_le_bytes());
-                mmap[base + 8..base + 12].copy_from_slice(&entry.byte_offset.to_le_bytes());
-                mmap[base + 12..base + 16].copy_from_slice(&entry.byte_length.to_le_bytes());
-                break;
-            }
-            slot = (slot + 1) % table_size;
-        }
-    }
-
-    mmap.flush().context("flush lexicon mmap")?;
-    Ok(())
 }
 
 /// Build the lexicon hash table from entries stored in a temp file (streaming path).
@@ -460,83 +376,6 @@ fn is_prime(n: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::index::spimi;
-    use tempfile::TempDir;
-
-    #[test]
-    fn test_merge_single_segment() {
-        let tmp = TempDir::new().unwrap();
-        let seg_dir = tmp.path().join("segments");
-        let postings_path = tmp.path().join("postings.bin");
-
-        let file_data: Vec<(String, u64, u64, Vec<NgramKey>)> = vec![
-            ("a.rs".into(), 100, 0, vec![10, 20, 30]),
-            ("b.rs".into(), 200, 0, vec![20, 30, 40]),
-        ];
-
-        let segments = spimi::build_segments(&file_data, spimi::DEFAULT_MEMORY_BUDGET, &seg_dir).unwrap();
-        let merged = merge_segments(&segments, &postings_path).unwrap();
-
-        // Should have 4 unique keys: 10, 20, 30, 40
-        assert_eq!(merged.len(), 4);
-
-        // Verify sorted order
-        for i in 1..merged.len() {
-            assert!(merged[i - 1].key < merged[i].key);
-        }
-
-        // Verify we can decode the postings
-        let postings_data = fs::read(&postings_path).unwrap();
-        for entry in &merged {
-            let ids = vbyte::decode_posting_list(
-                &postings_data,
-                entry.byte_offset as usize,
-                entry.byte_length as usize,
-            );
-            assert!(!ids.is_empty());
-        }
-
-        // Key 20: should have doc_ids [0, 1]
-        let key20 = merged.iter().find(|e| e.key == 20).unwrap();
-        let ids = vbyte::decode_posting_list(
-            &postings_data,
-            key20.byte_offset as usize,
-            key20.byte_length as usize,
-        );
-        assert_eq!(ids, vec![0, 1]);
-    }
-
-    #[test]
-    fn test_merge_multiple_segments() {
-        let tmp = TempDir::new().unwrap();
-        let seg_dir = tmp.path().join("segments");
-        let postings_path = tmp.path().join("postings.bin");
-
-        let file_data: Vec<(String, u64, u64, Vec<NgramKey>)> = vec![
-            ("a.rs".into(), 100, 0, vec![10, 20]),
-            ("b.rs".into(), 200, 0, vec![20, 30]),
-        ];
-
-        // Force 2 segments with tiny budget
-        let segments = spimi::build_segments(&file_data, 1, &seg_dir).unwrap();
-        assert!(segments.len() >= 2);
-
-        let merged = merge_segments(&segments, &postings_path).unwrap();
-
-        // Should have 3 unique keys: 10, 20, 30
-        assert_eq!(merged.len(), 3);
-
-        let postings_data = fs::read(&postings_path).unwrap();
-
-        // Key 20: should have doc_ids [0, 1] (from both segments)
-        let key20 = merged.iter().find(|e| e.key == 20).unwrap();
-        let ids = vbyte::decode_posting_list(
-            &postings_data,
-            key20.byte_offset as usize,
-            key20.byte_length as usize,
-        );
-        assert_eq!(ids, vec![0, 1]);
-    }
 
     #[test]
     fn test_build_lexicon() {
@@ -576,11 +415,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_merge_empty() {
-        let tmp = TempDir::new().unwrap();
-        let postings_path = tmp.path().join("postings.bin");
-        let merged = merge_segments(&[], &postings_path).unwrap();
-        assert!(merged.is_empty());
-    }
 }
