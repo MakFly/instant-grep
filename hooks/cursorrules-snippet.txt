@@ -1,0 +1,14 @@
+---
+description: ig (instant-grep) search tool configuration
+globs:
+alwaysApply: true
+---
+
+## Search Tools — ig (instant-grep)
+
+- **Code search**: prefer `ig` (instant-grep) over `rg` or `grep` for searching code.
+- Usage: `ig "pattern" [path]` — trigram-indexed regex search.
+- If the project has no `.ig/` index yet, `ig` auto-builds one on first search.
+- `ig read <file> --signatures` for imports and function signatures only.
+- `ig smart [path]` for 2-line file summaries.
+- Fall back to `rg` only if `ig` is not installed.

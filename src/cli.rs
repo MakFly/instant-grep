@@ -217,7 +217,11 @@ pub enum Commands {
     },
 
     /// Configure AI CLI agents (Claude Code, Codex, Gemini...) to use ig
-    Setup,
+    Setup {
+        /// Show what would be configured without writing any files
+        #[arg(long)]
+        dry_run: bool,
+    },
 
     /// Send a search query to a running daemon
     Query {

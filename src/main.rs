@@ -354,8 +354,8 @@ fn main() -> Result<()> {
             clap_complete::generate(shell, &mut cmd, "ig", &mut std::io::stdout());
         }
 
-        Some(Commands::Setup) => {
-            setup::run_setup();
+        Some(Commands::Setup { dry_run }) => {
+            setup::run_setup(dry_run);
         }
 
         Some(Commands::Query { pattern, path }) => {
