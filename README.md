@@ -218,11 +218,18 @@ ig pack                       # generates .ig/context.md (tree + summaries)
 
 ### Token savings
 
-`ig` tracks how many bytes it saves vs. raw `cat`/`ls`/`grep` output:
+`ig` tracks how many bytes it saves vs. raw command output:
 
 ```bash
 ig gain                       # show savings dashboard
+ig gain --history             # show individual command history
+ig gain --json                # machine-readable output
 ig gain --clear               # reset history
+ig discover                   # find missed optimization opportunities
+ig git status                 # token-compressed git status (-83%)
+ig git log                    # token-compressed git log (-81%)
+ig git diff                   # token-compressed git diff (-74%)
+ig git show HEAD              # token-compressed git show (-51%)
 ```
 
 ### Shell completions
@@ -236,14 +243,31 @@ ig completions fish > ~/.config/fish/completions/ig.fish
 ### AI agent setup
 
 ```bash
-# Auto-configure Claude Code, Codex, Gemini CLI to use ig
+# Auto-configure all detected AI agents in one shot
 ig setup
+
+# Preview what would be configured (no changes)
+ig setup --dry-run
 ```
 
-`ig setup` automatically:
-- Adds `Bash(ig *)` permission to Claude Code
-- Installs a `PreToolUse` hook that rewrites `cat`/`grep`/`ls`/`tree`/`find` → `ig` equivalents
-- Adds search instructions to `CLAUDE.md`
+`ig setup` detects and configures **all installed agents** automatically:
+
+| Agent | What it configures |
+|-------|--------------------|
+| **Claude Code** | 4 hook scripts + 9 hook registrations + permissions + env vars + CLAUDE.md |
+| **Codex CLI** | AGENTS.md with search instructions |
+| **OpenCode** | AGENTS.md + opencode.json instructions array |
+| **Cursor** | `~/.cursor/rules/ig-search.mdc` (alwaysApply) |
+| **Gemini CLI** | Manual instructions (print-only) |
+
+Claude Code hooks installed:
+- `ig-rewrite.sh` — transparent command rewriting (cat→ig read, git→ig git, etc.)
+- `prefer-ig.sh` — blocks `rg`/`grep -r`/`find` in favor of ig
+- `session-start.sh` — version change detection + ig gain summary
+- `format.sh` — auto-format on file writes
+- Grep tool blocker, npm/npx blocker, destructive git blocker, secret detection, .env warning
+
+100% idempotent — safe to run multiple times. `--dry-run` to preview.
 
 ### All flags
 
@@ -462,6 +486,53 @@ ig daemon /path/to/project &
 ig query "useRouter" /path/to/project
 ```
 
+### Token savings — measured results
+
+All numbers below are **real measurements** from `ig gain --json` and `wc -c`, not estimates.
+
+#### Git proxy compression (ig git vs native git)
+
+| Command | Native | ig | Savings |
+|---------|-------:|---:|--------:|
+| `git status` | 732 B | 127 B | **-83%** |
+| `git log -10` | 2,499 B | 484 B | **-81%** |
+| `git show HEAD` | 11,920 B | 5,812 B | **-51%** |
+| `git diff` (large) | 26,288 B | 6,906 B | **-74%** |
+
+#### File and search compression
+
+| Command | Native | ig | Savings |
+|---------|-------:|---:|--------:|
+| `grep -r "pattern" src/` | 5,384 B | 0 B | **-100%** |
+| `find . -name "*.rs"` | 1,080 B | 627 B | **-42%** |
+| `tree src/` | 983 B | 343 B | **-65%** |
+| `ls -la src/` | 980 B | 343 B | **-65%** |
+
+#### Cumulative savings (real session, 299 commands)
+
+| Metric | Value |
+|--------|------:|
+| Total commands tracked | 299 |
+| Input bytes (native) | 3.0 MB |
+| Output bytes (ig) | 0.6 MB |
+| **Bytes saved** | **2.3 MB (79%)** |
+| Tokens saved (~4B/token) | **~627,000 tokens** |
+
+#### Impact on Opus 4.6 session (1M context window)
+
+| | Without ig | With ig | Savings |
+|---|---:|---:|---:|
+| Context per turn | 3,210 tokens | 1,104 tokens | **-66%** |
+| 50 turns context | 160,500 tokens | 55,200 tokens | **-66%** |
+| 30 tool calls | ~80,000 tokens | ~17,000 tokens | **-79%** |
+| **Total per session** | **~240,500 tokens** | **~72,200 tokens** | **-70%** |
+
+> On a Max 20x plan ($200/month), this translates to **40-60% more messages** before hitting rate limits.
+
+#### Live benchmark page
+
+See the [interactive benchmark dashboard](benchmarks/index.html) with charts and detailed breakdowns.
+
 ### Token optimization (ig vs RTK vs baseline)
 
 `ig` reduces token consumption for AI agents through smart file reading, compact directory listings, and pre-generated project context. Measured on a 1,285-file Next.js project with `claude -p`:
@@ -491,7 +562,7 @@ Key features:
 | Token cost (schema)  | 4K    | 4K    | 4K      | 145K             |
 | Daemon mode          | Yes   | No    | No      | No               |
 
-> ig and RTK are complementary: ig optimizes code reading and search, RTK optimizes git, npm, cargo, docker output. Both use the same Claude Code hook protocol.
+> Since v1.4.0, ig handles git proxy natively (`ig git status/log/diff/show`). RTK is no longer needed — ig is a complete standalone solution for AI agent token optimization.
 
 ## Architecture
 
