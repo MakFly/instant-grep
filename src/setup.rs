@@ -826,7 +826,7 @@ fn configure_claude_md(claude_dir: &Path) -> ConfigResult {
 
     let content = fs::read_to_string(&md_path).unwrap_or_default();
 
-    if content.contains("## Search Tools") && content.contains("ig") {
+    if content.contains("ig") && (content.contains("## Search Tools") || content.contains("## Search & Token")) {
         return ConfigResult::AlreadyDone(
             "Search Tools section already present in CLAUDE.md".to_string(),
         );
@@ -858,7 +858,7 @@ fn configure_codex_agents_md(codex_dir: &Path) -> ConfigResult {
 
     let content = fs::read_to_string(&md_path).unwrap_or_default();
 
-    if content.contains("## Search Tools") && content.contains("ig") {
+    if content.contains("ig") && (content.contains("## Search Tools") || content.contains("## Search & Token")) {
         return ConfigResult::AlreadyDone(
             "Search Tools section already present in AGENTS.md".to_string(),
         );
