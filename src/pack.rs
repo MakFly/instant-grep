@@ -13,37 +13,60 @@ const MAX_TREE_LINES: usize = 150;
 
 /// Extensions to exclude from smart summaries (noise for AI agents)
 const EXCLUDED_EXTENSIONS: &[&str] = &[
-    "json", "lock", "css", "scss", "svg", "png", "jpg", "jpeg", "gif", "ico",
-    "woff", "woff2", "ttf", "eot", "map", "min.js",
-    "md", "mdx", "txt", "yml", "yaml", "toml", "xml", "sh",
-    "mjs", "cjs",
+    "json", "lock", "css", "scss", "svg", "png", "jpg", "jpeg", "gif", "ico", "woff", "woff2",
+    "ttf", "eot", "map", "min.js", "md", "mdx", "txt", "yml", "yaml", "toml", "xml", "sh", "mjs",
+    "cjs",
 ];
 
 /// Filename patterns to exclude (boilerplate/config)
 const EXCLUDED_NAMES: &[&str] = &[
-    "layout.tsx", "layout.ts", "layout.jsx", "layout.js",
-    "error.tsx", "error.ts",
-    "loading.tsx", "loading.ts",
-    "not-found.tsx", "not-found.ts",
+    "layout.tsx",
+    "layout.ts",
+    "layout.jsx",
+    "layout.js",
+    "error.tsx",
+    "error.ts",
+    "loading.tsx",
+    "loading.ts",
+    "not-found.tsx",
+    "not-found.ts",
     "global-error.tsx",
-    "middleware.ts", "middleware.js",
-    ".eslintrc", ".prettierrc",
-    "tailwind.config.ts", "tailwind.config.js",
-    "postcss.config.mjs", "postcss.config.js",
-    "next.config.ts", "next.config.js", "next.config.mjs",
-    "tsconfig.json", "tsconfig.tsbuildinfo",
-    "Dockerfile", "docker-compose.yml",
+    "middleware.ts",
+    "middleware.js",
+    ".eslintrc",
+    ".prettierrc",
+    "tailwind.config.ts",
+    "tailwind.config.js",
+    "postcss.config.mjs",
+    "postcss.config.js",
+    "next.config.ts",
+    "next.config.js",
+    "next.config.mjs",
+    "tsconfig.json",
+    "tsconfig.tsbuildinfo",
+    "Dockerfile",
+    "docker-compose.yml",
     "components.json",
     "global-error.tsx",
 ];
 
 /// Directory patterns to exclude entirely
 const EXCLUDED_DIRS: &[&str] = &[
-    "__tests__", "tests", "test", "e2e", "__mocks__",
-    ".storybook", "stories",
-    "public", "static", "assets",
-    "_components", "components",
-    "scripts", "notes", "docs",
+    "__tests__",
+    "tests",
+    "test",
+    "e2e",
+    "__mocks__",
+    ".storybook",
+    "stories",
+    "public",
+    "static",
+    "assets",
+    "_components",
+    "components",
+    "scripts",
+    "notes",
+    "docs",
 ];
 
 /// Generate `.ig/context.md` — a compact project context file for AI agents.
@@ -137,10 +160,10 @@ fn build_context_string(
             }
 
             // Exclude by filename
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if EXCLUDED_NAMES.contains(&name) {
-                    return false;
-                }
+            if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                && EXCLUDED_NAMES.contains(&name)
+            {
+                return false;
             }
 
             // Exclude by extension
@@ -273,9 +296,13 @@ fn parse_package_json_deps(content: &str) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
 
     for block_key in &["\"dependencies\"", "\"devDependencies\""] {
-        let Some(start) = content.find(block_key) else { continue };
+        let Some(start) = content.find(block_key) else {
+            continue;
+        };
         // Find the opening '{' after the key
-        let Some(brace_start) = content[start..].find('{') else { continue };
+        let Some(brace_start) = content[start..].find('{') else {
+            continue;
+        };
         let block_offset = start + brace_start + 1;
 
         // Walk character-by-character to find the matching closing '}'
@@ -327,12 +354,14 @@ fn parse_cargo_toml_deps(content: &str) -> Vec<String> {
             in_deps = false;
             continue;
         }
-        if in_deps && !trimmed.is_empty() && !trimmed.starts_with('#') {
-            if let Some(eq_pos) = trimmed.find('=') {
-                let name = trimmed[..eq_pos].trim().to_string();
-                if !name.is_empty() {
-                    names.push(name);
-                }
+        if in_deps
+            && !trimmed.is_empty()
+            && !trimmed.starts_with('#')
+            && let Some(eq_pos) = trimmed.find('=')
+        {
+            let name = trimmed[..eq_pos].trim().to_string();
+            if !name.is_empty() {
+                names.push(name);
             }
         }
     }
@@ -344,8 +373,12 @@ fn parse_cargo_toml_deps(content: &str) -> Vec<String> {
 fn parse_composer_json_deps(content: &str) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
 
-    let Some(start) = content.find("\"require\"") else { return names };
-    let Some(brace_start) = content[start..].find('{') else { return names };
+    let Some(start) = content.find("\"require\"") else {
+        return names;
+    };
+    let Some(brace_start) = content[start..].find('{') else {
+        return names;
+    };
     let block_offset = start + brace_start + 1;
 
     let mut depth = 1usize;
@@ -384,37 +417,37 @@ fn build_dependencies_section(root: &Path) -> Option<String> {
 
     // package.json
     let pkg_path = root.join("package.json");
-    if pkg_path.exists() {
-        if let Ok(content) = fs::read_to_string(&pkg_path) {
-            let deps = parse_package_json_deps(&content);
-            if !deps.is_empty() {
-                let capped: Vec<&str> = deps.iter().map(|s| s.as_str()).take(20).collect();
-                lines.push(format!("**package.json**: {}", capped.join(", ")));
-            }
+    if pkg_path.exists()
+        && let Ok(content) = fs::read_to_string(&pkg_path)
+    {
+        let deps = parse_package_json_deps(&content);
+        if !deps.is_empty() {
+            let capped: Vec<&str> = deps.iter().map(|s| s.as_str()).take(20).collect();
+            lines.push(format!("**package.json**: {}", capped.join(", ")));
         }
     }
 
     // Cargo.toml
     let cargo_path = root.join("Cargo.toml");
-    if cargo_path.exists() {
-        if let Ok(content) = fs::read_to_string(&cargo_path) {
-            let deps = parse_cargo_toml_deps(&content);
-            if !deps.is_empty() {
-                let capped: Vec<&str> = deps.iter().map(|s| s.as_str()).take(20).collect();
-                lines.push(format!("**Cargo.toml**: {}", capped.join(", ")));
-            }
+    if cargo_path.exists()
+        && let Ok(content) = fs::read_to_string(&cargo_path)
+    {
+        let deps = parse_cargo_toml_deps(&content);
+        if !deps.is_empty() {
+            let capped: Vec<&str> = deps.iter().map(|s| s.as_str()).take(20).collect();
+            lines.push(format!("**Cargo.toml**: {}", capped.join(", ")));
         }
     }
 
     // composer.json
     let composer_path = root.join("composer.json");
-    if composer_path.exists() {
-        if let Ok(content) = fs::read_to_string(&composer_path) {
-            let deps = parse_composer_json_deps(&content);
-            if !deps.is_empty() {
-                let capped: Vec<&str> = deps.iter().map(|s| s.as_str()).take(20).collect();
-                lines.push(format!("**composer.json**: {}", capped.join(", ")));
-            }
+    if composer_path.exists()
+        && let Ok(content) = fs::read_to_string(&composer_path)
+    {
+        let deps = parse_composer_json_deps(&content);
+        if !deps.is_empty() {
+            let capped: Vec<&str> = deps.iter().map(|s| s.as_str()).take(20).collect();
+            lines.push(format!("**composer.json**: {}", capped.join(", ")));
         }
     }
 
@@ -467,7 +500,11 @@ fn build_api_routes_section(root: &Path) -> Option<String> {
     let mut out = String::from("## API Routes\n\n");
     for (segment, leaves) in &groups {
         let leaves_clean: Vec<&str> = leaves.iter().map(|s| s.as_str()).collect();
-        out.push_str(&format!("- `/api/{}/` — {}\n", segment, leaves_clean.join(", ")));
+        out.push_str(&format!(
+            "- `/api/{}/` — {}\n",
+            segment,
+            leaves_clean.join(", ")
+        ));
     }
     out.push('\n');
     Some(out)
@@ -475,19 +512,21 @@ fn build_api_routes_section(root: &Path) -> Option<String> {
 
 /// Recursively walk `dir`, collecting route paths relative to `api_root`.
 fn collect_api_routes(api_root: &Path, dir: &Path, routes: &mut Vec<String>) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
             collect_api_routes(api_root, &path, routes);
-        } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            if name == "route.ts" || name == "route.js" {
-                // Build route path: strip api_root prefix, remove filename
-                if let Some(parent) = path.parent() {
-                    let rel = parent.strip_prefix(api_root).unwrap_or(parent);
-                    let route = format!("/api/{}", rel.to_string_lossy());
-                    routes.push(route);
-                }
+        } else if let Some(name) = path.file_name().and_then(|n| n.to_str())
+            && (name == "route.ts" || name == "route.js")
+        {
+            // Build route path: strip api_root prefix, remove filename
+            if let Some(parent) = path.parent() {
+                let rel = parent.strip_prefix(api_root).unwrap_or(parent);
+                let route = format!("/api/{}", rel.to_string_lossy());
+                routes.push(route);
             }
         }
     }
@@ -514,10 +553,8 @@ fn build_env_section(root: &Path) -> Option<String> {
                         .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
             })
             .unwrap_or(false);
-        if is_var {
-            if let Some(name) = trimmed.split('=').next() {
-                vars.push(name.to_string());
-            }
+        if is_var && let Some(name) = trimmed.split('=').next() {
+            vars.push(name.to_string());
         }
     }
 
@@ -540,7 +577,14 @@ fn build_env_section(root: &Path) -> Option<String> {
         .join(", ");
 
     // Key vars: up to 6, prioritizing DATABASE_URL, AUTH_SECRET, *_URL, *_KEY
-    let priority_keywords = ["DATABASE_URL", "AUTH_SECRET", "SECRET", "URL", "KEY", "TOKEN"];
+    let priority_keywords = [
+        "DATABASE_URL",
+        "AUTH_SECRET",
+        "SECRET",
+        "URL",
+        "KEY",
+        "TOKEN",
+    ];
     let mut key_vars: Vec<&str> = Vec::new();
     // First pass: exact/contains priority keywords
     for kw in &priority_keywords {
@@ -594,11 +638,7 @@ mod tests {
         let ig_dir = dir.path().join(".ig");
         fs::create_dir_all(&ig_dir).unwrap();
 
-        fs::write(
-            ig_dir.join("tree.txt"),
-            "src/\nsrc/main.rs\nsrc/lib.rs\n",
-        )
-        .unwrap();
+        fs::write(ig_dir.join("tree.txt"), "src/\nsrc/main.rs\nsrc/lib.rs\n").unwrap();
 
         let src = dir.path().join("src");
         fs::create_dir_all(&src).unwrap();
@@ -671,7 +711,10 @@ mod tests {
         assert!(deps.contains(&"react".to_string()), "missing react");
         assert!(deps.contains(&"next".to_string()), "missing next");
         assert!(deps.contains(&"zod".to_string()), "missing zod");
-        assert!(deps.contains(&"typescript".to_string()), "missing typescript");
+        assert!(
+            deps.contains(&"typescript".to_string()),
+            "missing typescript"
+        );
         assert!(deps.contains(&"eslint".to_string()), "missing eslint");
     }
 
@@ -704,7 +747,10 @@ tempfile = "3"
         assert!(deps.contains(&"serde".to_string()), "missing serde");
         assert!(deps.contains(&"tokio".to_string()), "missing tokio");
         // dev-dependencies should not be included
-        assert!(!deps.contains(&"tempfile".to_string()), "tempfile should not appear");
+        assert!(
+            !deps.contains(&"tempfile".to_string()),
+            "tempfile should not appear"
+        );
     }
 
     #[test]
@@ -717,8 +763,14 @@ tempfile = "3"
   }
 }"#;
         let deps = parse_composer_json_deps(content);
-        assert!(deps.contains(&"laravel/framework".to_string()), "missing laravel/framework");
-        assert!(deps.contains(&"guzzlehttp/guzzle".to_string()), "missing guzzlehttp/guzzle");
+        assert!(
+            deps.contains(&"laravel/framework".to_string()),
+            "missing laravel/framework"
+        );
+        assert!(
+            deps.contains(&"guzzlehttp/guzzle".to_string()),
+            "missing guzzlehttp/guzzle"
+        );
         // php version constraint should be excluded
         assert!(!deps.contains(&"php".to_string()), "php should be excluded");
     }
@@ -734,7 +786,10 @@ tempfile = "3"
 
         let section = build_dependencies_section(dir.path()).unwrap();
         assert!(section.contains("## Dependencies"), "missing header");
-        assert!(section.contains("**package.json**"), "missing manifest label");
+        assert!(
+            section.contains("**package.json**"),
+            "missing manifest label"
+        );
         assert!(section.contains("react"), "missing react");
         assert!(section.contains("next"), "missing next");
         assert!(section.contains("tailwindcss"), "missing tailwindcss");
@@ -796,12 +851,20 @@ tempfile = "3"
         // /api/auth/session/route.ts
         let auth_session = api.join("auth").join("session");
         fs::create_dir_all(&auth_session).unwrap();
-        fs::write(auth_session.join("route.ts"), "export async function GET() {}").unwrap();
+        fs::write(
+            auth_session.join("route.ts"),
+            "export async function GET() {}",
+        )
+        .unwrap();
 
         // /api/auth/refresh/route.ts
         let auth_refresh = api.join("auth").join("refresh");
         fs::create_dir_all(&auth_refresh).unwrap();
-        fs::write(auth_refresh.join("route.ts"), "export async function POST() {}").unwrap();
+        fs::write(
+            auth_refresh.join("route.ts"),
+            "export async function POST() {}",
+        )
+        .unwrap();
 
         // /api/payments/checkout/route.ts
         let payments_checkout = api.join("payments").join("checkout");
@@ -894,9 +957,15 @@ tempfile = "3"
 
         let section = build_env_section(dir.path()).unwrap();
         // NEXT_PUBLIC group should show count 2
-        assert!(section.contains("NEXT_PUBLIC (2)"), "missing NEXT_PUBLIC group count");
+        assert!(
+            section.contains("NEXT_PUBLIC (2)"),
+            "missing NEXT_PUBLIC group count"
+        );
         // DATABASE group should show count 3
-        assert!(section.contains("DATABASE (3)"), "missing DATABASE group count");
+        assert!(
+            section.contains("DATABASE (3)"),
+            "missing DATABASE group count"
+        );
         // STRIPE group should show count 2
         assert!(section.contains("STRIPE (2)"), "missing STRIPE group count");
     }
@@ -948,9 +1017,18 @@ tempfile = "3"
         let env_pos = output.find("## Environment").unwrap();
         let files_pos = output.find("## Files").unwrap();
 
-        assert!(struct_pos < deps_pos, "Dependencies must come after Structure");
-        assert!(deps_pos < routes_pos, "API Routes must come after Dependencies");
-        assert!(routes_pos < env_pos, "Environment must come after API Routes");
+        assert!(
+            struct_pos < deps_pos,
+            "Dependencies must come after Structure"
+        );
+        assert!(
+            deps_pos < routes_pos,
+            "API Routes must come after Dependencies"
+        );
+        assert!(
+            routes_pos < env_pos,
+            "Environment must come after API Routes"
+        );
         assert!(env_pos < files_pos, "Files must come after Environment");
     }
 }

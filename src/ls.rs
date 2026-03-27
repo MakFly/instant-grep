@@ -1,5 +1,5 @@
-/// Compact directory listing — token-optimized output for AI agents.
-/// Groups directories first, then files with sizes. Summary line at end.
+//! Compact directory listing — token-optimized output for AI agents.
+//! Groups directories first, then files with sizes. Summary line at end.
 
 use std::fs;
 use std::path::Path;
@@ -22,8 +22,8 @@ pub fn compact_ls(path: &Path) -> Result<LsResult> {
         path
     };
 
-    let entries = fs::read_dir(path)
-        .with_context(|| format!("reading directory {}", path.display()))?;
+    let entries =
+        fs::read_dir(path).with_context(|| format!("reading directory {}", path.display()))?;
 
     let mut dirs = Vec::new();
     let mut files = Vec::new();
@@ -150,10 +150,7 @@ mod tests {
     fn test_format_ls_output() {
         let result = LsResult {
             dirs: vec!["src".into(), "docs".into(), "tests".into()],
-            files: vec![
-                ("README.md".into(), 1536),
-                ("Cargo.toml".into(), 512),
-            ],
+            files: vec![("README.md".into(), 1536), ("Cargo.toml".into(), 512)],
             total_dirs: 3,
             total_files: 2,
         };

@@ -6,8 +6,8 @@ use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use notify::{Event, RecursiveMode, Watcher};
-use regex::bytes::RegexBuilder;
 use rayon::prelude::*;
+use regex::bytes::RegexBuilder;
 use serde::{Deserialize, Serialize};
 
 use crate::index::reader::IndexReader;
@@ -393,7 +393,11 @@ fn process_query(line: &str, reader: &IndexReader, root: &Path, reloaded: bool) 
                                 count: None,
                             })
                             .collect();
-                        if matches.is_empty() { None } else { Some(matches) }
+                        if matches.is_empty() {
+                            None
+                        } else {
+                            Some(matches)
+                        }
                     }
                 }
                 _ => None,
@@ -475,14 +479,14 @@ pub fn stop_daemon(root: &Path) -> Result<()> {
     let pid_file = pid_path(&ig);
 
     if pid_file.exists() {
-        if let Ok(pid_str) = std::fs::read_to_string(&pid_file) {
-            if let Ok(pid) = pid_str.trim().parse::<i32>() {
-                // Send SIGTERM
-                unsafe {
-                    libc::kill(pid, libc::SIGTERM);
-                }
-                eprintln!("Sent SIGTERM to daemon (PID {})", pid);
+        if let Ok(pid_str) = std::fs::read_to_string(&pid_file)
+            && let Ok(pid) = pid_str.trim().parse::<i32>()
+        {
+            // Send SIGTERM
+            unsafe {
+                libc::kill(pid, libc::SIGTERM);
             }
+            eprintln!("Sent SIGTERM to daemon (PID {})", pid);
         }
         let _ = std::fs::remove_file(&pid_file);
     }
@@ -515,11 +519,11 @@ pub fn daemon_status(root: &Path) -> Result<()> {
 /// Check if the daemon process is alive via its PID file.
 fn is_daemon_alive(ig_dir: &Path) -> bool {
     let pid_file = pid_path(ig_dir);
-    if let Ok(pid_str) = std::fs::read_to_string(pid_file) {
-        if let Ok(pid) = pid_str.trim().parse::<i32>() {
-            // kill(pid, 0) checks if process exists without sending a signal
-            return unsafe { libc::kill(pid, 0) } == 0;
-        }
+    if let Ok(pid_str) = std::fs::read_to_string(pid_file)
+        && let Ok(pid) = pid_str.trim().parse::<i32>()
+    {
+        // kill(pid, 0) checks if process exists without sending a signal
+        return unsafe { libc::kill(pid, 0) } == 0;
     }
     false
 }
@@ -600,7 +604,10 @@ pub fn install_launchd(root: &Path) -> Result<()> {
         eprintln!("Label: {}", label);
         eprintln!("Daemon will auto-start on boot and restart on crash");
     } else {
-        eprintln!("launchctl load failed (exit {})", status.code().unwrap_or(-1));
+        eprintln!(
+            "launchctl load failed (exit {})",
+            status.code().unwrap_or(-1)
+        );
     }
 
     Ok(())

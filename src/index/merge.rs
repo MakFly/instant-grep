@@ -42,7 +42,10 @@ struct HeapEntry {
 impl Ord for HeapEntry {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         // Reverse for min-heap (BinaryHeap is max-heap)
-        other.key.cmp(&self.key).then(other.segment_idx.cmp(&self.segment_idx))
+        other
+            .key
+            .cmp(&self.key)
+            .then(other.segment_idx.cmp(&self.segment_idx))
     }
 }
 
@@ -85,7 +88,12 @@ pub fn merge_segments_streaming(
     }
 
     if segments.len() == 1 {
-        return merge_single_segment_streaming(&segments[0], postings_path, entries_file, entries_path);
+        return merge_single_segment_streaming(
+            &segments[0],
+            postings_path,
+            entries_file,
+            entries_path,
+        );
     }
 
     // Open all segment readers
@@ -127,7 +135,8 @@ pub fn merge_segments_streaming(
         {
             let idx = min_entry.segment_idx;
             if let Some(ref entry) = current_entries[idx] {
-                let ids = vbyte::decode_posting_list(&entry.posting_bytes, 0, entry.posting_bytes.len());
+                let ids =
+                    vbyte::decode_posting_list(&entry.posting_bytes, 0, entry.posting_bytes.len());
                 all_doc_ids.extend_from_slice(&ids);
             }
             let next = readers[idx].next_entry();
@@ -148,7 +157,11 @@ pub fn merge_segments_streaming(
             let entry = heap.pop().unwrap();
             let idx = entry.segment_idx;
             if let Some(ref seg_entry) = current_entries[idx] {
-                let ids = vbyte::decode_posting_list(&seg_entry.posting_bytes, 0, seg_entry.posting_bytes.len());
+                let ids = vbyte::decode_posting_list(
+                    &seg_entry.posting_bytes,
+                    0,
+                    seg_entry.posting_bytes.len(),
+                );
                 all_doc_ids.extend_from_slice(&ids);
             }
             let next = readers[idx].next_entry();
@@ -311,8 +324,7 @@ pub fn build_lexicon_mmap_from_file(
         let mut slot = (stored_key as usize) % table_size;
         loop {
             let lex_base = slot * ENTRY_SIZE;
-            let existing =
-                u64::from_le_bytes(mmap[lex_base..lex_base + 8].try_into().unwrap());
+            let existing = u64::from_le_bytes(mmap[lex_base..lex_base + 8].try_into().unwrap());
             if existing == 0 {
                 mmap[lex_base..lex_base + 8].copy_from_slice(&stored_key.to_le_bytes());
                 mmap[lex_base + 8..lex_base + 12].copy_from_slice(&byte_offset_bytes);
@@ -333,10 +345,10 @@ pub fn cleanup_segments(segments: &[SegmentInfo]) {
         let _ = fs::remove_file(&seg.path);
     }
     // Try to remove the segment directory (only succeeds if empty)
-    if let Some(seg) = segments.first() {
-        if let Some(parent) = seg.path.parent() {
-            let _ = fs::remove_dir(parent);
-        }
+    if let Some(seg) = segments.first()
+        && let Some(parent) = seg.path.parent()
+    {
+        let _ = fs::remove_dir(parent);
     }
 }
 
@@ -344,7 +356,7 @@ fn next_prime(n: usize) -> usize {
     if n <= 2 {
         return 2;
     }
-    let mut candidate = if n % 2 == 0 { n + 1 } else { n };
+    let mut candidate = if n.is_multiple_of(2) { n + 1 } else { n };
     loop {
         if is_prime(candidate) {
             return candidate;
@@ -360,12 +372,12 @@ fn is_prime(n: usize) -> bool {
     if n == 2 || n == 3 {
         return true;
     }
-    if n % 2 == 0 || n % 3 == 0 {
+    if n.is_multiple_of(2) || n.is_multiple_of(3) {
         return false;
     }
     let mut i = 5;
     while i * i <= n {
-        if n % i == 0 || n % (i + 2) == 0 {
+        if n.is_multiple_of(i) || n.is_multiple_of(i + 2) {
             return false;
         }
         i += 6;
@@ -380,9 +392,21 @@ mod tests {
     #[test]
     fn test_build_lexicon() {
         let entries = vec![
-            MergedEntry { key: 10, byte_offset: 0, byte_length: 5 },
-            MergedEntry { key: 20, byte_offset: 5, byte_length: 8 },
-            MergedEntry { key: 30, byte_offset: 13, byte_length: 3 },
+            MergedEntry {
+                key: 10,
+                byte_offset: 0,
+                byte_length: 5,
+            },
+            MergedEntry {
+                key: 20,
+                byte_offset: 5,
+                byte_length: 8,
+            },
+            MergedEntry {
+                key: 30,
+                byte_offset: 13,
+                byte_length: 3,
+            },
         ];
 
         let table = build_lexicon(&entries);
@@ -396,15 +420,27 @@ mod tests {
             loop {
                 let base = slot * 16;
                 let found_key = u64::from_le_bytes([
-                    table[base], table[base+1], table[base+2], table[base+3],
-                    table[base+4], table[base+5], table[base+6], table[base+7],
+                    table[base],
+                    table[base + 1],
+                    table[base + 2],
+                    table[base + 3],
+                    table[base + 4],
+                    table[base + 5],
+                    table[base + 6],
+                    table[base + 7],
                 ]);
                 if found_key == stored_key {
                     let offset = u32::from_le_bytes([
-                        table[base+8], table[base+9], table[base+10], table[base+11],
+                        table[base + 8],
+                        table[base + 9],
+                        table[base + 10],
+                        table[base + 11],
                     ]);
                     let length = u32::from_le_bytes([
-                        table[base+12], table[base+13], table[base+14], table[base+15],
+                        table[base + 12],
+                        table[base + 13],
+                        table[base + 14],
+                        table[base + 15],
                     ]);
                     assert_eq!(offset, entry.byte_offset);
                     assert_eq!(length, entry.byte_length);
@@ -414,5 +450,4 @@ mod tests {
             }
         }
     }
-
 }

@@ -3,8 +3,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const GITHUB_API_URL: &str =
-    "https://api.github.com/repos/MakFly/instant-grep/releases/latest";
+const GITHUB_API_URL: &str = "https://api.github.com/repos/MakFly/instant-grep/releases/latest";
 const CHECK_INTERVAL_SECS: u64 = 86400; // 24h
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -35,20 +34,19 @@ fn check_update() -> Option<()> {
     if let Ok(contents) = fs::read_to_string(&cache) {
         let mut lines = contents.lines();
         if let Some(timestamp_str) = lines.next()
-            && let Ok(last_check) = timestamp_str.parse::<u64>() {
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .ok()?
-                    .as_secs();
-                if now.saturating_sub(last_check) < CHECK_INTERVAL_SECS {
-                    // Still fresh — but show cached version if newer
-                    if let Some(cached_version) = lines.next()
-                        && is_newer(cached_version) {
-                            print_update_message(cached_version);
-                        }
-                    return Some(());
+            && let Ok(last_check) = timestamp_str.parse::<u64>()
+        {
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
+            if now.saturating_sub(last_check) < CHECK_INTERVAL_SECS {
+                // Still fresh — but show cached version if newer
+                if let Some(cached_version) = lines.next()
+                    && is_newer(cached_version)
+                {
+                    print_update_message(cached_version);
                 }
+                return Some(());
             }
+        }
     }
 
     // Fetch latest release from GitHub
@@ -67,10 +65,7 @@ fn check_update() -> Option<()> {
     if let Some(dir) = cache_dir() {
         let _ = fs::create_dir_all(&dir);
         if let Ok(mut f) = fs::File::create(&cache) {
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .ok()?
-                .as_secs();
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
             let _ = writeln!(f, "{}", now);
             let _ = writeln!(f, "{}", latest);
         }

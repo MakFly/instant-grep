@@ -178,12 +178,12 @@ impl IndexReader {
 
     /// Get file path for a DocId, checking overlay for high DocIds.
     pub fn file_path(&self, doc_id: DocId) -> &str {
-        if let Some(ref overlay) = self.overlay {
-            if doc_id >= self.metadata.file_count {
-                let overlay_idx = (doc_id - self.metadata.file_count) as usize;
-                if overlay_idx < overlay.metadata.added_files.len() {
-                    return &overlay.metadata.added_files[overlay_idx].path;
-                }
+        if let Some(ref overlay) = self.overlay
+            && doc_id >= self.metadata.file_count
+        {
+            let overlay_idx = (doc_id - self.metadata.file_count) as usize;
+            if overlay_idx < overlay.metadata.added_files.len() {
+                return &overlay.metadata.added_files[overlay_idx].path;
             }
         }
         &self.metadata.files[doc_id as usize].path

@@ -21,7 +21,13 @@ pub fn extract_symbols(
     type_filter: Option<&str>,
     glob_filter: Option<&str>,
 ) -> Result<Vec<SymbolMatch>> {
-    let files = walk::walk_files(root, use_default_excludes, max_file_size, type_filter, glob_filter)?;
+    let files = walk::walk_files(
+        root,
+        use_default_excludes,
+        max_file_size,
+        type_filter,
+        glob_filter,
+    )?;
 
     let symbols: Vec<SymbolMatch> = files
         .par_iter()
@@ -97,51 +103,96 @@ fn classify_kind(matched: &str, lang: Lang) -> &'static str {
     let m = matched;
     match lang {
         Lang::Rust => {
-            if m.contains("fn ") { "function" }
-            else if m.contains("struct ") { "struct" }
-            else if m.contains("enum ") { "enum" }
-            else if m.contains("trait ") { "trait" }
-            else if m.contains("impl ") { "impl" }
-            else if m.contains("type ") { "type" }
-            else if m.contains("mod ") { "module" }
-            else if m.contains("const ") { "const" }
-            else if m.contains("static ") { "static" }
-            else { "symbol" }
+            if m.contains("fn ") {
+                "function"
+            } else if m.contains("struct ") {
+                "struct"
+            } else if m.contains("enum ") {
+                "enum"
+            } else if m.contains("trait ") {
+                "trait"
+            } else if m.contains("impl ") {
+                "impl"
+            } else if m.contains("type ") {
+                "type"
+            } else if m.contains("mod ") {
+                "module"
+            } else if m.contains("const ") {
+                "const"
+            } else if m.contains("static ") {
+                "static"
+            } else {
+                "symbol"
+            }
         }
         Lang::TypeScript | Lang::JavaScript => {
-            if m.contains("function") || m.contains("=>") { "function" }
-            else if m.contains("class ") { "class" }
-            else if m.contains("interface ") { "interface" }
-            else if m.contains("type ") { "type" }
-            else if m.contains("enum ") { "enum" }
-            else if m.contains("const ") { "const" }
-            else { "symbol" }
+            if m.contains("function") || m.contains("=>") {
+                "function"
+            } else if m.contains("class ") {
+                "class"
+            } else if m.contains("interface ") {
+                "interface"
+            } else if m.contains("type ") {
+                "type"
+            } else if m.contains("enum ") {
+                "enum"
+            } else if m.contains("const ") {
+                "const"
+            } else {
+                "symbol"
+            }
         }
         Lang::Python => {
-            if m.contains("def ") { "function" }
-            else if m.contains("class ") { "class" }
-            else { "symbol" }
+            if m.contains("def ") {
+                "function"
+            } else if m.contains("class ") {
+                "class"
+            } else {
+                "symbol"
+            }
         }
         Lang::Go => {
-            if m.contains("func ") { "function" }
-            else if m.contains("type ") { "type" }
-            else { "symbol" }
+            if m.contains("func ") {
+                "function"
+            } else if m.contains("type ") {
+                "type"
+            } else {
+                "symbol"
+            }
         }
         Lang::Php => {
-            if m.contains("function ") { "function" }
-            else if m.contains("class ") { "class" }
-            else if m.contains("interface ") { "interface" }
-            else if m.contains("trait ") { "trait" }
-            else if m.contains("enum ") { "enum" }
-            else { "symbol" }
+            if m.contains("function ") {
+                "function"
+            } else if m.contains("class ") {
+                "class"
+            } else if m.contains("interface ") {
+                "interface"
+            } else if m.contains("trait ") {
+                "trait"
+            } else if m.contains("enum ") {
+                "enum"
+            } else {
+                "symbol"
+            }
         }
         Lang::Other => {
-            if m.contains("fn ") || m.contains("func ") || m.contains("function ") || m.contains("def ") { "function" }
-            else if m.contains("class ") { "class" }
-            else if m.contains("struct ") { "struct" }
-            else if m.contains("interface ") { "interface" }
-            else if m.contains("type ") { "type" }
-            else { "symbol" }
+            if m.contains("fn ")
+                || m.contains("func ")
+                || m.contains("function ")
+                || m.contains("def ")
+            {
+                "function"
+            } else if m.contains("class ") {
+                "class"
+            } else if m.contains("struct ") {
+                "struct"
+            } else if m.contains("interface ") {
+                "interface"
+            } else if m.contains("type ") {
+                "type"
+            } else {
+                "symbol"
+            }
         }
     }
 }
@@ -173,12 +224,20 @@ impl Lang {
 
     pub fn patterns(&self) -> &'static str {
         match self {
-            Lang::Rust => r"^\s*(pub(\(crate\))?\s+)?(async\s+)?(fn|struct|enum|trait|impl|type|mod|const|static)\s+",
-            Lang::TypeScript | Lang::JavaScript => r"^\s*(export\s+)?(default\s+)?(async\s+)?(function\*?\s+|class\s+|interface\s+|type\s+|enum\s+|const\s+\w+\s*=\s*(async\s+)?\()",
+            Lang::Rust => {
+                r"^\s*(pub(\(crate\))?\s+)?(async\s+)?(fn|struct|enum|trait|impl|type|mod|const|static)\s+"
+            }
+            Lang::TypeScript | Lang::JavaScript => {
+                r"^\s*(export\s+)?(default\s+)?(async\s+)?(function\*?\s+|class\s+|interface\s+|type\s+|enum\s+|const\s+\w+\s*=\s*(async\s+)?\()"
+            }
             Lang::Python => r"^\s*(async\s+)?(def|class)\s+",
             Lang::Go => r"^(func|type)\s+",
-            Lang::Php => r"^\s*(abstract\s+|final\s+)*(public|protected|private|static)?\s*(function|class|interface|trait|enum)\s+",
-            Lang::Other => r"^\s*(export\s+)?(pub\s+)?(async\s+)?(function\*?\s+|class\s+|def\s+|fn\s+|struct\s+|type\s+|interface\s+|trait\s+|impl\s+)",
+            Lang::Php => {
+                r"^\s*(abstract\s+|final\s+)*(public|protected|private|static)?\s*(function|class|interface|trait|enum)\s+"
+            }
+            Lang::Other => {
+                r"^\s*(export\s+)?(pub\s+)?(async\s+)?(function\*?\s+|class\s+|def\s+|fn\s+|struct\s+|type\s+|interface\s+|trait\s+|impl\s+)"
+            }
         }
     }
 }

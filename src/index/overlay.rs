@@ -155,8 +155,7 @@ impl OverlayReader {
     /// Whether the overlay is large enough to warrant compaction (full rebuild).
     pub fn needs_compaction(&self, base_file_count: u32) -> bool {
         self.metadata.overlay_file_count > 1000
-            || (base_file_count > 0
-                && self.metadata.overlay_file_count * 10 > base_file_count)
+            || (base_file_count > 0 && self.metadata.overlay_file_count * 10 > base_file_count)
     }
 }
 

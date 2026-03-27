@@ -13,8 +13,7 @@ pub struct ReadResult {
 /// Read a file and return numbered lines.
 /// In signatures mode, only return import lines and symbol definitions.
 pub fn read_file(file: &Path, signatures_only: bool) -> Result<ReadResult> {
-    let content = std::fs::read(file)
-        .with_context(|| format!("reading {}", file.display()))?;
+    let content = std::fs::read(file).with_context(|| format!("reading {}", file.display()))?;
 
     if is_binary(&content) {
         bail!("binary file: {}", file.display());
@@ -31,7 +30,10 @@ pub fn read_file(file: &Path, signatures_only: bool) -> Result<ReadResult> {
             .enumerate()
             .map(|(i, line)| (i + 1, line.to_string()))
             .collect();
-        return Ok(ReadResult { file: file_str, lines });
+        return Ok(ReadResult {
+            file: file_str,
+            lines,
+        });
     }
 
     // Signatures mode: imports + symbol definitions
@@ -57,16 +59,19 @@ pub fn read_file(file: &Path, signatures_only: bool) -> Result<ReadResult> {
         }
 
         // Keep symbol definitions
-        if let Some(ref re) = sym_regex {
-            if re.is_match(line) {
-                // Strip trailing opening brace for cleaner output
-                let clean = line.trim_end().trim_end_matches('{').trim_end();
-                lines.push((i + 1, clean.to_string()));
-            }
+        if let Some(ref re) = sym_regex
+            && re.is_match(line)
+        {
+            // Strip trailing opening brace for cleaner output
+            let clean = line.trim_end().trim_end_matches('{').trim_end();
+            lines.push((i + 1, clean.to_string()));
         }
     }
 
-    Ok(ReadResult { file: file_str, lines })
+    Ok(ReadResult {
+        file: file_str,
+        lines,
+    })
 }
 
 #[cfg(test)]
@@ -145,7 +150,17 @@ mod tests {
         let result = read_file(f.path(), true).unwrap();
         assert!(result.lines.len() >= 3, "got: {:?}", result.lines);
         assert!(result.lines[0].1.contains("import"));
-        assert!(result.lines.iter().any(|(_, l)| l.contains("function greet")));
-        assert!(result.lines.iter().any(|(_, l)| l.contains("class UserService")));
+        assert!(
+            result
+                .lines
+                .iter()
+                .any(|(_, l)| l.contains("function greet"))
+        );
+        assert!(
+            result
+                .lines
+                .iter()
+                .any(|(_, l)| l.contains("class UserService"))
+        );
     }
 }

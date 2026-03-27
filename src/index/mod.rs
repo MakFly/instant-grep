@@ -1,7 +1,7 @@
 pub mod merge;
 pub mod metadata;
-pub mod overlay;
 pub mod ngram;
+pub mod overlay;
 pub mod postings;
 pub mod reader;
 pub mod spimi;

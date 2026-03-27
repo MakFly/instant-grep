@@ -258,11 +258,7 @@ impl Printer {
                 .lines
                 .iter()
                 .map(|(num, text)| {
-                    format!(
-                        "{{\"line\":{},\"text\":\"{}\"}}",
-                        num,
-                        escape_json(text)
-                    )
+                    format!("{{\"line\":{},\"text\":\"{}\"}}", num, escape_json(text))
                 })
                 .collect();
             let _ = writeln!(
@@ -318,7 +314,9 @@ impl Printer {
         }
 
         for (num, line) in &result.lines {
-            let _ = self.stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)).set_dimmed(true));
+            let _ = self
+                .stdout
+                .set_color(ColorSpec::new().set_fg(Some(Color::Green)).set_dimmed(true));
             let _ = write!(self.stdout, "{:>4}: ", num);
             let _ = self.stdout.reset();
             let _ = writeln!(self.stdout, "{}", line);
@@ -340,7 +338,9 @@ impl Printer {
         }
 
         for s in summaries {
-            let _ = self.stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)));
+            let _ = self
+                .stdout
+                .set_color(ColorSpec::new().set_fg(Some(Color::Cyan)));
             let _ = write!(self.stdout, "{}", s.file);
             let _ = self.stdout.reset();
             let _ = write!(self.stdout, " — {}", s.role);

@@ -44,18 +44,42 @@ pub fn build_index(
             if overlay_reader.needs_compaction(meta.file_count) {
                 eprintln!("Overlay too large, compacting...");
                 overlay::clear_overlay(&ig);
-                full_rebuild(&root, use_default_excludes, max_file_size, &current_git_commit)?
+                full_rebuild(
+                    &root,
+                    use_default_excludes,
+                    max_file_size,
+                    &current_git_commit,
+                )?
             } else {
                 // Fall through to changed-files check below
-                check_and_rebuild(&root, &ig, use_default_excludes, max_file_size, &current_git_commit, meta)?
+                check_and_rebuild(
+                    &root,
+                    &ig,
+                    use_default_excludes,
+                    max_file_size,
+                    &current_git_commit,
+                    meta,
+                )?
             }
         } else {
-            check_and_rebuild(&root, &ig, use_default_excludes, max_file_size, &current_git_commit, meta)?
+            check_and_rebuild(
+                &root,
+                &ig,
+                use_default_excludes,
+                max_file_size,
+                &current_git_commit,
+                meta,
+            )?
         }
     } else {
         // Clear any existing overlay before full rebuild
         overlay::clear_overlay(&ig);
-        full_rebuild(&root, use_default_excludes, max_file_size, &current_git_commit)?
+        full_rebuild(
+            &root,
+            use_default_excludes,
+            max_file_size,
+            &current_git_commit,
+        )?
     };
 
     // Generate tree.txt and context.md alongside index artifacts
@@ -103,7 +127,12 @@ fn check_and_rebuild(
     }
 
     overlay::clear_overlay(ig);
-    full_rebuild(root, use_default_excludes, max_file_size, current_git_commit)
+    full_rebuild(
+        root,
+        use_default_excludes,
+        max_file_size,
+        current_git_commit,
+    )
 }
 
 /// Generate `.ig/tree.txt` — a depth-3 directory tree for AI agent onboarding.
@@ -213,8 +242,7 @@ fn full_rebuild(
             // ngrams Vec dropped here — not stored
 
             if budget.should_flush() && !postings_map.is_empty() {
-                let info =
-                    spimi::flush_segment(&mut postings_map, &segment_dir, segment_id)?;
+                let info = spimi::flush_segment(&mut postings_map, &segment_dir, segment_id)?;
                 segments.push(info);
                 segment_id += 1;
                 budget.reset();
@@ -247,8 +275,12 @@ fn full_rebuild(
 
     // Build lexicon via mmap from the entries temp file (no heap allocation)
     let lexicon_path = ig.join("lexicon.bin");
-    merge::build_lexicon_mmap_from_file(&merge_result.entries_path, merge_result.entry_count, &lexicon_path)
-        .context("write lexicon.bin")?;
+    merge::build_lexicon_mmap_from_file(
+        &merge_result.entries_path,
+        merge_result.entry_count,
+        &lexicon_path,
+    )
+    .context("write lexicon.bin")?;
 
     drop(merge_result); // entries temp file cleaned up
 
@@ -404,12 +436,7 @@ fn incremental_overlay(
                         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                         .map(|d| d.as_secs())
                         .unwrap_or(0);
-                    changed_file_data.push((
-                        rel_path.clone(),
-                        bytes.len() as u64,
-                        mtime,
-                        ngrams,
-                    ));
+                    changed_file_data.push((rel_path.clone(), bytes.len() as u64, mtime, ngrams));
                 }
                 Err(_) => {
                     deleted_paths.push(rel_path.clone());

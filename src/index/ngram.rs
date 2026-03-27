@@ -345,7 +345,10 @@ mod tests {
         // camelCase boundary: lowercase → uppercase gets 2x boost
         let base = hash_bigram(b'm', b'N');
         let weighted = bigram_weight(b'm', b'N');
-        assert_eq!(weighted, ((base as u64).wrapping_mul(2) & 0xFFFF_FFFF) as u32);
+        assert_eq!(
+            weighted,
+            ((base as u64).wrapping_mul(2) & 0xFFFF_FFFF) as u32
+        );
     }
 
     #[test]
@@ -353,7 +356,10 @@ mod tests {
         // snake_case boundary: lowercase → underscore gets 2x boost
         let base = hash_bigram(b'x', b'_');
         let weighted = bigram_weight(b'x', b'_');
-        assert_eq!(weighted, ((base as u64).wrapping_mul(2) & 0xFFFF_FFFF) as u32);
+        assert_eq!(
+            weighted,
+            ((base as u64).wrapping_mul(2) & 0xFFFF_FFFF) as u32
+        );
     }
 
     #[test]
@@ -390,5 +396,4 @@ mod tests {
         let weighted = bigram_weight(b'x', b'y');
         assert_eq!(weighted, base, "neutral pair should keep base weight");
     }
-
 }

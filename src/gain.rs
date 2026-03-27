@@ -1,4 +1,4 @@
-/// Token savings dashboard — displays aggregated stats from tracking history.
+//! Token savings dashboard — displays aggregated stats from tracking history.
 
 use std::collections::BTreeMap;
 
@@ -45,18 +45,9 @@ pub fn show_gain(clear: bool) {
     eprintln!("\x1b[1mig Token Savings\x1b[0m");
     eprintln!("════════════════════════════════════════════════════════════");
     eprintln!();
-    eprintln!(
-        "Total commands:    {}",
-        total_commands
-    );
-    eprintln!(
-        "Input bytes:       {}",
-        format_bytes(total_input)
-    );
-    eprintln!(
-        "Output bytes:      {}",
-        format_bytes(total_output)
-    );
+    eprintln!("Total commands:    {}", total_commands);
+    eprintln!("Input bytes:       {}", format_bytes(total_input));
+    eprintln!("Output bytes:      {}", format_bytes(total_output));
     eprintln!(
         "Bytes saved:       {} (\x1b[32m{:.1}%\x1b[0m)",
         format_bytes(total_saved),
@@ -130,7 +121,11 @@ struct CmdStats {
 fn command_key(cmd: &str) -> String {
     let parts: Vec<&str> = cmd.split_whitespace().collect();
     if parts.first() != Some(&"ig") {
-        return cmd.split_whitespace().next().unwrap_or("unknown").to_string();
+        return cmd
+            .split_whitespace()
+            .next()
+            .unwrap_or("unknown")
+            .to_string();
     }
 
     match parts.get(1) {

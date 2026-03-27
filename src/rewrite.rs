@@ -1,9 +1,9 @@
-/// Command rewriting engine — intercepts shell commands and maps them to ig equivalents.
-/// Used by the PreToolUse hook to transparently redirect cat/grep/ls/tree/find to ig.
-///
-/// Exit codes (same protocol as RTK):
-///   0 + stdout  → rewrite found, auto-allow
-///   1           → no rewrite, passthrough
+//! Command rewriting engine — intercepts shell commands and maps them to ig equivalents.
+//! Used by the PreToolUse hook to transparently redirect cat/grep/ls/tree/find to ig.
+//!
+//! Exit codes (same protocol as RTK):
+//!   0 + stdout  → rewrite found, auto-allow
+//!   1           → no rewrite, passthrough
 
 use std::process;
 
@@ -23,7 +23,12 @@ fn rewrite_command(cmd: &str) -> Option<String> {
     let cmd = cmd.trim();
 
     // Skip empty or compound commands (pipes, &&, ||, ;)
-    if cmd.is_empty() || cmd.contains('|') || cmd.contains("&&") || cmd.contains("||") || cmd.contains(';') {
+    if cmd.is_empty()
+        || cmd.contains('|')
+        || cmd.contains("&&")
+        || cmd.contains("||")
+        || cmd.contains(';')
+    {
         return None;
     }
 
@@ -94,7 +99,9 @@ fn rewrite_tail(parts: &[&str]) -> Option<String> {
 fn rewrite_grep(parts: &[&str]) -> Option<String> {
     // Only intercept recursive grep (code search)
     let has_recursive = parts.iter().any(|p| {
-        *p == "-r" || *p == "-R" || *p == "--recursive"
+        *p == "-r"
+            || *p == "-R"
+            || *p == "--recursive"
             || (p.starts_with('-') && !p.starts_with("--") && (p.contains('r') || p.contains('R')))
     });
 
@@ -127,9 +134,14 @@ fn rewrite_grep(parts: &[&str]) -> Option<String> {
     }
 
     let pattern = pattern?;
-    let case_flag = if parts.iter().any(|p| {
-        *p == "-i" || (p.starts_with('-') && !p.starts_with("--") && p.contains('i'))
-    }) { " -i" } else { "" };
+    let case_flag = if parts
+        .iter()
+        .any(|p| *p == "-i" || (p.starts_with('-') && !p.starts_with("--") && p.contains('i')))
+    {
+        " -i"
+    } else {
+        ""
+    };
 
     match path {
         Some(p) if p != "." => Some(format!("ig{} \"{}\" {}", case_flag, pattern, p)),
@@ -199,7 +211,10 @@ fn rewrite_find(parts: &[&str]) -> Option<String> {
     let pattern = parts.get(name_idx + 1)?;
 
     // Skip if there are destructive or complex action flags
-    if parts.iter().any(|p| *p == "-exec" || *p == "-delete" || *p == "-print0") {
+    if parts
+        .iter()
+        .any(|p| *p == "-exec" || *p == "-delete" || *p == "-print0")
+    {
         return None;
     }
 
@@ -207,14 +222,14 @@ fn rewrite_find(parts: &[&str]) -> Option<String> {
     // Reject other -type values (d, l, etc.)
     let mut i = 1;
     while i < parts.len() {
-        if parts[i] == "-type" {
-            if let Some(val) = parts.get(i + 1) {
-                if *val != "f" {
-                    return None;
-                }
-                i += 2;
-                continue;
+        if parts[i] == "-type"
+            && let Some(val) = parts.get(i + 1)
+        {
+            if *val != "f" {
+                return None;
             }
+            i += 2;
+            continue;
         }
         i += 1;
     }
@@ -225,7 +240,12 @@ fn rewrite_find(parts: &[&str]) -> Option<String> {
 /// ls [dir] → ig ls [dir]
 fn rewrite_ls(parts: &[&str]) -> Option<String> {
     // Collect non-flag args
-    let args: Vec<&str> = parts.iter().skip(1).filter(|p| !p.starts_with('-')).copied().collect();
+    let args: Vec<&str> = parts
+        .iter()
+        .skip(1)
+        .filter(|p| !p.starts_with('-'))
+        .copied()
+        .collect();
 
     match args.len() {
         0 => Some("ig ls".to_string()),
@@ -245,20 +265,35 @@ mod tests {
 
     #[test]
     fn test_rewrite_cat() {
-        assert_eq!(rewrite_command("cat src/main.rs"), Some("ig read src/main.rs".into()));
+        assert_eq!(
+            rewrite_command("cat src/main.rs"),
+            Some("ig read src/main.rs".into())
+        );
         assert_eq!(rewrite_command("cat -n src/main.rs"), None); // has flags
     }
 
     #[test]
     fn test_rewrite_head() {
-        assert_eq!(rewrite_command("head src/main.rs"), Some("ig read src/main.rs".into()));
-        assert_eq!(rewrite_command("head -50 src/main.rs"), Some("ig read src/main.rs".into()));
+        assert_eq!(
+            rewrite_command("head src/main.rs"),
+            Some("ig read src/main.rs".into())
+        );
+        assert_eq!(
+            rewrite_command("head -50 src/main.rs"),
+            Some("ig read src/main.rs".into())
+        );
     }
 
     #[test]
     fn test_rewrite_tail() {
-        assert_eq!(rewrite_command("tail src/main.rs"), Some("ig read src/main.rs".into()));
-        assert_eq!(rewrite_command("tail -20 src/main.rs"), Some("ig read src/main.rs".into()));
+        assert_eq!(
+            rewrite_command("tail src/main.rs"),
+            Some("ig read src/main.rs".into())
+        );
+        assert_eq!(
+            rewrite_command("tail -20 src/main.rs"),
+            Some("ig read src/main.rs".into())
+        );
     }
 
     #[test]
@@ -280,8 +315,14 @@ mod tests {
 
     #[test]
     fn test_rewrite_rg() {
-        assert_eq!(rewrite_command("rg useState src/"), Some("ig \"useState\" src/".into()));
-        assert_eq!(rewrite_command("rg -i pattern"), Some("ig -i \"pattern\"".into()));
+        assert_eq!(
+            rewrite_command("rg useState src/"),
+            Some("ig \"useState\" src/".into())
+        );
+        assert_eq!(
+            rewrite_command("rg -i pattern"),
+            Some("ig -i \"pattern\"".into())
+        );
     }
 
     #[test]

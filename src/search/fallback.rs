@@ -40,10 +40,10 @@ pub fn search_brute_force(
     // Single-file mode: skip walk, search only the target file
     if let Some(pf) = path_filter {
         let full_path = root.join(pf);
-        if full_path.exists() {
-            if let Ok(Some(file_matches)) = matcher::match_file(root, pf, &regex, config) {
-                return Ok(vec![file_matches]);
-            }
+        if full_path.exists()
+            && let Ok(Some(file_matches)) = matcher::match_file(root, pf, &regex, config)
+        {
+            return Ok(vec![file_matches]);
         }
         return Ok(Vec::new());
     }

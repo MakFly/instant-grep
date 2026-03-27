@@ -1,6 +1,6 @@
-/// Token savings tracking — logs command executions to a JSONL history file.
-/// Each ig command can log its output size vs estimated original size.
-/// `ig gain` reads this file to display a savings dashboard.
+//! Token savings tracking — logs command executions to a JSONL history file.
+//! Each ig command can log its output size vs estimated original size.
+//! `ig gain` reads this file to display a savings dashboard.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -125,7 +125,9 @@ fn extract_json_u64(json: &str, key: &str) -> Option<u64> {
     let pattern = format!("\"{}\":", key);
     let start = json.find(&pattern)? + pattern.len();
     let rest = json[start..].trim_start();
-    let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
     rest[..end].parse().ok()
 }
 
@@ -136,7 +138,10 @@ mod tests {
     #[test]
     fn test_extract_json_str() {
         let json = r#"{"cmd":"ig read file.ts","in":5000}"#;
-        assert_eq!(extract_json_str(json, "cmd"), Some("ig read file.ts".into()));
+        assert_eq!(
+            extract_json_str(json, "cmd"),
+            Some("ig read file.ts".into())
+        );
     }
 
     #[test]

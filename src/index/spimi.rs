@@ -96,10 +96,7 @@ pub fn flush_segment(
     writer.flush()?;
 
     let ngram_count = entries.len() as u32;
-    Ok(SegmentInfo {
-        path,
-        ngram_count,
-    })
+    Ok(SegmentInfo { path, ngram_count })
 }
 
 /// Read a segment file and iterate its entries.
@@ -166,10 +163,7 @@ impl SegmentReader {
         let posting_bytes = self.data[self.pos..self.pos + byte_len].to_vec();
         self.pos += byte_len;
 
-        Some(SegmentEntry {
-            key,
-            posting_bytes,
-        })
+        Some(SegmentEntry { key, posting_bytes })
     }
 }
 
@@ -264,7 +258,9 @@ mod tests {
         }
 
         // Verify posting lists
-        let decode = |e: &SegmentEntry| vbyte::decode_posting_list(&e.posting_bytes, 0, e.posting_bytes.len());
+        let decode = |e: &SegmentEntry| {
+            vbyte::decode_posting_list(&e.posting_bytes, 0, e.posting_bytes.len())
+        };
 
         // Key 1: files a.rs (0) and c.rs (2)
         assert_eq!(decode(&entries[0]), vec![0, 2]);

@@ -11,8 +11,8 @@ pub struct BlockResult {
 
 /// Extract the enclosing code block for a given line in a file.
 pub fn extract_block(file: &Path, target_line: usize) -> Result<BlockResult> {
-    let content = std::fs::read_to_string(file)
-        .with_context(|| format!("reading {}", file.display()))?;
+    let content =
+        std::fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?;
 
     let all_lines: Vec<&str> = content.lines().collect();
 
@@ -30,13 +30,12 @@ pub fn extract_block(file: &Path, target_line: usize) -> Result<BlockResult> {
     // 1. Walk up from target to find a line at indentation 0 or a definition start
     // 2. Walk down from that point to find the matching closing brace
 
-    let (block_start, block_end) = find_brace_block(&all_lines, target_idx)
-        .unwrap_or_else(|| {
-            // Fallback: ±20 lines
-            let start = target_idx.saturating_sub(20);
-            let end = (target_idx + 20).min(all_lines.len().saturating_sub(1));
-            (start, end)
-        });
+    let (block_start, block_end) = find_brace_block(&all_lines, target_idx).unwrap_or_else(|| {
+        // Fallback: ±20 lines
+        let start = target_idx.saturating_sub(20);
+        let end = (target_idx + 20).min(all_lines.len().saturating_sub(1));
+        (start, end)
+    });
 
     let lines: Vec<(usize, String)> = (block_start..=block_end)
         .map(|i| (i + 1, all_lines[i].to_string()))
@@ -118,7 +117,11 @@ fn find_brace_block(lines: &[&str], target_idx: usize) -> Option<(usize, usize)>
 }
 
 /// For indentation-based languages (Python), find the block by indentation level.
-fn find_indent_block(lines: &[&str], start_idx: usize, target_idx: usize) -> Option<(usize, usize)> {
+fn find_indent_block(
+    lines: &[&str],
+    start_idx: usize,
+    target_idx: usize,
+) -> Option<(usize, usize)> {
     let base_indent = lines[start_idx].len() - lines[start_idx].trim_start().len();
     let mut end_idx = start_idx;
 
@@ -144,15 +147,35 @@ fn find_indent_block(lines: &[&str], start_idx: usize, target_idx: usize) -> Opt
 
 fn is_definition_line(trimmed: &str) -> bool {
     let keywords = [
-        "fn ", "pub fn ", "pub(crate) fn ", "async fn ", "pub async fn ",
-        "struct ", "pub struct ", "enum ", "pub enum ",
-        "impl ", "trait ", "pub trait ",
-        "mod ", "pub mod ",
-        "function ", "class ", "interface ", "type ",
-        "export function ", "export class ", "export interface ", "export type ",
-        "export default ", "export const ",
-        "def ", "async def ",
-        "func ", "const ", "let ",
+        "fn ",
+        "pub fn ",
+        "pub(crate) fn ",
+        "async fn ",
+        "pub async fn ",
+        "struct ",
+        "pub struct ",
+        "enum ",
+        "pub enum ",
+        "impl ",
+        "trait ",
+        "pub trait ",
+        "mod ",
+        "pub mod ",
+        "function ",
+        "class ",
+        "interface ",
+        "type ",
+        "export function ",
+        "export class ",
+        "export interface ",
+        "export type ",
+        "export default ",
+        "export const ",
+        "def ",
+        "async def ",
+        "func ",
+        "const ",
+        "let ",
     ];
     keywords.iter().any(|kw| trimmed.starts_with(kw))
 }

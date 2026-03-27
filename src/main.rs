@@ -228,7 +228,11 @@ fn main() -> Result<()> {
             // Track savings (cat would output original_size bytes)
             let output_bytes: u64 = result.lines.iter().map(|(_, l)| l.len() as u64 + 7).sum(); // +7 for line num prefix
             tracking::log_savings(&tracking::TrackEntry {
-                command: if signatures { format!("ig read -s {}", file) } else { format!("ig read {}", file) },
+                command: if signatures {
+                    format!("ig read -s {}", file)
+                } else {
+                    format!("ig read {}", file)
+                },
                 original_bytes: original_size,
                 output_bytes,
                 project: std::env::current_dir()
@@ -523,7 +527,12 @@ fn resolve_root(path: Option<&str>) -> PathBuf {
 fn resolve_root_and_filter(path: Option<&str>) -> (PathBuf, Option<String>) {
     let base = match path {
         Some(p) => PathBuf::from(p),
-        None => return (std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")), None),
+        None => {
+            return (
+                std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+                None,
+            );
+        }
     };
 
     if base.is_file() {

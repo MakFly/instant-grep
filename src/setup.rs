@@ -151,7 +151,8 @@ fn install_rewrite_hook(claude_dir: &Path) -> ConfigResult {
         ConfigResult::Error(e) => {
             if file_installed {
                 ConfigResult::Configured(format!(
-                    "Installed ig-rewrite.sh but failed to register: {}", e
+                    "Installed ig-rewrite.sh but failed to register: {}",
+                    e
                 ))
             } else {
                 ConfigResult::Error(e)
@@ -185,17 +186,18 @@ fn register_hook_in_settings(claude_dir: &Path) -> ConfigResult {
     };
 
     // Find or create the Bash matcher entry
-    let bash_idx = pre_tool_use.iter().position(|entry| {
-        entry.get("matcher").and_then(|m| m.as_str()) == Some("Bash")
-    });
+    let bash_idx = pre_tool_use
+        .iter()
+        .position(|entry| entry.get("matcher").and_then(|m| m.as_str()) == Some("Bash"));
 
     if bash_idx.is_none() {
         pre_tool_use.push(serde_json::json!({"matcher": "Bash", "hooks": []}));
     }
 
-    let bash_idx = pre_tool_use.iter().position(|entry| {
-        entry.get("matcher").and_then(|m| m.as_str()) == Some("Bash")
-    }).unwrap();
+    let bash_idx = pre_tool_use
+        .iter()
+        .position(|entry| entry.get("matcher").and_then(|m| m.as_str()) == Some("Bash"))
+        .unwrap();
 
     let bash_entry = &mut pre_tool_use[bash_idx];
     if bash_entry.get("hooks").is_none() {
@@ -259,9 +261,7 @@ fn configure_claude_settings(claude_dir: &Path) -> ConfigResult {
     let content = match fs::read_to_string(&settings_path) {
         Ok(c) => c,
         Err(_) => {
-            return ConfigResult::Error(
-                "Could not read ~/.claude/settings.json".to_string(),
-            );
+            return ConfigResult::Error("Could not read ~/.claude/settings.json".to_string());
         }
     };
 
@@ -301,9 +301,7 @@ fn configure_claude_settings(claude_dir: &Path) -> ConfigResult {
         return ConfigResult::Error("Could not write settings.json".to_string());
     }
 
-    ConfigResult::Configured(
-        "Added Bash(ig *) permission to ~/.claude/settings.json".to_string(),
-    )
+    ConfigResult::Configured("Added Bash(ig *) permission to ~/.claude/settings.json".to_string())
 }
 
 fn configure_claude_md(claude_dir: &Path) -> ConfigResult {
@@ -335,9 +333,7 @@ fn configure_claude_md(claude_dir: &Path) -> ConfigResult {
         return ConfigResult::Error("Could not write CLAUDE.md".to_string());
     }
 
-    ConfigResult::Configured(
-        "Added Search Tools section to ~/.claude/CLAUDE.md".to_string(),
-    )
+    ConfigResult::Configured("Added Search Tools section to ~/.claude/CLAUDE.md".to_string())
 }
 
 fn configure_codex_agents_md(codex_dir: &Path) -> ConfigResult {
@@ -351,10 +347,7 @@ fn configure_codex_agents_md(codex_dir: &Path) -> ConfigResult {
         );
     }
 
-    let section = format!(
-        "# AGENTS.md\n{}",
-        IG_SEARCH_TOOLS_SECTION
-    );
+    let section = format!("# AGENTS.md\n{}", IG_SEARCH_TOOLS_SECTION);
 
     let new_content = if content.is_empty() || content.trim().is_empty() {
         section
@@ -378,9 +371,7 @@ fn configure_codex_agents_md(codex_dir: &Path) -> ConfigResult {
         return ConfigResult::Error("Could not write AGENTS.md".to_string());
     }
 
-    ConfigResult::Configured(
-        "Added Search Tools section to ~/.codex/AGENTS.md".to_string(),
-    )
+    ConfigResult::Configured("Added Search Tools section to ~/.codex/AGENTS.md".to_string())
 }
 
 #[cfg(test)]
@@ -399,7 +390,10 @@ mod tests {
         assert!(matches!(result, ConfigResult::Configured(_)));
 
         let content = fs::read_to_string(dir.path().join("settings.json")).unwrap();
-        assert!(content.contains("Bash(ig *)"), "should contain ig permission");
+        assert!(
+            content.contains("Bash(ig *)"),
+            "should contain ig permission"
+        );
     }
 
     #[test]
@@ -452,7 +446,10 @@ mod tests {
         assert!(matches!(result, ConfigResult::Configured(_)));
 
         let content = fs::read_to_string(dir.path().join("CLAUDE.md")).unwrap();
-        assert!(content.contains("## Search Tools"), "should contain Search Tools section");
+        assert!(
+            content.contains("## Search Tools"),
+            "should contain Search Tools section"
+        );
         assert!(content.contains("ig"), "should mention ig");
     }
 
@@ -519,8 +516,14 @@ mod tests {
         assert!(matches!(result, ConfigResult::Configured(_)));
 
         let content = fs::read_to_string(dir.path().join("settings.json")).unwrap();
-        assert!(content.contains("ig-rewrite.sh"), "should add ig-rewrite.sh");
-        assert!(content.contains("destructive check"), "should preserve existing hooks");
+        assert!(
+            content.contains("ig-rewrite.sh"),
+            "should add ig-rewrite.sh"
+        );
+        assert!(
+            content.contains("destructive check"),
+            "should preserve existing hooks"
+        );
     }
 
     #[test]
@@ -533,8 +536,14 @@ mod tests {
         assert!(matches!(result, ConfigResult::Configured(_)));
 
         let content = fs::read_to_string(dir.path().join("settings.json")).unwrap();
-        assert!(!content.contains("prefer-ig.sh"), "should remove prefer-ig.sh");
-        assert!(content.contains("ig-rewrite.sh"), "should add ig-rewrite.sh");
+        assert!(
+            !content.contains("prefer-ig.sh"),
+            "should remove prefer-ig.sh"
+        );
+        assert!(
+            content.contains("ig-rewrite.sh"),
+            "should add ig-rewrite.sh"
+        );
     }
 
     #[test]
@@ -573,7 +582,10 @@ mod tests {
         let content = fs::read_to_string(dir.path().join("settings.json")).unwrap();
         assert!(content.contains("ig-rewrite.sh"), "should add ig hook");
         assert!(content.contains("Grep"), "should preserve Grep matcher");
-        assert!(content.contains("BLOCK"), "should preserve Grep blocker content");
+        assert!(
+            content.contains("BLOCK"),
+            "should preserve Grep blocker content"
+        );
     }
 
     #[test]
@@ -607,7 +619,13 @@ mod tests {
         assert!(matches!(result, ConfigResult::Configured(_)));
 
         let content = fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();
-        assert!(content.contains("Some existing content."), "should preserve existing content");
-        assert!(content.contains("## Search Tools"), "should add Search Tools section");
+        assert!(
+            content.contains("Some existing content."),
+            "should preserve existing content"
+        );
+        assert!(
+            content.contains("## Search Tools"),
+            "should add Search Tools section"
+        );
     }
 }

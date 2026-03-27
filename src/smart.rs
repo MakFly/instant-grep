@@ -20,7 +20,13 @@ pub fn smart_summarize(
     type_filter: Option<&str>,
     glob_filter: Option<&str>,
 ) -> Result<Vec<SmartSummary>> {
-    let files = walk::walk_files(root, use_default_excludes, max_file_size, type_filter, glob_filter)?;
+    let files = walk::walk_files(
+        root,
+        use_default_excludes,
+        max_file_size,
+        type_filter,
+        glob_filter,
+    )?;
     let mut summaries = Vec::new();
 
     for path in &files {
@@ -58,8 +64,8 @@ pub fn smart_summarize(
 
 /// Generate a smart summary for a single file.
 pub fn smart_summarize_file(file: &Path, root: &Path) -> Result<SmartSummary> {
-    let content = std::fs::read(file)
-        .map_err(|e| anyhow::anyhow!("reading {}: {}", file.display(), e))?;
+    let content =
+        std::fs::read(file).map_err(|e| anyhow::anyhow!("reading {}: {}", file.display(), e))?;
 
     if is_binary(&content) {
         let rel = file.strip_prefix(root).unwrap_or(file);
@@ -70,8 +76,8 @@ pub fn smart_summarize_file(file: &Path, root: &Path) -> Result<SmartSummary> {
         });
     }
 
-    let text = std::str::from_utf8(&content)
-        .map_err(|e| anyhow::anyhow!("{}: {}", file.display(), e))?;
+    let text =
+        std::str::from_utf8(&content).map_err(|e| anyhow::anyhow!("{}: {}", file.display(), e))?;
 
     let rel_path = file.strip_prefix(root).unwrap_or(file);
     let rel_str = rel_path.to_string_lossy().to_string();
@@ -108,12 +114,16 @@ fn extract_role(text: &str, lang: Lang) -> String {
 
         // Doc comments
         if trimmed.starts_with("///") || trimmed.starts_with("//!") {
-            let doc = trimmed.trim_start_matches("///").trim_start_matches("//!").trim();
+            let doc = trimmed
+                .trim_start_matches("///")
+                .trim_start_matches("//!")
+                .trim();
             if !doc.is_empty() {
                 return truncate(doc, 80);
             }
         }
-        if trimmed.starts_with("/**") || trimmed.starts_with("\"\"\"") || trimmed.starts_with("'''") {
+        if trimmed.starts_with("/**") || trimmed.starts_with("\"\"\"") || trimmed.starts_with("'''")
+        {
             let doc = trimmed
                 .trim_start_matches("/**")
                 .trim_start_matches("\"\"\"")
@@ -140,10 +150,10 @@ fn extract_role(text: &str, lang: Lang) -> String {
         }
 
         // First meaningful code line — use it as role hint
-        if let Some(ref re) = sym_regex {
-            if re.is_match(line) {
-                return truncate(trimmed.trim_end_matches('{').trim(), 80);
-            }
+        if let Some(ref re) = sym_regex
+            && re.is_match(line)
+        {
+            return truncate(trimmed.trim_end_matches('{').trim(), 80);
         }
 
         // Generic fallback: first non-empty, non-import line
@@ -178,16 +188,40 @@ fn extract_symbol_name(sig: &str) -> Option<String> {
 
     // Try to find name after keywords
     let keywords = [
-        "pub async fn ", "pub fn ", "pub(crate) fn ", "async fn ", "fn ",
-        "pub struct ", "struct ", "pub enum ", "enum ",
-        "pub trait ", "trait ", "impl ",
-        "pub type ", "type ", "pub mod ", "mod ",
-        "pub const ", "const ", "pub static ", "static ",
-        "export default function ", "export async function ", "export function ", "function ",
-        "export default class ", "export class ", "class ",
-        "export interface ", "interface ",
-        "export type ", "export enum ",
-        "export const ", "async def ", "def ",
+        "pub async fn ",
+        "pub fn ",
+        "pub(crate) fn ",
+        "async fn ",
+        "fn ",
+        "pub struct ",
+        "struct ",
+        "pub enum ",
+        "enum ",
+        "pub trait ",
+        "trait ",
+        "impl ",
+        "pub type ",
+        "type ",
+        "pub mod ",
+        "mod ",
+        "pub const ",
+        "const ",
+        "pub static ",
+        "static ",
+        "export default function ",
+        "export async function ",
+        "export function ",
+        "function ",
+        "export default class ",
+        "export class ",
+        "class ",
+        "export interface ",
+        "interface ",
+        "export type ",
+        "export enum ",
+        "export const ",
+        "async def ",
+        "def ",
         "func ",
     ];
 
@@ -239,7 +273,8 @@ mod tests {
 
     #[test]
     fn test_extract_role_skips_imports() {
-        let text = "use std::io;\nuse std::path::Path;\n\n/// Config parser\npub struct Config {}\n";
+        let text =
+            "use std::io;\nuse std::path::Path;\n\n/// Config parser\npub struct Config {}\n";
         let role = extract_role(text, Lang::Rust);
         assert_eq!(role, "Config parser");
     }
@@ -247,9 +282,18 @@ mod tests {
     #[test]
     fn test_extract_symbol_name() {
         assert_eq!(extract_symbol_name("pub fn main()"), Some("main".into()));
-        assert_eq!(extract_symbol_name("export class UserService {"), Some("UserService".into()));
-        assert_eq!(extract_symbol_name("def greet(name):"), Some("greet".into()));
-        assert_eq!(extract_symbol_name("struct Config {"), Some("Config".into()));
+        assert_eq!(
+            extract_symbol_name("export class UserService {"),
+            Some("UserService".into())
+        );
+        assert_eq!(
+            extract_symbol_name("def greet(name):"),
+            Some("greet".into())
+        );
+        assert_eq!(
+            extract_symbol_name("struct Config {"),
+            Some("Config".into())
+        );
     }
 
     #[test]
@@ -274,8 +318,16 @@ mod tests {
 
         let result = smart_summarize_file(&file_path, dir.path()).unwrap();
         assert_eq!(result.role, "Math utilities");
-        assert!(result.public_api.contains("add"), "got: {}", result.public_api);
-        assert!(result.public_api.contains("multiply"), "got: {}", result.public_api);
+        assert!(
+            result.public_api.contains("add"),
+            "got: {}",
+            result.public_api
+        );
+        assert!(
+            result.public_api.contains("multiply"),
+            "got: {}",
+            result.public_api
+        );
     }
 
     #[test]
