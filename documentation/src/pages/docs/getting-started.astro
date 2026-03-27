@@ -105,6 +105,8 @@ import DocsLayout from "@/layouts/docs.astro"
           <span class="text-xs text-muted-foreground/50 font-mono ml-2">configure AI agents (automatic with install.sh)</span>
         </div>
         <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Auto-configure Claude Code, Codex, Gemini CLI...</span>
+<span class="theme-comment"># Also installs the PreToolUse rewrite hook for Claude Code —</span>
+<span class="theme-comment"># grep/find commands are transparently rewritten to ig at the hook layer.</span>
 <span class="theme-blue">ig</span> setup`}></code></pre>
       </div>
     </section>
@@ -117,8 +119,13 @@ import DocsLayout from "@/layouts/docs.astro"
       </h2>
       <p class="text-muted-foreground mb-4 text-sm leading-relaxed">
         Navigate to any project directory and run <code class="font-mono">ig index</code>.
-        This creates a <code class="font-mono">.ig/</code> directory with three binary files:
-        <code class="font-mono theme-blue">lexicon.bin</code>, <code class="font-mono theme-blue">postings.bin</code>, and <code class="font-mono theme-blue">metadata.bin</code>.
+        This creates a <code class="font-mono">.ig/</code> directory with binary index files
+        and auto-generated project artifacts:
+        <code class="font-mono theme-blue">lexicon.bin</code>, <code class="font-mono theme-blue">postings.bin</code>,
+        <code class="font-mono theme-blue">metadata.bin</code>,
+        <code class="font-mono theme-gold">tree.txt</code> (compact directory tree), and
+        <code class="font-mono theme-gold">context.md</code> (structured project snapshot for AI agents —
+        includes dependencies, API routes, environment keys, and symbols).
       </p>
 
       <div class="code-block rounded-xl overflow-hidden my-5">
@@ -153,6 +160,14 @@ import DocsLayout from "@/layouts/docs.astro"
         <div class="p-4 rounded-lg energy-card bg-card/50 text-center">
           <div class="font-mono text-xl font-bold mb-1 theme-gold">metadata.bin</div>
           <div class="text-xs text-muted-foreground">File paths, modification times, version info</div>
+        </div>
+        <div class="p-4 rounded-lg energy-card bg-card/50 text-center">
+          <div class="font-mono text-xl font-bold mb-1 theme-green">tree.txt</div>
+          <div class="text-xs text-muted-foreground">Compact directory tree snapshot, auto-regenerated on index rebuild</div>
+        </div>
+        <div class="p-4 rounded-lg energy-card bg-card/50 text-center sm:col-span-2">
+          <div class="font-mono text-xl font-bold mb-1 theme-gold">context.md</div>
+          <div class="text-xs text-muted-foreground">Structured AI agent snapshot: directory tree, symbols, dependencies (Cargo.toml / package.json), API routes, and environment variable keys</div>
         </div>
       </div>
     </section>

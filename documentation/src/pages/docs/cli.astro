@@ -19,7 +19,7 @@ import DocsLayout from "@/layouts/docs.astro"
 
       <!-- Quick nav -->
       <div class="flex flex-wrap gap-2 mt-5">
-        {["search", "index", "status", "watch", "daemon", "query", "files", "symbols", "context", "setup"].map((cmd) => (
+        {["search", "index", "status", "watch", "daemon", "query", "files", "symbols", "context", "ls", "read", "smart", "pack", "gain", "setup"].map((cmd) => (
           <a href={`#${cmd}`} class="px-3 py-1.5 rounded-lg text-xs font-mono border border-border theme-orange nav-pill transition-all">
             ig {cmd}
           </a>
@@ -308,6 +308,194 @@ import DocsLayout from "@/layouts/docs.astro"
 
 <span class="theme-orange"># Symbols in specific directory</span>
 <span class="theme-blue">ig</span> symbols src/`}></code></pre>
+      </div>
+    </section>
+
+    <!-- ig ls -->
+    <section id="ls" class="mb-14 scroll-mt-20">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-2 h-8 rounded-full section-bar-blue"></div>
+        <h2 class="text-2xl font-mono font-bold text-foreground">ig ls</h2>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Compact directory listing optimized for AI agents. Groups files by directory, shows file counts,
+        and respects .gitignore and default exclusions. Generates a tree-like overview without the noise.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-5">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> ls <span class="theme-gold">[PATH]</span>   <span class="theme-comment"># default: current directory</span>`}></code></pre>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Compact listing of current project</span>
+<span class="theme-blue">ig</span> ls
+
+<span class="theme-comment">src/          (12 files)</span>
+<span class="theme-comment">  index/      (6 files)  ngram.rs  reader.rs  writer.rs  ...</span>
+<span class="theme-comment">  query/      (2 files)  extract.rs  mod.rs</span>
+<span class="theme-comment">  main.rs  daemon.rs  read.rs  smart.rs</span>
+
+<span class="theme-orange"># Listing a subdirectory</span>
+<span class="theme-blue">ig</span> ls src/`}></code></pre>
+      </div>
+    </section>
+
+    <!-- ig read -->
+    <section id="read" class="mb-14 scroll-mt-20">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-2 h-8 rounded-full section-bar-gold"></div>
+        <h2 class="text-2xl font-mono font-bold text-foreground">ig read</h2>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Smart file reading with an optional signatures-only mode. Full mode returns the complete file;
+        <code class="font-mono">--signatures</code> extracts only function/class/struct definitions —
+        dramatically reducing tokens when an AI agent only needs the API surface.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-5">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> read <span class="theme-orange">&lt;FILE&gt;</span> <span class="theme-gold">[--signatures]</span>   <span class="theme-comment"># -s short form also works</span>`}></code></pre>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Full file content</span>
+<span class="theme-blue">ig</span> read src/daemon.rs
+
+<span class="theme-orange"># Signatures only (functions + structs — much smaller)</span>
+<span class="theme-blue">ig</span> read -s src/daemon.rs
+
+<span class="theme-comment">pub fn start_daemon(path: &Path) -> Result&lt;()&gt;</span>
+<span class="theme-comment">pub fn stop_daemon(path: &Path) -> Result&lt;()&gt;</span>
+<span class="theme-comment">pub async fn handle_connection(stream: UnixStream)</span>`}></code></pre>
+      </div>
+    </section>
+
+    <!-- ig smart -->
+    <section id="smart" class="mb-14 scroll-mt-20">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-2 h-8 rounded-full section-bar-green"></div>
+        <h2 class="text-2xl font-mono font-bold text-foreground">ig smart</h2>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Generate 2-line heuristic summaries for every file in the project. Each summary captures
+        the file's purpose in minimal tokens — ideal for giving an AI agent a high-level map
+        before deciding which files to read in full.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-5">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> smart <span class="theme-gold">[PATH]</span>   <span class="theme-comment"># default: current directory</span>`}></code></pre>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># 2-line summaries for all project files</span>
+<span class="theme-blue">ig</span> smart
+
+<span class="theme-blue">src/daemon.rs</span>
+<span class="theme-comment">  Unix socket server (Sage Mode) — start/stop/status/install lifecycle.</span>
+<span class="theme-comment">  Keeps index mmap'd for sub-ms query latency.</span>
+
+<span class="theme-blue">src/index/ngram.rs</span>
+<span class="theme-comment">  Sparse n-gram generation via hash_bigram + covering set selection.</span>
+<span class="theme-comment">  Core of the Rasengan Algorithm — port of danlark1/sparse_ngrams.</span>`}></code></pre>
+      </div>
+    </section>
+
+    <!-- ig pack -->
+    <section id="pack" class="mb-14 scroll-mt-20">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-2 h-8 rounded-full section-bar-orange"></div>
+        <h2 class="text-2xl font-mono font-bold text-foreground">ig pack</h2>
+        <span class="text-xs font-mono px-2 py-1 rounded border border-border theme-orange sage-badge">New in v1.3</span>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Generate a <code class="font-mono theme-blue">.ig/context.md</code> file — a structured project snapshot
+        for AI agents. Includes directory tree, symbol definitions, dependencies (Cargo.toml / package.json),
+        API routes (Next.js), and environment variables (.env.example). Replaces manual context-building.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-5">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> pack <span class="theme-gold">[PATH]</span>   <span class="theme-comment"># writes .ig/context.md</span>`}></code></pre>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden mb-5">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">output sections</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-comment">.ig/context.md contains:</span>
+
+<span class="theme-gold">## Directory Tree</span>    <span class="theme-comment">— compact ig ls output</span>
+<span class="theme-gold">## Symbols</span>          <span class="theme-comment">— all function/class/struct definitions</span>
+<span class="theme-gold">## Dependencies</span>     <span class="theme-comment">— Cargo.toml or package.json (v1.3+)</span>
+<span class="theme-gold">## API Routes</span>       <span class="theme-comment">— Next.js app/api/** routes (v1.3+)</span>
+<span class="theme-gold">## Environment</span>      <span class="theme-comment">— .env.example keys (v1.3+)</span>`}></code></pre>
+      </div>
+
+      <div class="flex items-start gap-3 p-4 rounded-lg border border-border bg-secondary/30">
+        <span class="text-lg mt-0.5 theme-orange">⚡</span>
+        <div class="text-sm text-muted-foreground">
+          <strong class="text-foreground">Token savings:</strong> a typical Next.js project context shrinks from
+          <code class="font-mono">1,517 lines</code> to <code class="font-mono">263 lines</code> when using
+          <code class="font-mono">ig pack</code> vs naive directory listing. Also auto-generated by
+          <code class="font-mono">ig index</code> on every rebuild.
+        </div>
+      </div>
+    </section>
+
+    <!-- ig gain -->
+    <section id="gain" class="mb-14 scroll-mt-20">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-2 h-8 rounded-full section-bar-gold"></div>
+        <h2 class="text-2xl font-mono font-bold text-foreground">ig gain</h2>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Token savings dashboard. Reads the JSONL tracking log written by the rewrite hook and displays
+        cumulative token savings, cost estimates, and per-command breakdowns.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-5">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> gain               <span class="theme-comment"># show savings dashboard</span>
+<span class="theme-blue">ig</span> gain <span class="theme-gold">--clear</span>        <span class="theme-comment"># reset history</span>`}></code></pre>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">output example</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange">❯</span> <span class="theme-blue">ig</span> gain
+
+<span class="theme-gold">instant-grep token savings</span>
+────────────────────────────────
+<span class="theme-blue">Session:</span>     47 rewrites
+<span class="theme-blue">Tokens saved:</span>  <span class="theme-green">142,380</span>
+<span class="theme-blue">Cost saved:</span>  <span class="theme-green">$0.13</span>
+<span class="theme-blue">Top command:</span>  git status  (38 rewrites, 91K tokens)`}></code></pre>
+      </div>
+    </section>
+
+    <!-- ig rewrite (hidden) -->
+    <section class="mb-14 p-5 rounded-xl border border-border bg-secondary/20">
+      <div class="flex items-center gap-3 mb-3">
+        <h3 class="font-mono font-bold text-foreground">ig rewrite <span class="text-muted-foreground text-sm font-normal">(hook-internal)</span></h3>
+        <span class="text-xs font-mono px-2 py-1 rounded border border-border text-muted-foreground">hidden</span>
+      </div>
+      <p class="text-sm text-muted-foreground leading-relaxed">
+        Rewrites a shell command to its ig-optimized equivalent. Used internally by the Claude Code
+        <code class="font-mono">PreToolUse</code> hook — not intended for direct invocation.
+        <code class="font-mono">ig setup</code> installs the hook automatically.
+      </p>
+      <div class="code-block rounded-xl overflow-hidden mt-3">
+        <pre class="p-4 font-mono text-xs leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Example rewrites performed by the hook:</span>
+<span class="theme-comment">grep -r "pattern" src/   →  ig "pattern" src/</span>
+<span class="theme-comment">find . -name "*.rs"      →  ig files -t rs .</span>
+<span class="theme-comment">git status               →  rtk git status</span>`}></code></pre>
       </div>
     </section>
 

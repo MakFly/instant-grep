@@ -575,6 +575,74 @@ const daemonSteps = [
       </div>
     </section>
 
+    <!-- v1.3 Token optimization benchmarks -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
+        <span class="perf-gold">🪙</span>
+        v1.3 — Token Optimization Benchmarks
+      </h2>
+      <p class="text-sm text-muted-foreground mb-5">
+        v1.3 adds RTK integration and an enriched <code class="font-mono">context.md</code>.
+        Measured on a real Next.js project: time-to-first-result and total API cost for a typical agent session.
+      </p>
+
+      <div class="overflow-x-auto rounded-xl border border-border mb-5">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="border-b border-border bg-secondary/50">
+              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Setup</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Session time</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">API cost</th>
+              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Notes</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono text-xs">
+            {[
+              { setup: "ig v1.3 + RTK", time: "18s", cost: "$0.24", notes: "Rewrites + context.md + ig search", highlight: true },
+              { setup: "Baseline (grep/find)", time: "67s", cost: "$0.32", notes: "No rewriting, naive find/grep", highlight: false },
+              { setup: "RTK only", time: "94s", cost: "$0.37", notes: "Command rewriting without ig index", highlight: false },
+            ].map((row) => (
+              <tr class="border-b border-border/50 transition-colors hover:bg-secondary/30">
+                <td class={`py-3 px-4 font-mono font-bold ${row.highlight ? "perf-orange" : "text-foreground/80"}`}>{row.setup}</td>
+                <td class={`py-3 px-4 text-right font-bold ${row.highlight ? "perf-green" : "text-foreground/70"}`}>{row.time}</td>
+                <td class={`py-3 px-4 text-right font-bold ${row.highlight ? "perf-green" : "text-foreground/70"}`}>{row.cost}</td>
+                <td class="py-3 px-4 text-muted-foreground">{row.notes}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="p-5 rounded-xl energy-card">
+          <div class="text-sm font-mono font-bold mb-2 perf-gold">context.md compression</div>
+          <p class="text-xs text-muted-foreground leading-relaxed mb-3">
+            The v1.3 enriched <code class="font-mono">context.md</code> (dependencies, API routes, env keys)
+            gives agents more signal with fewer tokens than a naive directory listing.
+          </p>
+          <div class="flex items-center gap-3 font-mono text-xs">
+            <span class="perf-red line-through">1,517 lines</span>
+            <span class="text-muted-foreground">→</span>
+            <span class="perf-green font-bold">263 lines</span>
+            <span class="text-muted-foreground">(83% smaller)</span>
+          </div>
+        </div>
+        <div class="p-5 rounded-xl energy-card">
+          <div class="text-sm font-mono font-bold mb-2 perf-orange">Binary size (v1.3)</div>
+          <p class="text-xs text-muted-foreground leading-relaxed mb-3">
+            <code class="font-mono">strip=true</code> + <code class="font-mono">panic=abort</code>
+            in the release profile halved the binary. Signed releases ship for 4 targets via GitHub Actions.
+          </p>
+          <div class="flex items-center gap-3 font-mono text-xs">
+            <span class="perf-red line-through">~8 MB</span>
+            <span class="text-muted-foreground">→</span>
+            <span class="perf-green font-bold">4.1 MB</span>
+            <span class="text-muted-foreground">(linux/macOS × x64/arm64)</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Concurrent queries -->
     <section class="mb-12">
       <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
