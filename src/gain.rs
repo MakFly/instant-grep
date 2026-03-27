@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use crate::tracking;
 use crate::util::format_bytes;
 
-pub fn show_gain(clear: bool) {
+pub fn show_gain(clear: bool, history: bool, json: bool) {
     if clear {
         tracking::clear_history();
         eprintln!("History cleared.");
@@ -17,6 +17,23 @@ pub fn show_gain(clear: bool) {
     if entries.is_empty() {
         eprintln!("No ig commands tracked yet.");
         eprintln!("Run ig with the rewrite hook installed to start tracking.");
+        return;
+    }
+
+    if json {
+        let total_saved: u64 = entries.iter().map(|e| e.saved_bytes).sum();
+        let total_input: u64 = entries.iter().map(|e| e.original_bytes).sum();
+        println!(
+            "{{\"total_tokens_saved\":{},\"total_input\":{},\"total_commands\":{}}}",
+            total_saved,
+            total_input,
+            entries.len()
+        );
+        return;
+    }
+
+    if history {
+        show_history(&entries);
         return;
     }
 
@@ -108,6 +125,65 @@ pub fn show_gain(clear: bool) {
         );
     }
     eprintln!("────────────────────────────────────────────────────────────");
+}
+
+fn show_history(entries: &[tracking::HistoryEntry]) {
+    eprintln!("\x1b[1mig Command History\x1b[0m");
+    eprintln!("════════════════════════════════════════════════════════════════════════════");
+    eprintln!(
+        "{:<20} {:<35} {:>8} {:>8} {:>6}",
+        "Time", "Command", "Input", "Saved", "Pct"
+    );
+    eprintln!("────────────────────────────────────────────────────────────────────────────");
+
+    // Show last 50 entries, most recent first
+    for entry in entries.iter().rev().take(50) {
+        let time_str = format_timestamp(entry.timestamp);
+        let cmd = if entry.command.len() > 33 {
+            format!("{}...", &entry.command[..30])
+        } else {
+            entry.command.clone()
+        };
+        let pct = if entry.original_bytes > 0 {
+            (entry.saved_bytes as f64 / entry.original_bytes as f64) * 100.0
+        } else {
+            0.0
+        };
+        eprintln!(
+            "{:<20} {:<35} {:>8} {:>8} {:>5.1}%",
+            time_str,
+            cmd,
+            format_bytes(entry.original_bytes),
+            format_bytes(entry.saved_bytes),
+            pct,
+        );
+    }
+    eprintln!("────────────────────────────────────────────────────────────────────────────");
+    eprintln!(
+        "Showing last {} of {} entries",
+        entries.len().min(50),
+        entries.len()
+    );
+}
+
+fn format_timestamp(ts: u64) -> String {
+    if ts == 0 {
+        return "unknown".to_string();
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let ago = now.saturating_sub(ts);
+    if ago < 60 {
+        format!("{}s ago", ago)
+    } else if ago < 3600 {
+        format!("{}m ago", ago / 60)
+    } else if ago < 86400 {
+        format!("{}h ago", ago / 3600)
+    } else {
+        format!("{}d ago", ago / 86400)
+    }
 }
 
 #[derive(Default)]

@@ -2,6 +2,7 @@ mod cli;
 mod context;
 mod daemon;
 mod gain;
+mod git;
 mod index;
 mod ls;
 mod output;
@@ -316,12 +317,31 @@ fn main() -> Result<()> {
             });
         }
 
+        Some(Commands::Git { args }) => {
+            git::run_git(&args);
+        }
+
         Some(Commands::Rewrite { command }) => {
             rewrite::run_rewrite(&command);
         }
 
-        Some(Commands::Gain { clear }) => {
-            gain::show_gain(clear);
+        Some(Commands::Gain { clear, history, json: gain_json }) => {
+            gain::show_gain(clear, history, gain_json);
+        }
+
+        Some(Commands::Proxy { command: proxy_cmd }) => {
+            if proxy_cmd.is_empty() {
+                eprintln!("Usage: ig proxy <command...>");
+                std::process::exit(1);
+            }
+            let status = std::process::Command::new(&proxy_cmd[0])
+                .args(&proxy_cmd[1..])
+                .status()
+                .unwrap_or_else(|e| {
+                    eprintln!("Failed to execute {}: {}", proxy_cmd[0], e);
+                    std::process::exit(1);
+                });
+            std::process::exit(status.code().unwrap_or(1));
         }
 
         Some(Commands::Completions { shell }) => {

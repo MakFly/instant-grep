@@ -74,6 +74,8 @@ pub struct HistoryEntry {
     pub original_bytes: u64,
     pub output_bytes: u64,
     pub saved_bytes: u64,
+    pub timestamp: u64,
+    pub project: String,
 }
 
 /// Read all history entries.
@@ -94,12 +96,16 @@ pub fn read_history() -> Vec<HistoryEntry> {
             let in_bytes = extract_json_u64(line, "in")?;
             let out_bytes = extract_json_u64(line, "out")?;
             let saved = extract_json_u64(line, "saved")?;
+            let ts = extract_json_u64(line, "ts").unwrap_or(0);
+            let project = extract_json_str(line, "project").unwrap_or_default();
 
             Some(HistoryEntry {
                 command: cmd,
                 original_bytes: in_bytes,
                 output_bytes: out_bytes,
                 saved_bytes: saved,
+                timestamp: ts,
+                project,
             })
         })
         .collect()

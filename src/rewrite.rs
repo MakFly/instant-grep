@@ -4,24 +4,118 @@
 //! Exit codes (same protocol as RTK):
 //!   0 + stdout  → rewrite found, auto-allow
 //!   1           → no rewrite, passthrough
+//!   2           → deny, reason on stderr
+//!   3 + stdout  → rewrite found, require user confirmation
 
 use std::process;
 
+pub enum RewriteResult {
+    Rewrite(String), // exit 0 — rewrite + auto-allow
+    Passthrough,     // exit 1 — no rewrite
+    Deny(String),    // exit 2 — blocked command, reason on stderr
+    Ask(String),     // exit 3 — rewrite but require user confirmation
+}
+
 pub fn run_rewrite(command: &str) {
-    match rewrite_command(command) {
-        Some(rewritten) => {
-            print!("{}", rewritten);
+    match classify_command(command) {
+        RewriteResult::Rewrite(cmd) => {
+            print!("{}", cmd);
             process::exit(0);
         }
-        None => {
+        RewriteResult::Passthrough => {
             process::exit(1);
+        }
+        RewriteResult::Deny(reason) => {
+            eprintln!("DENY: {}", reason);
+            process::exit(2);
+        }
+        RewriteResult::Ask(cmd) => {
+            print!("{}", cmd);
+            process::exit(3);
         }
     }
 }
 
-fn rewrite_command(cmd: &str) -> Option<String> {
-    let cmd = cmd.trim();
+pub fn classify_command(cmd: &str) -> RewriteResult {
+    let trimmed = cmd.trim();
 
+    // --- Deny rules (checked before any rewrite) ---
+    if is_deny_git_reset_hard(trimmed) {
+        return RewriteResult::Deny("Destructive: resets all changes".to_string());
+    }
+    if is_deny_git_clean(trimmed) {
+        return RewriteResult::Deny("Destructive: deletes untracked files".to_string());
+    }
+    if is_deny_rm_rf(trimmed) {
+        return RewriteResult::Deny("Destructive: recursive force delete".to_string());
+    }
+
+    // --- Ask rules ---
+    if is_ask_git_push_force(trimmed) {
+        return RewriteResult::Ask(trimmed.to_string());
+    }
+
+    // --- Rewrite rules ---
+    match try_rewrite(trimmed) {
+        Some(rewritten) => RewriteResult::Rewrite(rewritten),
+        None => RewriteResult::Passthrough,
+    }
+}
+
+fn is_deny_git_reset_hard(cmd: &str) -> bool {
+    let parts: Vec<&str> = shell_split(cmd);
+    // git reset --hard [ref]
+    parts.len() >= 3 && parts[0] == "git" && parts[1] == "reset" && parts.contains(&"--hard")
+}
+
+fn is_deny_git_clean(cmd: &str) -> bool {
+    let parts: Vec<&str> = shell_split(cmd);
+    if parts.len() < 2 || parts[0] != "git" || parts[1] != "clean" {
+        return false;
+    }
+    // Match `git clean -f` and `git clean -fd` (and combined flags like -fdn etc.)
+    parts.iter().skip(2).any(|p| {
+        p.starts_with('-') && !p.starts_with("--") && p.contains('f')
+    })
+}
+
+fn is_deny_rm_rf(cmd: &str) -> bool {
+    let parts: Vec<&str> = shell_split(cmd);
+    if parts.is_empty() || parts[0] != "rm" {
+        return false;
+    }
+    let has_recursive = parts
+        .iter()
+        .any(|p| *p == "-r" || *p == "-R" || *p == "--recursive"
+            || (p.starts_with('-') && !p.starts_with("--") && (p.contains('r') || p.contains('R'))));
+    let has_force = parts
+        .iter()
+        .any(|p| *p == "-f" || *p == "--force"
+            || (p.starts_with('-') && !p.starts_with("--") && p.contains('f')));
+    if !has_recursive || !has_force {
+        return false;
+    }
+    // Check for dangerous targets
+    let dangerous_targets = ["/", ".", "~"];
+    parts
+        .iter()
+        .filter(|p| !p.starts_with('-'))
+        .skip(1) // skip "rm"
+        .any(|p| dangerous_targets.contains(p))
+}
+
+fn is_ask_git_push_force(cmd: &str) -> bool {
+    let parts: Vec<&str> = shell_split(cmd);
+    if parts.len() < 2 || parts[0] != "git" || parts[1] != "push" {
+        return false;
+    }
+    parts
+        .iter()
+        .skip(2)
+        .any(|p| *p == "--force" || *p == "-f" || *p == "--force-with-lease")
+}
+
+fn try_rewrite(cmd: &str) -> Option<String> {
     // Skip empty or compound commands (pipes, &&, ||, ;)
     if cmd.is_empty()
         || cmd.contains('|')
@@ -47,6 +141,7 @@ fn rewrite_command(cmd: &str) -> Option<String> {
         "tree" => rewrite_tree(&parts),
         "find" => rewrite_find(&parts),
         "ls" => rewrite_ls(&parts),
+        "git" => rewrite_git(&parts),
         _ => None,
     }
 }
@@ -254,6 +349,27 @@ fn rewrite_ls(parts: &[&str]) -> Option<String> {
     }
 }
 
+/// git status/log/diff/branch/show → ig git <subcmd> [args]
+/// Destructive commands (push, reset, checkout, clean, rebase, merge, commit) are NOT rewritten.
+fn rewrite_git(parts: &[&str]) -> Option<String> {
+    if parts.len() < 2 {
+        return None;
+    }
+    let subcmd = parts[1];
+    // Only rewrite read-only git subcommands
+    match subcmd {
+        "status" | "log" | "diff" | "branch" | "show" => {
+            let args = parts[2..].join(" ");
+            if args.is_empty() {
+                Some(format!("ig git {}", subcmd))
+            } else {
+                Some(format!("ig git {} {}", subcmd, args))
+            }
+        }
+        _ => None, // Don't rewrite destructive/write commands
+    }
+}
+
 /// Simple shell-like splitting (handles quotes minimally)
 fn shell_split(cmd: &str) -> Vec<&str> {
     cmd.split_whitespace().collect()
@@ -263,140 +379,263 @@ fn shell_split(cmd: &str) -> Vec<&str> {
 mod tests {
     use super::*;
 
+    // --- Rewrite tests (via classify_command) ---
+
     #[test]
     fn test_rewrite_cat() {
-        assert_eq!(
-            rewrite_command("cat src/main.rs"),
-            Some("ig read src/main.rs".into())
-        );
-        assert_eq!(rewrite_command("cat -n src/main.rs"), None); // has flags
+        assert!(matches!(
+            classify_command("cat src/main.rs"),
+            RewriteResult::Rewrite(s) if s == "ig read src/main.rs"
+        ));
+        assert!(matches!(
+            classify_command("cat -n src/main.rs"),
+            RewriteResult::Passthrough
+        ));
     }
 
     #[test]
     fn test_rewrite_head() {
-        assert_eq!(
-            rewrite_command("head src/main.rs"),
-            Some("ig read src/main.rs".into())
-        );
-        assert_eq!(
-            rewrite_command("head -50 src/main.rs"),
-            Some("ig read src/main.rs".into())
-        );
+        assert!(matches!(
+            classify_command("head src/main.rs"),
+            RewriteResult::Rewrite(s) if s == "ig read src/main.rs"
+        ));
+        assert!(matches!(
+            classify_command("head -50 src/main.rs"),
+            RewriteResult::Rewrite(s) if s == "ig read src/main.rs"
+        ));
     }
 
     #[test]
     fn test_rewrite_tail() {
-        assert_eq!(
-            rewrite_command("tail src/main.rs"),
-            Some("ig read src/main.rs".into())
-        );
-        assert_eq!(
-            rewrite_command("tail -20 src/main.rs"),
-            Some("ig read src/main.rs".into())
-        );
+        assert!(matches!(
+            classify_command("tail src/main.rs"),
+            RewriteResult::Rewrite(s) if s == "ig read src/main.rs"
+        ));
+        assert!(matches!(
+            classify_command("tail -20 src/main.rs"),
+            RewriteResult::Rewrite(s) if s == "ig read src/main.rs"
+        ));
     }
 
     #[test]
     fn test_rewrite_grep_recursive() {
-        assert_eq!(
-            rewrite_command("grep -rn useState src/"),
-            Some("ig \"useState\" src/".into())
-        );
-        assert_eq!(
-            rewrite_command("grep -ri pattern ."),
-            Some("ig -i \"pattern\"".into())
-        );
+        assert!(matches!(
+            classify_command("grep -rn useState src/"),
+            RewriteResult::Rewrite(s) if s == "ig \"useState\" src/"
+        ));
+        assert!(matches!(
+            classify_command("grep -ri pattern ."),
+            RewriteResult::Rewrite(s) if s == "ig -i \"pattern\""
+        ));
     }
 
     #[test]
     fn test_rewrite_grep_non_recursive_passthrough() {
-        assert_eq!(rewrite_command("grep pattern file.txt"), None);
+        assert!(matches!(
+            classify_command("grep pattern file.txt"),
+            RewriteResult::Passthrough
+        ));
     }
 
     #[test]
     fn test_rewrite_rg() {
-        assert_eq!(
-            rewrite_command("rg useState src/"),
-            Some("ig \"useState\" src/".into())
-        );
-        assert_eq!(
-            rewrite_command("rg -i pattern"),
-            Some("ig -i \"pattern\"".into())
-        );
+        assert!(matches!(
+            classify_command("rg useState src/"),
+            RewriteResult::Rewrite(s) if s == "ig \"useState\" src/"
+        ));
+        assert!(matches!(
+            classify_command("rg -i pattern"),
+            RewriteResult::Rewrite(s) if s == "ig -i \"pattern\""
+        ));
     }
 
     #[test]
     fn test_rewrite_rg_type_flag() {
         // Bug fix: -t flag value must be forwarded as --type to ig
-        assert_eq!(
-            rewrite_command("rg -t ts pattern"),
-            Some("ig --type ts \"pattern\"".into())
-        );
-        assert_eq!(
-            rewrite_command("rg -t rs useState src/"),
-            Some("ig --type rs \"useState\" src/".into())
-        );
-        assert_eq!(
-            rewrite_command("rg -i -t ts pattern"),
-            Some("ig -i --type ts \"pattern\"".into())
-        );
+        assert!(matches!(
+            classify_command("rg -t ts pattern"),
+            RewriteResult::Rewrite(s) if s == "ig --type ts \"pattern\""
+        ));
+        assert!(matches!(
+            classify_command("rg -t rs useState src/"),
+            RewriteResult::Rewrite(s) if s == "ig --type rs \"useState\" src/"
+        ));
+        assert!(matches!(
+            classify_command("rg -i -t ts pattern"),
+            RewriteResult::Rewrite(s) if s == "ig -i --type ts \"pattern\""
+        ));
     }
 
     #[test]
     fn test_rewrite_tree() {
-        assert_eq!(
-            rewrite_command("tree"),
-            Some("cat .ig/tree.txt 2>/dev/null || ig ls".into())
-        );
+        assert!(matches!(
+            classify_command("tree"),
+            RewriteResult::Rewrite(s) if s == "cat .ig/tree.txt 2>/dev/null || ig ls"
+        ));
         // Bug fix: tree with flags must also be rewritten
-        assert_eq!(
-            rewrite_command("tree -L 3 -I node_modules"),
-            Some("cat .ig/tree.txt 2>/dev/null || ig ls".into())
-        );
-        assert_eq!(
-            rewrite_command("tree -L 2"),
-            Some("cat .ig/tree.txt 2>/dev/null || ig ls".into())
-        );
+        assert!(matches!(
+            classify_command("tree -L 3 -I node_modules"),
+            RewriteResult::Rewrite(s) if s == "cat .ig/tree.txt 2>/dev/null || ig ls"
+        ));
+        assert!(matches!(
+            classify_command("tree -L 2"),
+            RewriteResult::Rewrite(s) if s == "cat .ig/tree.txt 2>/dev/null || ig ls"
+        ));
     }
 
     #[test]
     fn test_rewrite_find() {
-        assert_eq!(
-            rewrite_command("find . -name \"*.ts\""),
-            Some("ig files --glob \"*.ts\"".into())
-        );
+        assert!(matches!(
+            classify_command("find . -name \"*.ts\""),
+            RewriteResult::Rewrite(s) if s == "ig files --glob \"*.ts\""
+        ));
         // Bug fix: -type f must be allowed (ig only indexes files anyway)
-        assert_eq!(
-            rewrite_command("find . -type f -name \"*.rs\""),
-            Some("ig files --glob \"*.rs\"".into())
-        );
+        assert!(matches!(
+            classify_command("find . -type f -name \"*.rs\""),
+            RewriteResult::Rewrite(s) if s == "ig files --glob \"*.rs\""
+        ));
         // -type d (directory) should not be rewritten
-        assert_eq!(rewrite_command("find . -type d -name src"), None);
+        assert!(matches!(
+            classify_command("find . -type d -name src"),
+            RewriteResult::Passthrough
+        ));
         // Don't rewrite find with -exec
-        assert_eq!(rewrite_command("find . -name \"*.ts\" -exec rm {} ;"), None);
+        assert!(matches!(
+            classify_command("find . -name \"*.ts\" -exec rm {} ;"),
+            RewriteResult::Passthrough
+        ));
     }
 
     #[test]
     fn test_rewrite_ls() {
-        assert_eq!(rewrite_command("ls"), Some("ig ls".into()));
-        assert_eq!(rewrite_command("ls src/"), Some("ig ls src/".into()));
-        assert_eq!(rewrite_command("ls -la src/"), Some("ig ls src/".into()));
-    }
-
-    #[test]
-    fn test_no_rewrite_git() {
-        assert_eq!(rewrite_command("git status"), None);
-        assert_eq!(rewrite_command("cargo test"), None);
+        assert!(matches!(
+            classify_command("ls"),
+            RewriteResult::Rewrite(s) if s == "ig ls"
+        ));
+        assert!(matches!(
+            classify_command("ls src/"),
+            RewriteResult::Rewrite(s) if s == "ig ls src/"
+        ));
+        assert!(matches!(
+            classify_command("ls -la src/"),
+            RewriteResult::Rewrite(s) if s == "ig ls src/"
+        ));
     }
 
     #[test]
     fn test_no_rewrite_pipes() {
-        assert_eq!(rewrite_command("echo hello | grep hello"), None);
-        assert_eq!(rewrite_command("cat file && echo done"), None);
+        assert!(matches!(
+            classify_command("echo hello | grep hello"),
+            RewriteResult::Passthrough
+        ));
+        assert!(matches!(
+            classify_command("cat file && echo done"),
+            RewriteResult::Passthrough
+        ));
     }
 
     #[test]
     fn test_no_rewrite_empty() {
-        assert_eq!(rewrite_command(""), None);
+        assert!(matches!(classify_command(""), RewriteResult::Passthrough));
+    }
+
+    // --- Deny tests ---
+
+    #[test]
+    fn test_deny_git_reset_hard() {
+        assert!(matches!(
+            classify_command("git reset --hard"),
+            RewriteResult::Deny(_)
+        ));
+        assert!(matches!(
+            classify_command("git reset --hard HEAD~1"),
+            RewriteResult::Deny(_)
+        ));
+    }
+
+    #[test]
+    fn test_deny_git_clean() {
+        assert!(matches!(
+            classify_command("git clean -f"),
+            RewriteResult::Deny(_)
+        ));
+        assert!(matches!(
+            classify_command("git clean -fd"),
+            RewriteResult::Deny(_)
+        ));
+    }
+
+    #[test]
+    fn test_deny_rm_rf() {
+        assert!(matches!(
+            classify_command("rm -rf /"),
+            RewriteResult::Deny(_)
+        ));
+        assert!(matches!(
+            classify_command("rm -rf ."),
+            RewriteResult::Deny(_)
+        ));
+        assert!(matches!(
+            classify_command("rm -rf ~"),
+            RewriteResult::Deny(_)
+        ));
+    }
+
+    // --- Ask tests ---
+
+    #[test]
+    fn test_ask_git_push_force() {
+        assert!(matches!(
+            classify_command("git push --force"),
+            RewriteResult::Ask(_)
+        ));
+        assert!(matches!(
+            classify_command("git push -f"),
+            RewriteResult::Ask(_)
+        ));
+        assert!(matches!(
+            classify_command("git push --force-with-lease"),
+            RewriteResult::Ask(_)
+        ));
+    }
+
+    // --- Passthrough tests for safe git commands ---
+
+    #[test]
+    fn test_git_rewrite() {
+        // Read-only git commands are rewritten to ig git
+        assert!(matches!(
+            classify_command("git status"),
+            RewriteResult::Rewrite(_)
+        ));
+        assert!(matches!(
+            classify_command("git log"),
+            RewriteResult::Rewrite(_)
+        ));
+        assert!(matches!(
+            classify_command("git diff"),
+            RewriteResult::Rewrite(_)
+        ));
+        assert!(matches!(
+            classify_command("git show HEAD"),
+            RewriteResult::Rewrite(_)
+        ));
+    }
+
+    #[test]
+    fn test_passthrough_write_git() {
+        // Write/destructive git commands pass through (not rewritten)
+        assert!(matches!(
+            classify_command("git commit -m test"),
+            RewriteResult::Passthrough
+        ));
+        assert!(matches!(
+            classify_command("git checkout main"),
+            RewriteResult::Passthrough
+        ));
+        assert!(matches!(
+            classify_command("cargo test"),
+            RewriteResult::Passthrough
+        ));
     }
 }

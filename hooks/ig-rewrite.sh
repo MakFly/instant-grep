@@ -3,8 +3,10 @@
 # Install: ig setup (auto-installs this hook)
 #
 # Exit code protocol (same as RTK):
-#   JSON with updatedInput → rewrite + auto-allow
-#   exit 0 (no output)     → passthrough unchanged
+#   0 + stdout  → rewrite found, auto-allow
+#   1           → no rewrite, passthrough
+#   2           → deny, reason on stderr (let Claude Code's native deny handle it)
+#   3 + stdout  → rewrite found, require user confirmation
 
 if ! command -v jq &>/dev/null; then
   exit 0
@@ -29,22 +31,48 @@ CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 REWRITTEN=$($IG rewrite "$CMD" 2>/dev/null)
 EXIT_CODE=$?
 
-# Exit 1 = no rewrite available
-[ $EXIT_CODE -ne 0 ] && exit 0
-
-# Exit 0 = rewrite found. If identical, skip.
-[ "$CMD" = "$REWRITTEN" ] && exit 0
-
 ORIGINAL_INPUT=$(echo "$INPUT" | jq -c '.tool_input')
 UPDATED_INPUT=$(echo "$ORIGINAL_INPUT" | jq --arg cmd "$REWRITTEN" '.command = $cmd')
 
-jq -n \
-  --argjson updated "$UPDATED_INPUT" \
-  '{
-    "hookSpecificOutput": {
-      "hookEventName": "PreToolUse",
-      "permissionDecision": "allow",
-      "permissionDecisionReason": "ig auto-rewrite",
-      "updatedInput": $updated
-    }
-  }'
+case $EXIT_CODE in
+  0)
+    # Rewrite found — auto-allow
+    [ "$CMD" = "$REWRITTEN" ] && exit 0
+    ;;
+  1)
+    # No rewrite — passthrough
+    exit 0
+    ;;
+  2)
+    # Deny — let Claude Code's native deny handle it
+    exit 0
+    ;;
+  3)
+    # Ask — rewrite but don't auto-allow (user confirms)
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+
+if [ "$EXIT_CODE" -eq 3 ]; then
+  jq -n \
+    --argjson updated "$UPDATED_INPUT" \
+    '{
+      "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "updatedInput": $updated
+      }
+    }'
+else
+  jq -n \
+    --argjson updated "$UPDATED_INPUT" \
+    '{
+      "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "permissionDecisionReason": "ig auto-rewrite",
+        "updatedInput": $updated
+      }
+    }'
+fi

@@ -161,6 +161,13 @@ pub enum Commands {
         path: Option<String>,
     },
 
+    /// Token-compressed git output (status, log, diff, branch, show)
+    Git {
+        /// Git subcommand and arguments
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
     /// Rewrite a shell command to its ig equivalent (used by hooks)
     #[command(hide = true)]
     Rewrite {
@@ -173,6 +180,22 @@ pub enum Commands {
         /// Clear tracking history
         #[arg(long)]
         clear: bool,
+
+        /// Show individual command history
+        #[arg(short = 'H', long)]
+        history: bool,
+
+        /// Output as JSON (for scripting)
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Execute a command without ig filtering (debug/passthrough mode)
+    #[command(hide = true)]
+    Proxy {
+        /// The command to execute raw
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        command: Vec<String>,
     },
 
     /// Generate shell completions (bash, zsh, fish, powershell)
