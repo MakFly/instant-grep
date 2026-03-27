@@ -326,7 +326,11 @@ fn main() -> Result<()> {
             rewrite::run_rewrite(&command);
         }
 
-        Some(Commands::Gain { clear, history, json: gain_json }) => {
+        Some(Commands::Gain {
+            clear,
+            history,
+            json: gain_json,
+        }) => {
             gain::show_gain(clear, history, gain_json);
         }
 

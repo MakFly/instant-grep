@@ -75,6 +75,7 @@ pub struct HistoryEntry {
     pub output_bytes: u64,
     pub saved_bytes: u64,
     pub timestamp: u64,
+    #[allow(dead_code)]
     pub project: String,
 }
 

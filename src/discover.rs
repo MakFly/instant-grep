@@ -12,7 +12,10 @@ use crate::util::format_bytes;
 pub fn run_discover(since_days: u32, limit: usize) {
     let sessions_dir = claude_projects_dir();
     if !sessions_dir.exists() {
-        eprintln!("No Claude Code sessions found at {}", sessions_dir.display());
+        eprintln!(
+            "No Claude Code sessions found at {}",
+            sessions_dir.display()
+        );
         return;
     }
 
@@ -46,17 +49,16 @@ pub fn run_discover(since_days: u32, limit: usize) {
             }
 
             // Check file modification time against cutoff
-            if cutoff > 0 {
-                if let Ok(meta) = fs::metadata(&path) {
-                    if let Ok(modified) = meta.modified() {
-                        let mtime = modified
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_secs())
-                            .unwrap_or(0);
-                        if mtime < cutoff {
-                            continue;
-                        }
-                    }
+            if cutoff > 0
+                && let Ok(meta) = fs::metadata(&path)
+                && let Ok(modified) = meta.modified()
+            {
+                let mtime = modified
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                if mtime < cutoff {
+                    continue;
                 }
             }
 
@@ -185,17 +187,15 @@ fn extract_bash_commands(line: &str) -> Vec<String> {
         for item in content {
             if item.get("type").and_then(|t| t.as_str()) == Some("tool_use")
                 && item.get("name").and_then(|n| n.as_str()) == Some("Bash")
-            {
-                if let Some(cmd) = item
+                && let Some(cmd) = item
                     .get("input")
                     .and_then(|i| i.get("command"))
                     .and_then(|c| c.as_str())
-                {
-                    // Skip compound commands (ig can't rewrite those anyway)
-                    let trimmed = cmd.trim();
-                    if !trimmed.is_empty() && trimmed.len() < 500 {
-                        commands.push(trimmed.to_string());
-                    }
+            {
+                // Skip compound commands (ig can't rewrite those anyway)
+                let trimmed = cmd.trim();
+                if !trimmed.is_empty() && trimmed.len() < 500 {
+                    commands.push(trimmed.to_string());
                 }
             }
         }

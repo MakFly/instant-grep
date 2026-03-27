@@ -2,6 +2,10 @@
 
 Trigram-indexed regex search CLI in Rust — built for fast agent and editor-adjacent search workflows.
 
+## Repository
+
+https://github.com/MakFly/instant-grep
+
 ## Stack
 
 Rust 1.94, edition 2024. Binary: `ig`. Installed at `~/.local/bin/ig`.

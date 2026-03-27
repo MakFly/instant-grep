@@ -23,13 +23,10 @@ pub fn run_git(args: &[String]) {
         "show" => git_show(rest),
         _ => {
             // Passthrough for unhandled subcommands (commit, push, etc.)
-            let status = Command::new("git")
-                .args(args)
-                .status()
-                .unwrap_or_else(|e| {
-                    eprintln!("git: {}", e);
-                    std::process::exit(1);
-                });
+            let status = Command::new("git").args(args).status().unwrap_or_else(|e| {
+                eprintln!("git: {}", e);
+                std::process::exit(1);
+            });
             std::process::exit(status.code().unwrap_or(1));
         }
     }
@@ -43,7 +40,11 @@ fn git_status(args: &[String]) {
     if native.trim().is_empty() {
         let output = "Clean working tree\n";
         print!("{}", output);
-        track("ig git status", native_full.len() as u64, output.len() as u64);
+        track(
+            "ig git status",
+            native_full.len() as u64,
+            output.len() as u64,
+        );
         return;
     }
 
@@ -71,17 +72,29 @@ fn git_status(args: &[String]) {
 
     let mut output = String::new();
     if !modified.is_empty() {
-        output.push_str(&format!("Modified ({}): {}\n", modified.len(), modified.join(", ")));
+        output.push_str(&format!(
+            "Modified ({}): {}\n",
+            modified.len(),
+            modified.join(", ")
+        ));
     }
     if !added.is_empty() {
         output.push_str(&format!("Added ({}): {}\n", added.len(), added.join(", ")));
     }
     if !deleted.is_empty() {
-        output.push_str(&format!("Deleted ({}): {}\n", deleted.len(), deleted.join(", ")));
+        output.push_str(&format!(
+            "Deleted ({}): {}\n",
+            deleted.len(),
+            deleted.join(", ")
+        ));
     }
     if !untracked.is_empty() {
         if untracked.len() <= 5 {
-            output.push_str(&format!("Untracked ({}): {}\n", untracked.len(), untracked.join(", ")));
+            output.push_str(&format!(
+                "Untracked ({}): {}\n",
+                untracked.len(),
+                untracked.join(", ")
+            ));
         } else {
             output.push_str(&format!(
                 "Untracked ({}): {}, ... +{} more\n",
@@ -96,7 +109,11 @@ fn git_status(args: &[String]) {
     }
 
     print!("{}", output);
-    track("ig git status", native_full.len() as u64, output.len() as u64);
+    track(
+        "ig git status",
+        native_full.len() as u64,
+        output.len() as u64,
+    );
 }
 
 /// `ig git log` — compact oneline format with stats
@@ -145,7 +162,11 @@ fn git_diff(args: &[String]) {
 
     // Show stat first
     let stat = run_git_capture(
-        &[&["diff", "--stat", "--no-color"], args_as_str(args).as_slice()].concat(),
+        &[
+            &["diff", "--stat", "--no-color"],
+            args_as_str(args).as_slice(),
+        ]
+        .concat(),
     );
 
     // If the full diff is small enough, show it entirely
@@ -180,7 +201,16 @@ fn git_show(args: &[String]) {
 
     // Compact: stat + limited diff
     let stat = run_git_capture(
-        &[&["show", "--stat", "--no-color", "--format=%h %s (%ar) <%an>%n"], args_as_str(args).as_slice()].concat(),
+        &[
+            &[
+                "show",
+                "--stat",
+                "--no-color",
+                "--format=%h %s (%ar) <%an>%n",
+            ],
+            args_as_str(args).as_slice(),
+        ]
+        .concat(),
     );
 
     let output = if native_full.len() < 8000 {
@@ -191,7 +221,11 @@ fn git_show(args: &[String]) {
         let diff_start = native_full.find("\ndiff ").unwrap_or(native_full.len());
         let diff_part = &native_full[diff_start..];
         let diff_lines: Vec<&str> = diff_part.lines().collect();
-        let truncated: String = diff_lines.iter().take(150).map(|l| format!("{}\n", l)).collect();
+        let truncated: String = diff_lines
+            .iter()
+            .take(150)
+            .map(|l| format!("{}\n", l))
+            .collect();
         format!(
             "{}\n{}\n... truncated ({} lines total)\n",
             stat.trim_end(),
@@ -207,13 +241,10 @@ fn git_show(args: &[String]) {
 // ── Helpers ──
 
 fn run_git_capture(args: &[&str]) -> String {
-    let output = Command::new("git")
-        .args(args)
-        .output()
-        .unwrap_or_else(|e| {
-            eprintln!("git: {}", e);
-            std::process::exit(1);
-        });
+    let output = Command::new("git").args(args).output().unwrap_or_else(|e| {
+        eprintln!("git: {}", e);
+        std::process::exit(1);
+    });
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -239,4 +270,3 @@ fn track(command: &str, original_bytes: u64, output_bytes: u64) {
             .unwrap_or_default(),
     });
 }
-

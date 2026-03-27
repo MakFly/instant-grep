@@ -74,9 +74,10 @@ fn is_deny_git_clean(cmd: &str) -> bool {
         return false;
     }
     // Match `git clean -f` and `git clean -fd` (and combined flags like -fdn etc.)
-    parts.iter().skip(2).any(|p| {
-        p.starts_with('-') && !p.starts_with("--") && p.contains('f')
-    })
+    parts
+        .iter()
+        .skip(2)
+        .any(|p| p.starts_with('-') && !p.starts_with("--") && p.contains('f'))
 }
 
 fn is_deny_rm_rf(cmd: &str) -> bool {
@@ -84,14 +85,17 @@ fn is_deny_rm_rf(cmd: &str) -> bool {
     if parts.is_empty() || parts[0] != "rm" {
         return false;
     }
-    let has_recursive = parts
-        .iter()
-        .any(|p| *p == "-r" || *p == "-R" || *p == "--recursive"
-            || (p.starts_with('-') && !p.starts_with("--") && (p.contains('r') || p.contains('R'))));
-    let has_force = parts
-        .iter()
-        .any(|p| *p == "-f" || *p == "--force"
-            || (p.starts_with('-') && !p.starts_with("--") && p.contains('f')));
+    let has_recursive = parts.iter().any(|p| {
+        *p == "-r"
+            || *p == "-R"
+            || *p == "--recursive"
+            || (p.starts_with('-') && !p.starts_with("--") && (p.contains('r') || p.contains('R')))
+    });
+    let has_force = parts.iter().any(|p| {
+        *p == "-f"
+            || *p == "--force"
+            || (p.starts_with('-') && !p.starts_with("--") && p.contains('f'))
+    });
     if !has_recursive || !has_force {
         return false;
     }

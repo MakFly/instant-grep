@@ -13,6 +13,7 @@ const IG_SEARCH_TOOLS_SECTION: &str = "\n## Search Tools\n\
 const IG_PERMISSION: &str = "Bash(ig *)";
 
 const IG_REWRITE_HOOK: &str = include_str!("../hooks/ig-rewrite.sh");
+#[allow(dead_code)]
 const IG_HOOK_MARKER: &str = "ig-rewrite.sh";
 
 const IG_PREFER_HOOK: &str = include_str!("../hooks/prefer-ig.sh");
@@ -50,8 +51,7 @@ fn install_hook_file(hooks_dir: &Path, name: &str, content: &str, dry_run: bool)
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
-                    let _ =
-                        fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755));
+                    let _ = fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755));
                 }
             }
             ConfigResult::Configured(format!("Installed {}", name))
@@ -509,9 +509,7 @@ fn configure_cursor(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
 
 pub fn run_setup(dry_run: bool) {
     if dry_run {
-        eprintln!(
-            "\x1b[1;33m🔧 ig setup [DRY RUN] — Showing what would be configured...\x1b[0m\n"
-        );
+        eprintln!("\x1b[1;33m🔧 ig setup [DRY RUN] — Showing what would be configured...\x1b[0m\n");
     } else {
         eprintln!("\x1b[1m🔧 ig setup — Configuring AI CLI agents...\x1b[0m\n");
     }
@@ -615,9 +613,7 @@ pub fn run_setup(dry_run: bool) {
     if gemini_dir.is_dir() || which_exists("gemini") {
         eprintln!("\n\x1b[33mℹ Gemini CLI\x1b[0m (manual setup needed)");
         eprintln!("  Add to ~/.gemini/GEMINI.md or GEMINI.md in your project:");
-        eprintln!(
-            "  \x1b[36mPrefer `ig \"pattern\"` over `rg` or `grep` for code search.\x1b[0m"
-        );
+        eprintln!("  \x1b[36mPrefer `ig \"pattern\"` over `rg` or `grep` for code search.\x1b[0m");
     }
 
     // --- Summary ---
@@ -631,6 +627,7 @@ pub fn run_setup(dry_run: bool) {
 
 // ─── Existing functions (kept for backward compat + tests) ────────────────────
 
+#[allow(dead_code)]
 fn install_rewrite_hook(claude_dir: &Path) -> ConfigResult {
     let hooks_dir = claude_dir.join("hooks");
     let hook_path = hooks_dir.join("ig-rewrite.sh");
@@ -686,6 +683,7 @@ fn install_rewrite_hook(claude_dir: &Path) -> ConfigResult {
 
 /// Register ig-rewrite.sh hook in settings.json PreToolUse.
 /// Removes old prefer-ig.sh if present. Idempotent.
+#[allow(dead_code)]
 fn register_hook_in_settings(claude_dir: &Path) -> ConfigResult {
     let settings_path = claude_dir.join("settings.json");
 
@@ -826,7 +824,9 @@ fn configure_claude_md(claude_dir: &Path) -> ConfigResult {
 
     let content = fs::read_to_string(&md_path).unwrap_or_default();
 
-    if content.contains("ig") && (content.contains("## Search Tools") || content.contains("## Search & Token")) {
+    if content.contains("ig")
+        && (content.contains("## Search Tools") || content.contains("## Search & Token"))
+    {
         return ConfigResult::AlreadyDone(
             "Search Tools section already present in CLAUDE.md".to_string(),
         );
@@ -858,7 +858,9 @@ fn configure_codex_agents_md(codex_dir: &Path) -> ConfigResult {
 
     let content = fs::read_to_string(&md_path).unwrap_or_default();
 
-    if content.contains("ig") && (content.contains("## Search Tools") || content.contains("## Search & Token")) {
+    if content.contains("ig")
+        && (content.contains("## Search Tools") || content.contains("## Search & Token"))
+    {
         return ConfigResult::AlreadyDone(
             "Search Tools section already present in AGENTS.md".to_string(),
         );
@@ -1262,8 +1264,22 @@ mod tests {
     #[test]
     fn test_ensure_hook_registered_different_matchers() {
         let mut parsed = serde_json::json!({});
-        ensure_hook_registered(&mut parsed, "PreToolUse", "Bash", "cmd-bash", "cmd-bash", None);
-        ensure_hook_registered(&mut parsed, "PreToolUse", "Grep", "cmd-grep", "cmd-grep", None);
+        ensure_hook_registered(
+            &mut parsed,
+            "PreToolUse",
+            "Bash",
+            "cmd-bash",
+            "cmd-bash",
+            None,
+        );
+        ensure_hook_registered(
+            &mut parsed,
+            "PreToolUse",
+            "Grep",
+            "cmd-grep",
+            "cmd-grep",
+            None,
+        );
         ensure_hook_registered(
             &mut parsed,
             "PostToolUse",
@@ -1342,10 +1358,16 @@ mod tests {
                 }
             })
             .collect();
-        assert!(configured.iter().any(|m| m.contains("CLAUDE_CODE_EFFORT_LEVEL")));
-        assert!(configured
-            .iter()
-            .any(|m| m.contains("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE")));
+        assert!(
+            configured
+                .iter()
+                .any(|m| m.contains("CLAUDE_CODE_EFFORT_LEVEL"))
+        );
+        assert!(
+            configured
+                .iter()
+                .any(|m| m.contains("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"))
+        );
 
         let content = fs::read_to_string(dir.path().join("settings.json")).unwrap();
         assert!(content.contains("CLAUDE_CODE_EFFORT_LEVEL"));
@@ -1357,7 +1379,8 @@ mod tests {
     #[test]
     fn test_configure_claude_env_vars_idempotent() {
         let dir = TempDir::new().unwrap();
-        let settings = r#"{"env":{"CLAUDE_CODE_EFFORT_LEVEL":"high","CLAUDE_AUTOCOMPACT_PCT_OVERRIDE":"80"}}"#;
+        let settings =
+            r#"{"env":{"CLAUDE_CODE_EFFORT_LEVEL":"high","CLAUDE_AUTOCOMPACT_PCT_OVERRIDE":"80"}}"#;
         fs::write(dir.path().join("settings.json"), settings).unwrap();
 
         let results = configure_claude_env_vars(dir.path(), false);
