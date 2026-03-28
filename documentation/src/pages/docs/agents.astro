@@ -453,6 +453,132 @@ matches = search_codebase(<span class="theme-gold">"async fn"</span>, <span clas
         </div>
       </div>
     </section>
+
+    <!-- v1.4 Universal Setup -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
+        <span class="theme-orange">⚡</span>
+        v1.4 — Universal Setup
+      </h2>
+      <p class="text-sm text-muted-foreground mb-5 leading-relaxed">
+        <code class="font-mono">ig setup</code> now auto-configures four AI agents and installs a full hook suite.
+        Run once after install — idempotent, non-destructive, safe to re-run.
+      </p>
+
+      <!-- Supported agents -->
+      <h3 class="text-base font-mono font-bold text-foreground mb-3 flex items-center gap-2">
+        <span class="theme-blue">🤖</span>
+        Supported Agents
+      </h3>
+
+      <div class="overflow-x-auto rounded-xl border border-border mb-8">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="border-b border-border bg-secondary/50">
+              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Agent</th>
+              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">What ig setup installs</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono text-xs">
+            {[
+              { agent: "Claude Code", detail: "4 hook scripts + 9 hook registrations + permissions + env vars + CLAUDE.md", cls: "theme-orange" },
+              { agent: "Codex CLI", detail: "AGENTS.md", cls: "theme-blue" },
+              { agent: "OpenCode", detail: "AGENTS.md + opencode.json", cls: "theme-gold" },
+              { agent: "Cursor", detail: "ig-search.mdc", cls: "theme-green" },
+            ].map((row) => (
+              <tr class="border-b border-border/50 transition-colors hover:bg-secondary/30">
+                <td class={`py-3 px-4 font-mono font-bold ${row.cls}`}>{row.agent}</td>
+                <td class="py-3 px-4 text-muted-foreground">{row.detail}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- --dry-run flag -->
+      <div class="flex items-start gap-3 p-4 rounded-lg border border-border bg-secondary/30 mb-8">
+        <span class="text-lg mt-0.5 theme-orange">💡</span>
+        <div class="text-sm text-muted-foreground">
+          <strong class="text-foreground">New flag — <code class="font-mono">--dry-run</code>:</strong> preview what
+          <code class="font-mono">ig setup</code> would write without touching any files.
+          Prints each planned action to stdout so you can review before committing.
+          <div class="mt-2 code-block rounded-lg p-3 text-xs font-mono">
+            <span class="theme-blue">ig</span> setup <span class="theme-gold">--dry-run</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hook scripts -->
+      <h3 class="text-base font-mono font-bold text-foreground mb-3 flex items-center gap-2">
+        <span class="theme-gold">🪝</span>
+        Hook Scripts Installed for Claude Code
+      </h3>
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Nine hook registrations across four scripts — each targeting a different phase of Claude Code's tool lifecycle.
+      </p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+        <div class="p-5 rounded-xl energy-card bg-card/50">
+          <div class="text-xs font-mono font-bold mb-3 theme-orange">Hook scripts</div>
+          <ul class="space-y-2 text-xs text-muted-foreground font-mono">
+            {[
+              ["ig-rewrite.sh", "Rewrites shell commands to ig equivalents"],
+              ["prefer-ig.sh", "Blocks grep/find, suggests ig replacement"],
+              ["session-start.sh", "Injects project context at session start"],
+              ["format.sh", "Normalizes output format for token efficiency"],
+            ].map(([name, desc]) => (
+              <li class="flex items-start gap-2">
+                <span class="theme-orange mt-0.5">•</span>
+                <div>
+                  <span class="theme-blue">{name}</span>
+                  <span class="text-muted-foreground/60"> — {desc}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div class="p-5 rounded-xl energy-card bg-card/50">
+          <div class="text-xs font-mono font-bold mb-3 theme-blue">Hook registrations (9 total)</div>
+          <ul class="space-y-2 text-xs text-muted-foreground font-mono">
+            {[
+              "Grep blocker — blocks direct grep calls",
+              "npm blocker — enforces bun over npm",
+              "git blocker — routes git through ig git",
+              "Secret detection — warns on credential patterns",
+              ".env warning — flags accidental .env reads",
+              "SubagentStart context injection",
+              "TaskCompleted quality gate",
+            ].map((item) => (
+              <li class="flex items-start gap-2">
+                <span class="theme-blue mt-0.5">•</span>
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">ig setup output (v1.4)</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`$ <span class="theme-blue">ig</span> setup
+
+<span class="theme-green">✓</span> <span class="theme-foreground">Claude Code</span>
+  <span class="theme-comment">→ 4 hook scripts installed (ig-rewrite.sh, prefer-ig.sh, session-start.sh, format.sh)</span>
+  <span class="theme-comment">→ 9 hook registrations (grep, npm, git, secret, env, subagent, task gates)</span>
+  <span class="theme-comment">→ Bash(ig *) permission added to settings.json</span>
+  <span class="theme-comment">→ Search Tools section added to CLAUDE.md</span>
+
+<span class="theme-green">✓</span> <span class="theme-foreground">Codex CLI</span>
+  <span class="theme-comment">→ Search Tools entry added to AGENTS.md</span>
+
+<span class="theme-green">✓</span> <span class="theme-foreground">OpenCode</span>
+  <span class="theme-comment">→ Search Tools entry added to AGENTS.md</span>
+  <span class="theme-comment">→ ig tool registered in opencode.json</span>
+
+<span class="theme-green">✓</span> <span class="theme-foreground">Cursor</span>
+  <span class="theme-comment">→ ig-search.mdc rule installed in .cursor/rules/</span>`}></code></pre>
+      </div>
+    </section>
   </div>
 </DocsLayout>
 

@@ -2,7 +2,7 @@
 import DocsLayout from "@/layouts/docs.astro"
 ---
 
-<DocsLayout title="CLI Reference" description="All 10 instant-grep commands with complete flag documentation">
+<DocsLayout title="CLI Reference" description="Complete command reference — all 19 instant-grep commands with full flag documentation">
   <div class="max-w-none">
     <!-- Page header -->
     <div class="mb-10">
@@ -14,12 +14,12 @@ import DocsLayout from "@/layouts/docs.astro"
         CLI Reference
       </h1>
       <p class="text-muted-foreground text-lg leading-relaxed">
-        Ten commands. Each one mastered to perfection. No bloat, no ceremony — pure power.
+        Nineteen commands. Each one mastered to perfection. No bloat, no ceremony — pure power.
       </p>
 
       <!-- Quick nav -->
       <div class="flex flex-wrap gap-2 mt-5">
-        {["search", "index", "status", "watch", "daemon", "query", "files", "symbols", "context", "ls", "read", "smart", "pack", "gain", "setup"].map((cmd) => (
+        {["search", "index", "status", "watch", "daemon", "query", "files", "symbols", "context", "ls", "read", "smart", "pack", "gain", "setup", "git", "discover", "proxy"].map((cmd) => (
           <a href={`#${cmd}`} class="px-3 py-1.5 rounded-lg text-xs font-mono border border-border theme-orange nav-pill transition-all">
             ig {cmd}
           </a>
@@ -586,6 +586,206 @@ import DocsLayout from "@/layouts/docs.astro"
 <span class="theme-blue">ig</span> query --json <span class="theme-gold">"Result&lt;"</span> .
 
 <span class="theme-comment"># p50 latency: 0.3ms (warm daemon)</span>`}></code></pre>
+      </div>
+    </section>
+
+    <!-- ig git -->
+    <section id="git" class="mb-14 scroll-mt-20">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-2 h-8 rounded-full section-bar-green"></div>
+        <h2 class="text-2xl font-mono font-bold text-foreground">ig git</h2>
+        <div class="jutsu-tooltip">
+          <span class="text-xs font-mono px-2 py-1 rounded border border-border theme-orange tooltip-trigger cursor-help">
+            hover for jutsu
+          </span>
+          <div class="tooltip-content">🌊 Suiton — Git Stream Compression!</div>
+        </div>
+        <span class="text-xs font-mono px-2 py-1 rounded border border-border theme-orange sage-badge">New in v1.4</span>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Token-compressed git proxy. Routes git commands through RTK to strip verbose output, filter noise,
+        and track token savings. Supports <code class="font-mono">status</code>, <code class="font-mono">log</code>,
+        <code class="font-mono">diff</code>, <code class="font-mono">show</code>, and <code class="font-mono">branch</code>.
+        Transparent — the output is still valid git output, just compressed.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-5">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> git <span class="theme-orange">&lt;SUBCOMMAND&gt;</span> <span class="theme-gold">[GIT OPTIONS]</span>   <span class="theme-comment"># proxies to rtk git &lt;subcommand&gt;</span>`}></code></pre>
+      </div>
+
+      <div class="overflow-x-auto mb-5">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="border-b border-border/30">
+              <th class="text-left py-2.5 px-3 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Subcommand</th>
+              <th class="text-left py-2.5 px-3 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Native size</th>
+              <th class="text-left py-2.5 px-3 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">After ig git</th>
+              <th class="text-left py-2.5 px-3 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Savings</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono text-xs">
+            {[
+              ["status", "732B", "127B", "-83%"],
+              ["log -10", "8,861B", "997B", "-89%"],
+              ["show HEAD", "11,920B", "5,812B", "-51%"],
+              ["diff", "26,288B", "6,906B", "-74%"],
+            ].map(([sub, native, after, savings]) => (
+              <tr class="border-b border-border/20 hover:bg-secondary/30 transition-colors">
+                <td class="py-2.5 px-3 font-mono theme-orange">git {sub}</td>
+                <td class="py-2.5 px-3 text-muted-foreground">{native}</td>
+                <td class="py-2.5 px-3 theme-blue">{after}</td>
+                <td class="py-2.5 px-3 theme-green font-bold">{savings}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Compressed git status (127B instead of 732B)</span>
+<span class="theme-blue">ig</span> git status
+
+<span class="theme-orange"># Compact log — 10 entries, -89% token reduction</span>
+<span class="theme-blue">ig</span> git log -10
+
+<span class="theme-orange"># Diff with noise stripped</span>
+<span class="theme-blue">ig</span> git diff
+
+<span class="theme-orange"># Show last commit</span>
+<span class="theme-blue">ig</span> git show HEAD
+
+<span class="theme-orange"># Branch list</span>
+<span class="theme-blue">ig</span> git branch`}></code></pre>
+      </div>
+    </section>
+
+    <!-- ig discover -->
+    <section id="discover" class="mb-14 scroll-mt-20">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-2 h-8 rounded-full section-bar-gold"></div>
+        <h2 class="text-2xl font-mono font-bold text-foreground">ig discover</h2>
+        <div class="jutsu-tooltip">
+          <span class="text-xs font-mono px-2 py-1 rounded border border-border theme-orange tooltip-trigger cursor-help">
+            hover for jutsu
+          </span>
+          <div class="tooltip-content">👁️ Sharingan — Missed Opportunity Detection!</div>
+        </div>
+        <span class="text-xs font-mono px-2 py-1 rounded border border-border theme-orange sage-badge">New in v1.4</span>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Scan Claude Code session history for missed token-saving opportunities. Analyzes past shell commands
+        and reports which ones could have been rewritten to ig equivalents — helping you tune your hook coverage.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-5">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> discover <span class="theme-gold">[OPTIONS]</span>   <span class="theme-comment"># scan Claude Code session logs</span>`}></code></pre>
+      </div>
+
+      <div class="overflow-x-auto mb-5">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="border-b border-border/30">
+              <th class="text-left py-2.5 px-3 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Flag</th>
+              <th class="text-left py-2.5 px-3 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Short</th>
+              <th class="text-left py-2.5 px-3 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Description</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono text-xs">
+            {[
+              ["--since DATE", "", "Scan sessions since a date (e.g. --since 2026-03-01)"],
+              ["--limit N", "", "Cap results to top N missed opportunities"],
+            ].map(([flag, short, desc]) => (
+              <tr class="border-b border-border/20 hover:bg-secondary/30 transition-colors">
+                <td class="py-2.5 px-3 font-mono theme-orange">{flag}</td>
+                <td class="py-2.5 px-3 font-mono theme-blue">{short}</td>
+                <td class="py-2.5 px-3 text-muted-foreground">{desc}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Scan all sessions for missed savings</span>
+<span class="theme-blue">ig</span> discover
+
+<span class="theme-orange"># Limit to sessions since March 2026</span>
+<span class="theme-blue">ig</span> discover --since 2026-03-01
+
+<span class="theme-orange"># Show top 20 missed opportunities</span>
+<span class="theme-blue">ig</span> discover --limit 20`}></code></pre>
+      </div>
+    </section>
+
+    <!-- ig gain --history / --json -->
+    <section class="mb-14 scroll-mt-20">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-2 h-8 rounded-full section-bar-gold"></div>
+        <h2 class="text-2xl font-mono font-bold text-foreground">ig gain — new flags</h2>
+        <span class="text-xs font-mono px-2 py-1 rounded border border-border theme-orange sage-badge">New in v1.4</span>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Two new flags extend <code class="font-mono">ig gain</code> for richer history inspection and machine-readable output.
+        The existing dashboard behavior is unchanged.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-5">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> gain                 <span class="theme-comment"># cumulative savings dashboard</span>
+<span class="theme-blue">ig</span> gain <span class="theme-gold">--history</span>        <span class="theme-comment"># per-command history with individual savings</span>
+<span class="theme-blue">ig</span> gain <span class="theme-gold">--json</span>           <span class="theme-comment"># machine-readable JSON output</span>
+<span class="theme-blue">ig</span> gain <span class="theme-gold">--clear</span>          <span class="theme-comment"># reset history (existing)</span>`}></code></pre>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">--history output example</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange">❯</span> <span class="theme-blue">ig</span> gain --history
+
+<span class="theme-gold">command history (last 10)</span>
+────────────────────────────────────────────
+<span class="theme-blue">2026-03-27 14:32</span>  git status    <span class="theme-green">-605B</span>   (-83%)
+<span class="theme-blue">2026-03-27 14:35</span>  git log -10   <span class="theme-green">-7,864B</span> (-89%)
+<span class="theme-blue">2026-03-27 14:41</span>  grep -r …     <span class="theme-green">-2,100B</span> (-94%)
+<span class="theme-blue">2026-03-27 14:50</span>  git diff      <span class="theme-green">-19,382B</span> (-74%)`}></code></pre>
+      </div>
+    </section>
+
+    <!-- ig proxy -->
+    <section id="proxy" class="mb-14 scroll-mt-20">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-2 h-8 rounded-full section-bar-blue"></div>
+        <h2 class="text-2xl font-mono font-bold text-foreground">ig proxy</h2>
+        <span class="text-xs font-mono px-2 py-1 rounded border border-border theme-orange sage-badge">New in v1.4</span>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Debug passthrough mode — executes the raw command without any ig rewriting or RTK filtering.
+        Useful for verifying hook behavior, comparing compressed vs native output, or bypassing rewrites for a single call.
+      </p>
+
+      <div class="code-block rounded-xl overflow-hidden mb-5">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> proxy <span class="theme-orange">&lt;COMMAND&gt;</span> <span class="theme-gold">[ARGS...]</span>   <span class="theme-comment"># execute raw without filtering</span>`}></code></pre>
+      </div>
+
+      <div class="code-block rounded-xl overflow-hidden">
+        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
+        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Run git status without compression (debug)</span>
+<span class="theme-blue">ig</span> proxy git status
+
+<span class="theme-orange"># Run grep without rewriting</span>
+<span class="theme-blue">ig</span> proxy grep -r <span class="theme-gold">"pattern"</span> src/
+
+<span class="theme-orange"># Compare native vs compressed</span>
+<span class="theme-blue">ig</span> proxy git log -5
+<span class="theme-blue">ig</span> git log -5`}></code></pre>
       </div>
     </section>
 

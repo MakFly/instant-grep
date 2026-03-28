@@ -643,6 +643,181 @@ const daemonSteps = [
       </div>
     </section>
 
+    <!-- v1.4 Token Savings Revolution -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
+        <span class="perf-gold">🪙</span>
+        v1.4 — Token Savings Revolution
+      </h2>
+      <p class="text-sm text-muted-foreground mb-5">
+        v1.4 introduces the git proxy, session discovery, and deep hook coverage.
+        Real numbers from production Claude Code sessions — measured end-to-end.
+      </p>
+
+      <!-- Hero stats -->
+      <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-8">
+        {[
+          { value: "76%", label: "Overall savings ratio", cls: "perf-green" },
+          { value: "1.4M", label: "Tokens saved", cls: "perf-gold" },
+          { value: "-94%", label: "git status compression", cls: "perf-orange" },
+          { value: "63/65", label: "Tests passing", cls: "perf-blue" },
+        ].map((stat) => (
+          <div class="text-center p-5 rounded-xl energy-card">
+            <div class={`font-mono text-3xl font-black mb-1 ${stat.cls}`}>{stat.value}</div>
+            <div class="text-xs text-muted-foreground font-mono">{stat.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <!-- Git proxy compression -->
+      <h3 class="text-lg font-mono font-bold text-foreground mb-3 flex items-center gap-2">
+        <span class="perf-orange">⚡</span>
+        Git Proxy Compression
+      </h3>
+      <p class="text-sm text-muted-foreground mb-4">
+        <code class="font-mono">ig git</code> rewrites common git commands through RTK — filtering noise, squashing
+        verbose output, and tracking savings. Benchmarked on a real monorepo.
+      </p>
+
+      <div class="overflow-x-auto rounded-xl border border-border mb-8">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="border-b border-border bg-secondary/50">
+              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Command</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Native</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">ig git</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Savings</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono text-xs">
+            {[
+              { cmd: "git status", native: "732B", ig: "127B", savings: "-83%", highlight: false },
+              { cmd: "git log -10", native: "8,861B", ig: "997B", savings: "-89%", highlight: true },
+              { cmd: "git show HEAD", native: "11,920B", ig: "5,812B", savings: "-51%", highlight: false },
+              { cmd: "git diff", native: "26,288B", ig: "6,906B", savings: "-74%", highlight: false },
+            ].map((row) => (
+              <tr class="border-b border-border/50 transition-colors hover:bg-secondary/30">
+                <td class="py-3 px-4 text-foreground/80"><code class="font-mono">{row.cmd}</code></td>
+                <td class="py-3 px-4 text-right text-muted-foreground">{row.native}</td>
+                <td class={`py-3 px-4 text-right font-bold ${row.highlight ? "perf-orange" : "text-foreground/70"}`}>{row.ig}</td>
+                <td class="py-3 px-4 text-right font-bold perf-green">{row.savings}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Real projects benchmark -->
+      <h3 class="text-lg font-mono font-bold text-foreground mb-3 flex items-center gap-2">
+        <span class="perf-blue">📦</span>
+        Real Projects Benchmark
+      </h3>
+      <p class="text-sm text-muted-foreground mb-4">
+        Index build time, search latency, and git status savings across four real-world codebases.
+        Symbols count reflects full API surface extracted by <code class="font-mono">ig symbols</code>.
+      </p>
+
+      <div class="overflow-x-auto rounded-xl border border-border mb-8">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="border-b border-border bg-secondary/50">
+              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Project</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Files</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Index</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Search</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">git status</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Symbols</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono text-xs">
+            {[
+              { project: "Laravel app", files: "1,609", index: "226ms", search: "23ms", git: "-95%", symbols: "4,834", highlight: false },
+              { project: "Monorepo", files: "3,084", index: "483ms", search: "50ms", git: "-51%", symbols: "7,702", highlight: true },
+              { project: "Rust CLI", files: "87", index: "95ms", search: "9ms", git: "-84%", symbols: "541", highlight: false },
+              { project: "TypeScript CLI", files: "35", index: "30ms", search: "6ms", git: "-83%", symbols: "150", highlight: false },
+            ].map((row) => (
+              <tr class="border-b border-border/50 transition-colors hover:bg-secondary/30">
+                <td class={`py-3 px-4 font-mono font-bold ${row.highlight ? "perf-orange" : "text-foreground/80"}`}>{row.project}</td>
+                <td class="py-3 px-4 text-right text-muted-foreground">{row.files}</td>
+                <td class="py-3 px-4 text-right text-foreground/70">{row.index}</td>
+                <td class="py-3 px-4 text-right font-bold perf-blue">{row.search}</td>
+                <td class="py-3 px-4 text-right font-bold perf-green">{row.git}</td>
+                <td class="py-3 px-4 text-right text-muted-foreground">{row.symbols}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Explorer optimization -->
+      <h3 class="text-lg font-mono font-bold text-foreground mb-3 flex items-center gap-2">
+        <span class="perf-gold">🌀</span>
+        Explorer Optimization
+      </h3>
+      <p class="text-sm text-muted-foreground mb-4">
+        Comparing exploration strategies on a real codebase. The ig-optimized approach reads 121 files
+        in 10 requests at 170ms — the agent+ig v3 combo adds cross-file reasoning at still-minimal cost.
+      </p>
+
+      <div class="overflow-x-auto rounded-xl border border-border mb-8">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="border-b border-border bg-secondary/50">
+              <th class="text-left py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Approach</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Files</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Requests</th>
+              <th class="text-right py-3 px-4 text-xs font-mono text-muted-foreground font-normal uppercase tracking-wider">Time</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono text-xs">
+            {[
+              { approach: "Manual ig", files: "6", requests: "4", time: "~5s", highlight: false },
+              { approach: "Agent sequential", files: "~35", requests: "69", time: "~120s", highlight: false },
+              { approach: "ig optimized", files: "121", requests: "10", time: "170ms", highlight: true },
+              { approach: "Agent + ig v3", files: "121", requests: "14", time: "~60s", highlight: false },
+            ].map((row) => (
+              <tr class="border-b border-border/50 transition-colors hover:bg-secondary/30">
+                <td class={`py-3 px-4 font-mono font-bold ${row.highlight ? "perf-orange" : "text-foreground/80"}`}>{row.approach}</td>
+                <td class="py-3 px-4 text-right text-muted-foreground">{row.files}</td>
+                <td class="py-3 px-4 text-right text-muted-foreground">{row.requests}</td>
+                <td class={`py-3 px-4 text-right font-bold ${row.highlight ? "perf-green" : "text-foreground/70"}`}>{row.time}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Opus session impact -->
+      <h3 class="text-lg font-mono font-bold text-foreground mb-3 flex items-center gap-2">
+        <span class="perf-green">📊</span>
+        Opus 4.6 Session Impact
+      </h3>
+      <p class="text-sm text-muted-foreground mb-4">
+        Measured across a full Claude Opus 4.6 development session — code search, file reads, git operations.
+        ig cuts total token consumption by <span class="font-bold perf-green">70%</span>.
+      </p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+        <div class="p-5 rounded-xl energy-card text-center">
+          <div class="font-mono text-3xl font-black mb-1 perf-red">~240,500</div>
+          <div class="text-xs font-mono text-foreground/70 mb-1">tokens / session</div>
+          <div class="text-xs text-muted-foreground/60">Without ig</div>
+        </div>
+        <div class="p-5 rounded-xl energy-card text-center">
+          <div class="font-mono text-3xl font-black mb-1 perf-green">~72,200</div>
+          <div class="text-xs font-mono text-foreground/70 mb-1">tokens / session</div>
+          <div class="text-xs text-muted-foreground/60">With ig (-70%)</div>
+        </div>
+      </div>
+
+      <div class="mt-2 p-4 rounded-xl energy-card border border-border/80">
+        <p class="text-sm text-muted-foreground leading-relaxed">
+          The savings compound: ig search returns only matching lines, the git proxy strips verbose output,
+          and the SubagentStart hook pre-injects project context — so the agent never reads files it doesn't need.
+        </p>
+      </div>
+    </section>
+
     <!-- Concurrent queries -->
     <section class="mb-12">
       <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
