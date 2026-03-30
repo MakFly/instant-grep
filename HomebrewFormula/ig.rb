@@ -1,22 +1,22 @@
 class Ig < Formula
   desc "Trigram-indexed regex search CLI — sub-ms code search for AI agents"
   homepage "https://github.com/MakFly/instant-grep"
-  version "1.4.0"
+  version "1.5.0"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/MakFly/instant-grep/releases/download/v#{version}/ig-macos-aarch64"
-      sha256 "7a7cd7e9d9089c324634bb2a2036dffa543a9da31e6f79554238fd91e1d39ac0" # aarch64
+      sha256 "d813c77bf839eaae662110314f2ae3218a35482a8232bc421bf8ca573ba69a26" # aarch64
     else
       url "https://github.com/MakFly/instant-grep/releases/download/v#{version}/ig-macos-x86_64"
-      sha256 "9ee62d697a434e0a1a70ac8952c625e061a5009431009a0ad257d57d3cab593a" # x86_64
+      sha256 "cb104223aa5a8e0ff402c8ac84ffdc3a1f9b0ed82bdb0033f483c103e233462e" # x86_64
     end
   end
 
   on_linux do
     url "https://github.com/MakFly/instant-grep/releases/download/v#{version}/ig-linux-x86_64"
-    sha256 "614deac576d1821722c27de433e62d7962b2b0fc9df2372f59ee1f6510671c82" # linux
+    sha256 "123afc1496cf0f2739eb4ef6fa3bdcada295820e5628c45610d8034426947a38" # linux
   end
 
   def install
