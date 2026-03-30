@@ -223,6 +223,17 @@ pub enum Commands {
         dry_run: bool,
     },
 
+    /// Remove all ig artifacts (hooks, configs, binary, daemons, tracking data)
+    Uninstall {
+        /// Show what would be removed without actually removing anything
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Skip interactive confirmation
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+
     /// Send a search query to a running daemon
     Query {
         /// Regex pattern to search for

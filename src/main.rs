@@ -13,6 +13,7 @@ mod read;
 mod rewrite;
 mod search;
 mod setup;
+mod uninstall;
 mod smart;
 mod symbols;
 mod tracking;
@@ -360,6 +361,10 @@ fn main() -> Result<()> {
 
         Some(Commands::Setup { dry_run }) => {
             setup::run_setup(dry_run);
+        }
+
+        Some(Commands::Uninstall { dry_run, yes }) => {
+            uninstall::run_uninstall(dry_run, yes);
         }
 
         Some(Commands::Query { pattern, path }) => {

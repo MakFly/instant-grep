@@ -506,7 +506,7 @@ fn configure_cursor(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
 }
 
 /// Resolve the real user's home directory, even when running under sudo.
-fn resolve_real_home() -> Option<PathBuf> {
+pub(crate) fn resolve_real_home() -> Option<PathBuf> {
     // If SUDO_USER is set, we're running under sudo — use the real user's home
     if let Ok(sudo_user) = std::env::var("SUDO_USER") {
         // Try /etc/passwd lookup via getent (Linux)
