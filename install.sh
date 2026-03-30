@@ -5,7 +5,15 @@ set -euo pipefail
 # Usage: curl -fsSL https://raw.githubusercontent.com/MakFly/instant-grep/main/install.sh | bash
 
 REPO="MakFly/instant-grep"
-INSTALL_DIR="${IG_INSTALL_DIR:-$HOME/.local/bin}"
+
+# When running under sudo, resolve the real user's home directory
+if [ -n "${SUDO_USER:-}" ]; then
+  REAL_HOME=$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || eval echo "~$SUDO_USER")
+else
+  REAL_HOME="$HOME"
+fi
+
+INSTALL_DIR="${IG_INSTALL_DIR:-$REAL_HOME/.local/bin}"
 
 # Detect platform
 OS="$(uname -s)"

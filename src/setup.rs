@@ -505,6 +505,39 @@ fn configure_cursor(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
     }
 }
 
+/// Resolve the real user's home directory, even when running under sudo.
+fn resolve_real_home() -> Option<PathBuf> {
+    // If SUDO_USER is set, we're running under sudo — use the real user's home
+    if let Ok(sudo_user) = std::env::var("SUDO_USER") {
+        // Try /etc/passwd lookup via getent (Linux)
+        if let Ok(output) = std::process::Command::new("getent")
+            .args(["passwd", &sudo_user])
+            .output()
+        {
+            if output.status.success() {
+                let line = String::from_utf8_lossy(&output.stdout);
+                if let Some(home_dir) = line.split(':').nth(5) {
+                    return Some(PathBuf::from(home_dir.trim()));
+                }
+            }
+        }
+        // Fallback: expand ~user via shell
+        if let Ok(output) = std::process::Command::new("sh")
+            .args(["-c", &format!("eval echo ~{}", sudo_user)])
+            .output()
+        {
+            if output.status.success() {
+                let home = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !home.is_empty() {
+                    return Some(PathBuf::from(home));
+                }
+            }
+        }
+    }
+    // Default: use HOME
+    std::env::var("HOME").ok().map(PathBuf::from)
+}
+
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 pub fn run_setup(dry_run: bool) {
@@ -514,9 +547,10 @@ pub fn run_setup(dry_run: bool) {
         eprintln!("\x1b[1m🔧 ig setup — Configuring AI CLI agents...\x1b[0m\n");
     }
 
-    let home = match std::env::var("HOME") {
-        Ok(h) => PathBuf::from(h),
-        Err(_) => {
+    // When running under sudo, resolve the real user's home directory
+    let home = match resolve_real_home() {
+        Some(h) => h,
+        None => {
             eprintln!("✗ Could not determine HOME directory");
             return;
         }
@@ -794,21 +828,19 @@ fn configure_claude_settings(claude_dir: &Path) -> ConfigResult {
         }
     };
 
-    let inserted = if let Some(allow) = parsed
+    // Ensure permissions.allow array exists, creating it if needed
+    if parsed.get("permissions").is_none() {
+        parsed["permissions"] = serde_json::json!({ "allow": [] });
+    } else if parsed["permissions"].get("allow").is_none() {
+        parsed["permissions"]["allow"] = serde_json::json!([]);
+    }
+
+    if let Some(allow) = parsed
         .get_mut("permissions")
         .and_then(|p| p.get_mut("allow"))
         .and_then(|a| a.as_array_mut())
     {
         allow.push(serde_json::Value::String(IG_PERMISSION.to_string()));
-        true
-    } else {
-        false
-    };
-
-    if !inserted {
-        return ConfigResult::Error(
-            "Could not find permissions.allow array in settings.json".to_string(),
-        );
     }
 
     let formatted = serde_json::to_string_pretty(&parsed).unwrap_or_default();
@@ -943,13 +975,47 @@ mod tests {
     }
 
     #[test]
-    fn test_claude_settings_missing_allow_array_returns_error() {
+    fn test_claude_settings_missing_allow_array_creates_it() {
         let dir = TempDir::new().unwrap();
         // Valid JSON but no permissions.allow array
         fs::write(dir.path().join("settings.json"), r#"{"other": "value"}"#).unwrap();
 
         let result = configure_claude_settings(&dir.path().to_path_buf());
-        assert!(matches!(result, ConfigResult::Error(_)));
+        assert!(matches!(result, ConfigResult::Configured(_)));
+
+        let content = fs::read_to_string(dir.path().join("settings.json")).unwrap();
+        assert!(content.contains("Bash(ig *)"));
+    }
+
+    #[test]
+    fn test_claude_settings_missing_allow_key_creates_it() {
+        let dir = TempDir::new().unwrap();
+        // Has permissions but no allow key
+        fs::write(
+            dir.path().join("settings.json"),
+            r#"{"permissions":{"deny":[]}}"#,
+        )
+        .unwrap();
+
+        let result = configure_claude_settings(&dir.path().to_path_buf());
+        assert!(matches!(result, ConfigResult::Configured(_)));
+
+        let content = fs::read_to_string(dir.path().join("settings.json")).unwrap();
+        assert!(content.contains("Bash(ig *)"));
+    }
+
+    #[test]
+    fn test_claude_settings_empty_json_creates_structure() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("settings.json"), r#"{}"#).unwrap();
+
+        let result = configure_claude_settings(&dir.path().to_path_buf());
+        assert!(matches!(result, ConfigResult::Configured(_)));
+
+        let content = fs::read_to_string(dir.path().join("settings.json")).unwrap();
+        assert!(content.contains("Bash(ig *)"));
+        assert!(content.contains("permissions"));
+        assert!(content.contains("allow"));
     }
 
     #[test]
