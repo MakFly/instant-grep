@@ -19,11 +19,11 @@ const IG_HOOK_MARKERS: &[&str] = &[
     "prefer-ig.sh",
     "format.sh",
     "session-start.sh",
-    "Use ig via Bash",       // Grep blocker
-    "Destructive git",       // destructive git blocker
-    "bun/bunx instead",      // npm/npx blocker
-    "secret detected",       // secret detection
-    ".env",                  // .env warning
+    "Use ig via Bash",  // Grep blocker
+    "Destructive git",  // destructive git blocker
+    "bun/bunx instead", // npm/npx blocker
+    "secret detected",  // secret detection
+    ".env",             // .env warning
 ];
 
 const IG_HOOK_FILES: &[&str] = &[
@@ -110,7 +110,10 @@ pub fn run_uninstall(dry_run: bool, yes: bool) {
     let cursor_dir = home.join(".cursor");
     if cursor_dir.is_dir() {
         let results = remove_cursor_config(&cursor_dir, dry_run);
-        if results.iter().any(|r| matches!(r, RemoveResult::Removed(_))) {
+        if results
+            .iter()
+            .any(|r| matches!(r, RemoveResult::Removed(_)))
+        {
             print_section("Cursor", &results);
             sections += 1;
         }
@@ -156,7 +159,9 @@ fn stop_all_daemons(home: &Path, dry_run: bool) -> Vec<RemoveResult> {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.starts_with("ig-") && name.ends_with(".sock") {
-                if !dry_run { let _ = fs::remove_file(entry.path()); }
+                if !dry_run {
+                    let _ = fs::remove_file(entry.path());
+                }
                 results.push(RemoveResult::Removed(format!("Removed socket /tmp/{name}")));
             }
         }
@@ -194,8 +199,12 @@ fn remove_claude_config(claude_dir: &Path, dry_run: bool) -> Vec<RemoveResult> {
     let hooks_dir = claude_dir.join("hooks");
     for hook_file in IG_HOOK_FILES {
         let path = hooks_dir.join(hook_file);
-        if !path.exists() { continue; }
-        if !dry_run { let _ = fs::remove_file(&path); }
+        if !path.exists() {
+            continue;
+        }
+        if !dry_run {
+            let _ = fs::remove_file(&path);
+        }
         results.push(RemoveResult::Removed(format!("Removed hooks/{hook_file}")));
     }
 
@@ -221,7 +230,9 @@ fn remove_claude_config(claude_dir: &Path, dry_run: bool) -> Vec<RemoveResult> {
         .ok()
         .and_then(|c| remove_search_tools_section(&c))
     {
-        if !dry_run { let _ = fs::write(&md_path, &cleaned); }
+        if !dry_run {
+            let _ = fs::write(&md_path, &cleaned);
+        }
         results.push(RemoveResult::Removed(
             "Removed Search Tools section from CLAUDE.md".to_string(),
         ));
@@ -257,10 +268,7 @@ fn clean_settings_json(parsed: &mut serde_json::Value) -> bool {
                     {
                         let before = hook_list.len();
                         hook_list.retain(|hook| {
-                            let cmd = hook
-                                .get("command")
-                                .and_then(|c| c.as_str())
-                                .unwrap_or("");
+                            let cmd = hook.get("command").and_then(|c| c.as_str()).unwrap_or("");
                             !IG_HOOK_MARKERS.iter().any(|marker| cmd.contains(marker))
                         });
                         if hook_list.len() != before {
@@ -282,9 +290,7 @@ fn clean_settings_json(parsed: &mut serde_json::Value) -> bool {
         }
 
         // Remove hook categories that are now empty arrays
-        hooks.retain(|_k, v| {
-            v.as_array().is_none_or(|a| !a.is_empty())
-        });
+        hooks.retain(|_k, v| v.as_array().is_none_or(|a| !a.is_empty()));
     }
 
     // Remove ig env vars
@@ -305,7 +311,9 @@ fn clean_settings_json(parsed: &mut serde_json::Value) -> bool {
         .and_then(|e| e.as_object())
         .is_some_and(|o| o.is_empty())
     {
-        if let Some(obj) = parsed.as_object_mut() { obj.remove("env"); }
+        if let Some(obj) = parsed.as_object_mut() {
+            obj.remove("env");
+        }
         changed = true;
     }
 
@@ -347,7 +355,9 @@ fn remove_codex_config(codex_dir: &Path, dry_run: bool) -> Vec<RemoveResult> {
         .ok()
         .and_then(|c| remove_search_tools_section(&c))
     {
-        if !dry_run { let _ = fs::write(&md_path, &cleaned); }
+        if !dry_run {
+            let _ = fs::write(&md_path, &cleaned);
+        }
         results.push(RemoveResult::Removed(
             "Removed Search Tools section from AGENTS.md".to_string(),
         ));
@@ -367,7 +377,9 @@ fn remove_opencode_config(opencode_dir: &Path, dry_run: bool) -> Vec<RemoveResul
         .ok()
         .and_then(|c| remove_search_tools_section(&c))
     {
-        if !dry_run { let _ = fs::write(&md_path, &cleaned); }
+        if !dry_run {
+            let _ = fs::write(&md_path, &cleaned);
+        }
         results.push(RemoveResult::Removed(
             "Removed Search Tools section from AGENTS.md".to_string(),
         ));
@@ -405,8 +417,12 @@ fn remove_cursor_config(cursor_dir: &Path, dry_run: bool) -> Vec<RemoveResult> {
     let rule = cursor_dir.join("rules/ig-search.mdc");
 
     if rule.exists() {
-        if !dry_run { let _ = fs::remove_file(&rule); }
-        results.push(RemoveResult::Removed("Removed rules/ig-search.mdc".to_string()));
+        if !dry_run {
+            let _ = fs::remove_file(&rule);
+        }
+        results.push(RemoveResult::Removed(
+            "Removed rules/ig-search.mdc".to_string(),
+        ));
     }
 
     results
@@ -424,7 +440,9 @@ fn remove_tracking_data(home: &Path, dry_run: bool) -> RemoveResult {
     if !data_dir.is_dir() {
         return RemoveResult::NotFound("No tracking data found".to_string());
     }
-    if !dry_run { let _ = fs::remove_dir_all(&data_dir); }
+    if !dry_run {
+        let _ = fs::remove_dir_all(&data_dir);
+    }
     RemoveResult::Removed(format!("Removed {}", data_dir.display()))
 }
 
@@ -437,7 +455,9 @@ fn remove_binary(home: &Path, dry_run: bool) -> RemoveResult {
         return RemoveResult::NotFound("Binary not found at ~/.local/bin/ig".to_string());
     }
     // On Unix, removing a running binary is safe (inode stays until process exits)
-    if !dry_run { let _ = fs::remove_file(&bin); }
+    if !dry_run {
+        let _ = fs::remove_file(&bin);
+    }
     RemoveResult::Removed(format!("Removed {}", bin.display()))
 }
 
@@ -514,10 +534,12 @@ mod tests {
         assert_eq!(pre.len(), 1); // Grep matcher removed (empty after cleanup)
         let bash_hooks = pre[0]["hooks"].as_array().unwrap();
         assert_eq!(bash_hooks.len(), 1);
-        assert!(bash_hooks[0]["command"]
-            .as_str()
-            .unwrap()
-            .contains("custom hook"));
+        assert!(
+            bash_hooks[0]["command"]
+                .as_str()
+                .unwrap()
+                .contains("custom hook")
+        );
     }
 
     #[test]
@@ -609,7 +631,9 @@ mod tests {
                 .unwrap();
         let allow = settings["permissions"]["allow"].as_array().unwrap();
         assert_eq!(allow.len(), 1);
-        assert!(settings.get("hooks").is_none() || settings["hooks"].as_object().unwrap().is_empty());
+        assert!(
+            settings.get("hooks").is_none() || settings["hooks"].as_object().unwrap().is_empty()
+        );
 
         // Verify CLAUDE.md cleaned
         let md = fs::read_to_string(claude.join("CLAUDE.md")).unwrap();
