@@ -21,8 +21,10 @@ pub fn show_gain(clear: bool, history: bool, json: bool) {
     }
 
     if json {
-        let total_saved: u64 = entries.iter().map(|e| e.saved_bytes).sum();
+        // Use same calculation as dashboard: input - output (not stored saved field)
         let total_input: u64 = entries.iter().map(|e| e.original_bytes).sum();
+        let total_output: u64 = entries.iter().map(|e| e.output_bytes).sum();
+        let total_saved = total_input.saturating_sub(total_output);
         println!(
             "{{\"total_tokens_saved\":{},\"total_input\":{},\"total_commands\":{}}}",
             total_saved,
@@ -102,12 +104,12 @@ pub fn show_gain(clear: bool, history: bool, json: bool) {
         };
 
         // Impact bar (relative to top saver)
-        let max_saved = sorted.first().map(|(_, s)| s.saved_bytes).unwrap_or(1);
-        let bar_len = if max_saved > 0 {
-            ((stats.saved_bytes as f64 / max_saved as f64) * 10.0) as usize
-        } else {
-            0
-        };
+        let max_saved = sorted
+            .first()
+            .map(|(_, s)| s.saved_bytes)
+            .unwrap_or(1)
+            .max(1);
+        let bar_len = ((stats.saved_bytes as f64 / max_saved as f64) * 10.0) as usize;
         let bar = format!(
             "{}{}",
             "█".repeat(bar_len),

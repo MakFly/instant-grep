@@ -4,6 +4,7 @@
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
+use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
@@ -53,18 +54,36 @@ pub fn log_savings(entry: &TrackEntry) {
     let line = format!(
         "{{\"ts\":{},\"cmd\":\"{}\",\"in\":{},\"out\":{},\"saved\":{},\"pct\":{:.1},\"project\":\"{}\"}}\n",
         ts,
-        entry.command.replace('\\', "\\\\").replace('"', "\\\""),
+        entry
+            .command
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n")
+            .replace('\r', "\\r"),
         entry.original_bytes,
         entry.output_bytes,
         saved,
         pct,
-        entry.project.replace('\\', "\\\\").replace('"', "\\\""),
+        entry
+            .project
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n")
+            .replace('\r', "\\r"),
     );
 
     let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) else {
         return;
     };
+    // Acquire exclusive lock to prevent concurrent write corruption
+    unsafe {
+        libc::flock(file.as_raw_fd(), libc::LOCK_EX);
+    }
     let _ = file.write_all(line.as_bytes());
+    // Release lock
+    unsafe {
+        libc::flock(file.as_raw_fd(), libc::LOCK_UN);
+    }
 }
 
 /// Parsed history entry for aggregation.
@@ -79,34 +98,41 @@ pub struct HistoryEntry {
     pub project: String,
 }
 
+#[derive(serde::Deserialize)]
+struct JsonEntry {
+    #[serde(default)]
+    ts: u64,
+    #[serde(default)]
+    cmd: String,
+    #[serde(rename = "in", default)]
+    in_bytes: u64,
+    #[serde(rename = "out", default)]
+    out_bytes: u64,
+    #[serde(default)]
+    saved: u64,
+    #[serde(default)]
+    project: String,
+}
+
 /// Read all history entries.
 pub fn read_history() -> Vec<HistoryEntry> {
     let Some(path) = history_path() else {
         return Vec::new();
     };
-
     let Ok(content) = fs::read_to_string(&path) else {
         return Vec::new();
     };
-
     content
         .lines()
         .filter_map(|line| {
-            // Minimal JSON parsing without serde
-            let cmd = extract_json_str(line, "cmd")?;
-            let in_bytes = extract_json_u64(line, "in")?;
-            let out_bytes = extract_json_u64(line, "out")?;
-            let saved = extract_json_u64(line, "saved")?;
-            let ts = extract_json_u64(line, "ts").unwrap_or(0);
-            let project = extract_json_str(line, "project").unwrap_or_default();
-
+            let entry: JsonEntry = serde_json::from_str(line).ok()?;
             Some(HistoryEntry {
-                command: cmd,
-                original_bytes: in_bytes,
-                output_bytes: out_bytes,
-                saved_bytes: saved,
-                timestamp: ts,
-                project,
+                command: entry.cmd,
+                original_bytes: entry.in_bytes,
+                output_bytes: entry.out_bytes,
+                saved_bytes: entry.saved,
+                timestamp: entry.ts,
+                project: entry.project,
             })
         })
         .collect()
@@ -119,43 +145,25 @@ pub fn clear_history() {
     }
 }
 
-// Minimal JSON field extractors (no serde dependency)
-fn extract_json_str(json: &str, key: &str) -> Option<String> {
-    let pattern = format!("\"{}\":\"", key);
-    let start = json.find(&pattern)? + pattern.len();
-    let rest = &json[start..];
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
-}
-
-fn extract_json_u64(json: &str, key: &str) -> Option<u64> {
-    let pattern = format!("\"{}\":", key);
-    let start = json.find(&pattern)? + pattern.len();
-    let rest = json[start..].trim_start();
-    let end = rest
-        .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(rest.len());
-    rest[..end].parse().ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_extract_json_str() {
-        let json = r#"{"cmd":"ig read file.ts","in":5000}"#;
-        assert_eq!(
-            extract_json_str(json, "cmd"),
-            Some("ig read file.ts".into())
-        );
+    fn test_json_entry_parsing() {
+        let json = r#"{"ts":1234,"cmd":"ig read file.ts","in":5000,"out":2500,"saved":2500,"pct":50.0,"project":"/test"}"#;
+        let entry: JsonEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.cmd, "ig read file.ts");
+        assert_eq!(entry.in_bytes, 5000);
+        assert_eq!(entry.out_bytes, 2500);
+        assert_eq!(entry.saved, 2500);
     }
 
     #[test]
-    fn test_extract_json_u64() {
-        let json = r#"{"cmd":"ig read","in":5000,"out":2500}"#;
-        assert_eq!(extract_json_u64(json, "in"), Some(5000));
-        assert_eq!(extract_json_u64(json, "out"), Some(2500));
+    fn test_json_entry_with_escaped_quotes() {
+        let json = r#"{"ts":1234,"cmd":"ig \"pattern\"","in":5000,"out":2500,"saved":2500,"pct":50.0,"project":"/test"}"#;
+        let entry: JsonEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.cmd, r#"ig "pattern""#);
     }
 
     #[test]

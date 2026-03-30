@@ -9,6 +9,80 @@ use std::path::PathBuf;
 use crate::rewrite::{RewriteResult, classify_command};
 use crate::util::format_bytes;
 
+/// Broader classification for discover — counts commands ig *could* handle,
+/// even if the rewrite engine is too conservative to auto-rewrite them.
+/// This gives more accurate "missed savings" numbers.
+fn discover_classify(cmd: &str) -> RewriteResult {
+    let result = classify_command(cmd);
+    if matches!(result, RewriteResult::Passthrough) {
+        if is_discoverable(cmd) {
+            return RewriteResult::Rewrite(String::new());
+        }
+    }
+    result
+}
+
+/// Split a compound command on shell operators (with surrounding spaces) to avoid
+/// breaking regex patterns that contain `|`.
+fn split_first_command(cmd: &str) -> &str {
+    let trimmed = cmd.trim();
+    for sep in [" | ", " && ", " || ", "; "] {
+        if let Some(idx) = trimmed.find(sep) {
+            return trimmed[..idx].trim();
+        }
+    }
+    trimmed
+}
+
+/// Check if a Passthrough command is something ig could realistically replace.
+/// More permissive than the rewrite engine — used only for discover reporting.
+fn is_discoverable(cmd: &str) -> bool {
+    let trimmed = cmd.trim();
+
+    // For compound commands, check if the first command in the pipeline is discoverable
+    let first_cmd = split_first_command(trimmed);
+
+    let parts: Vec<&str> = first_cmd.split_whitespace().collect();
+    if parts.is_empty() {
+        return false;
+    }
+
+    match parts[0] {
+        // grep/egrep/fgrep without -r: ig can search single files too
+        "grep" | "egrep" | "fgrep" => {
+            // Any grep with a pattern arg is replaceable by ig
+            parts.iter().skip(1).any(|p| !p.starts_with('-'))
+        }
+        // cat with flags or multiple files: ig read handles these
+        "cat" => parts.len() >= 2,
+        // head/tail with complex args: ig read handles these
+        "head" | "tail" => parts.len() >= 2,
+        // find without -name: ig files can list project files
+        "find" => {
+            // Only if not destructive (-exec, -delete)
+            !parts.iter().any(|p| *p == "-exec" || *p == "-delete")
+        }
+        // rg is always rewritable (already handled by classify_command,
+        // but catches piped versions like `rg pattern | head`)
+        "rg" => true,
+        // ls with multiple paths
+        "ls" => true,
+        // wc -l (line counting) — ig can do this
+        "wc" => true,
+        _ => false,
+    }
+}
+
+/// Extract the base command name for grouping in discover, including from compound commands.
+fn discover_command_key(cmd: &str) -> String {
+    let trimmed = cmd.trim();
+
+    // For compound commands, extract the first command
+    let first_cmd = split_first_command(trimmed);
+
+    command_key(first_cmd)
+}
+
 pub fn run_discover(since_days: u32, limit: usize) {
     let sessions_dir = claude_projects_dir();
     if !sessions_dir.exists() {
@@ -41,14 +115,9 @@ pub fn run_discover(since_days: u32, limit: usize) {
             continue;
         }
 
-        // Walk JSONL files in each project
-        for file_entry in fs::read_dir(&project_dir).into_iter().flatten().flatten() {
-            let path = file_entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-                continue;
-            }
-
-            // Check file modification time against cutoff
+        // Walk JSONL files recursively (includes subagents/ subdirectories)
+        for path in walk_jsonl_files(&project_dir) {
+            // Check file modification time against cutoff (generous window to avoid false negatives)
             if cutoff > 0
                 && let Ok(meta) = fs::metadata(&path)
                 && let Ok(modified) = meta.modified()
@@ -57,7 +126,8 @@ pub fn run_discover(since_days: u32, limit: usize) {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
-                if mtime < cutoff {
+                let generous_cutoff = cutoff.saturating_sub(7 * 86400);
+                if mtime < generous_cutoff {
                     continue;
                 }
             }
@@ -74,14 +144,19 @@ pub fn run_discover(since_days: u32, limit: usize) {
                 }
 
                 // Extract Bash commands from the line
-                for cmd in extract_bash_commands(line) {
+                for (cmd, line_ts) in extract_bash_commands(line) {
+                    // Filter by line timestamp if available
+                    if cutoff > 0 && line_ts > 0 && line_ts < cutoff {
+                        continue;
+                    }
+
                     total_commands += 1;
 
-                    match classify_command(&cmd) {
+                    match discover_classify(&cmd) {
                         RewriteResult::Rewrite(_) => {
                             // This command COULD be rewritten — it's a missed saving
                             total_rewritable += 1;
-                            let key = command_key(&cmd);
+                            let key = discover_command_key(&cmd);
                             let stats = missed.entry(key).or_default();
                             stats.count += 1;
                             // Estimate savings based on typical compression ratios
@@ -89,7 +164,7 @@ pub fn run_discover(since_days: u32, limit: usize) {
                         }
                         RewriteResult::Passthrough => {
                             // Not rewritable — track for "top unhandled" report
-                            let key = command_key(&cmd);
+                            let key = discover_command_key(&cmd);
                             *unhandled.entry(key).or_insert(0) += 1;
                         }
                         RewriteResult::Deny(_) | RewriteResult::Ask(_) => {
@@ -163,9 +238,35 @@ pub fn run_discover(since_days: u32, limit: usize) {
     }
 }
 
+/// Recursively collect all `.jsonl` files under `dir`, up to depth 3.
+fn walk_jsonl_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    walk_jsonl_recursive(dir, &mut files, 0);
+    files
+}
+
+fn walk_jsonl_recursive(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>, depth: usize) {
+    if depth > 3 {
+        return;
+    } // Safety limit
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk_jsonl_recursive(&path, files, depth + 1);
+        } else if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
+            files.push(path);
+        }
+    }
+}
+
 /// Extract Bash command strings from a JSONL line.
-/// Format: assistant messages contain content[] with tool_use entries where name=="Bash"
-fn extract_bash_commands(line: &str) -> Vec<String> {
+/// Returns a Vec of (command, unix_timestamp) pairs.
+/// Format: assistant messages contain content[] with tool_use entries where name=="Bash".
+/// Also handles progress messages for subagent tool calls.
+fn extract_bash_commands(line: &str) -> Vec<(String, u64)> {
     let mut commands = Vec::new();
 
     // Fast path: parse with serde_json
@@ -173,29 +274,58 @@ fn extract_bash_commands(line: &str) -> Vec<String> {
         return commands;
     };
 
-    // Only process assistant messages
-    if value.get("type").and_then(|t| t.as_str()) != Some("assistant") {
+    let msg_type = value.get("type").and_then(|t| t.as_str());
+    if msg_type != Some("assistant") && msg_type != Some("progress") {
         return commands;
     }
 
-    // Walk content array
-    if let Some(content) = value
-        .get("message")
-        .and_then(|m| m.get("content"))
-        .and_then(|c| c.as_array())
-    {
-        for item in content {
-            if item.get("type").and_then(|t| t.as_str()) == Some("tool_use")
-                && item.get("name").and_then(|n| n.as_str()) == Some("Bash")
-                && let Some(cmd) = item
-                    .get("input")
-                    .and_then(|i| i.get("command"))
-                    .and_then(|c| c.as_str())
-            {
-                // Skip compound commands (ig can't rewrite those anyway)
-                let trimmed = cmd.trim();
-                if !trimmed.is_empty() && trimmed.len() < 500 {
-                    commands.push(trimmed.to_string());
+    // Extract line-level timestamp (ISO 8601 or unix u64)
+    let line_ts = value.get("timestamp").and_then(|t| t.as_u64()).unwrap_or(0);
+
+    // Helper closure: push a command with the line timestamp
+    let mut push_cmd = |cmd: &str| {
+        let trimmed = cmd.trim();
+        if !trimmed.is_empty() && trimmed.len() < 500 {
+            commands.push((trimmed.to_string(), line_ts));
+        }
+    };
+
+    // Walk content array for assistant messages
+    if msg_type == Some("assistant") {
+        if let Some(content) = value
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_array())
+        {
+            for item in content {
+                if item.get("type").and_then(|t| t.as_str()) == Some("tool_use")
+                    && item.get("name").and_then(|n| n.as_str()) == Some("Bash")
+                    && let Some(cmd) = item
+                        .get("input")
+                        .and_then(|i| i.get("command"))
+                        .and_then(|c| c.as_str())
+                {
+                    push_cmd(cmd);
+                }
+            }
+        }
+    }
+
+    // Also check progress messages (subagent tool calls)
+    if msg_type == Some("progress") {
+        if let Some(content) = value
+            .pointer("/data/message/message/content")
+            .and_then(|c| c.as_array())
+        {
+            for item in content {
+                if item.get("type").and_then(|t| t.as_str()) == Some("tool_use")
+                    && item.get("name").and_then(|n| n.as_str()) == Some("Bash")
+                    && let Some(cmd) = item
+                        .get("input")
+                        .and_then(|i| i.get("command"))
+                        .and_then(|c| c.as_str())
+                {
+                    push_cmd(cmd);
                 }
             }
         }
@@ -252,6 +382,7 @@ fn estimate_output_bytes(cmd: &str) -> u64 {
         "find" => 500,
         "tree" => 1000,
         "ls" => 300,
+        "wc" => 100,
         _ => 200,
     }
 }
@@ -265,4 +396,154 @@ fn claude_projects_dir() -> PathBuf {
 struct CmdStats {
     count: u64,
     estimated_bytes: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rewrite::RewriteResult;
+
+    // --- discover_classify: broader than classify_command ---
+
+    #[test]
+    fn test_discover_grep_without_recursive() {
+        // grep without -r is Passthrough in rewrite, but discoverable
+        assert!(matches!(
+            classify_command("grep pattern file.txt"),
+            RewriteResult::Passthrough
+        ));
+        assert!(matches!(
+            discover_classify("grep pattern file.txt"),
+            RewriteResult::Rewrite(_)
+        ));
+    }
+
+    #[test]
+    fn test_discover_grep_with_recursive_stays_rewrite() {
+        // grep with -r is already Rewrite — discover should keep it
+        assert!(matches!(
+            discover_classify("grep -rn pattern src/"),
+            RewriteResult::Rewrite(_)
+        ));
+    }
+
+    #[test]
+    fn test_discover_cat_with_flags() {
+        // cat -n file is Passthrough in rewrite, but discoverable
+        assert!(matches!(
+            classify_command("cat -n file.txt"),
+            RewriteResult::Passthrough
+        ));
+        assert!(matches!(
+            discover_classify("cat -n file.txt"),
+            RewriteResult::Rewrite(_)
+        ));
+    }
+
+    #[test]
+    fn test_discover_cat_multiple_files() {
+        assert!(matches!(
+            classify_command("cat a.txt b.txt"),
+            RewriteResult::Passthrough
+        ));
+        assert!(matches!(
+            discover_classify("cat a.txt b.txt"),
+            RewriteResult::Rewrite(_)
+        ));
+    }
+
+    #[test]
+    fn test_discover_find_without_name() {
+        // find . -type f is Passthrough in rewrite, but discoverable
+        assert!(matches!(
+            classify_command("find . -type f"),
+            RewriteResult::Passthrough
+        ));
+        assert!(matches!(
+            discover_classify("find . -type f"),
+            RewriteResult::Rewrite(_)
+        ));
+    }
+
+    #[test]
+    fn test_discover_find_with_exec_stays_passthrough() {
+        // find with -exec is NOT discoverable (destructive)
+        assert!(matches!(
+            discover_classify("find . -exec rm {} ;"),
+            RewriteResult::Passthrough
+        ));
+    }
+
+    #[test]
+    fn test_discover_piped_grep() {
+        // grep pattern file | head -5 — compound, but base is grep
+        assert!(matches!(
+            classify_command("grep pattern file | head -5"),
+            RewriteResult::Passthrough
+        ));
+        assert!(matches!(
+            discover_classify("grep pattern file | head -5"),
+            RewriteResult::Rewrite(_)
+        ));
+    }
+
+    #[test]
+    fn test_discover_piped_cat() {
+        assert!(matches!(
+            discover_classify("cat file.txt | grep pattern"),
+            RewriteResult::Rewrite(_)
+        ));
+    }
+
+    #[test]
+    fn test_discover_piped_rg() {
+        assert!(matches!(
+            discover_classify("rg pattern | head -20"),
+            RewriteResult::Rewrite(_)
+        ));
+    }
+
+    #[test]
+    fn test_discover_wc() {
+        assert!(matches!(
+            discover_classify("wc -l src/*.rs"),
+            RewriteResult::Rewrite(_)
+        ));
+    }
+
+    #[test]
+    fn test_discover_non_rewritable_stays_passthrough() {
+        // Commands ig can't replace at all
+        assert!(matches!(
+            discover_classify("docker exec -it app bash"),
+            RewriteResult::Passthrough
+        ));
+        assert!(matches!(
+            discover_classify("curl -s https://api.example.com"),
+            RewriteResult::Passthrough
+        ));
+        assert!(matches!(
+            discover_classify("ssh -p 22 server"),
+            RewriteResult::Passthrough
+        ));
+    }
+
+    // --- discover_command_key: handles compound commands ---
+
+    #[test]
+    fn test_discover_key_piped_command() {
+        assert_eq!(discover_command_key("grep pattern file | head -5"), "grep");
+        assert_eq!(discover_command_key("cat file.txt | wc -l"), "cat");
+    }
+
+    #[test]
+    fn test_discover_key_chained_command() {
+        assert_eq!(discover_command_key("ls && echo done"), "ls");
+    }
+
+    #[test]
+    fn test_discover_key_simple_command() {
+        assert_eq!(discover_command_key("grep -rn pattern src/"), "grep");
+        assert_eq!(discover_command_key("git log --oneline"), "git log");
+    }
 }

@@ -509,29 +509,37 @@ fn configure_cursor(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
 pub(crate) fn resolve_real_home() -> Option<PathBuf> {
     // If SUDO_USER is set, we're running under sudo — use the real user's home
     if let Ok(sudo_user) = std::env::var("SUDO_USER") {
-        // Try /etc/passwd lookup via getent (Linux)
-        if let Some(home_dir) = std::process::Command::new("getent")
-            .args(["passwd", &sudo_user])
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .and_then(|o| {
-                let line = String::from_utf8_lossy(&o.stdout).to_string();
-                line.split(':').nth(5).map(|h| PathBuf::from(h.trim()))
-            })
+        // Validate username to prevent shell injection
+        if !sudo_user
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
         {
-            return Some(home_dir);
-        }
-        // Fallback: expand ~user via shell
-        if let Some(home) = std::process::Command::new("sh")
-            .args(["-c", &format!("eval echo ~{}", sudo_user)])
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .filter(|h| !h.is_empty())
-        {
-            return Some(PathBuf::from(home));
+            eprintln!("Warning: SUDO_USER contains invalid characters, ignoring");
+        } else {
+            // Try /etc/passwd lookup via getent (Linux)
+            if let Some(home_dir) = std::process::Command::new("getent")
+                .args(["passwd", &sudo_user])
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .and_then(|o| {
+                    let line = String::from_utf8_lossy(&o.stdout).to_string();
+                    line.split(':').nth(5).map(|h| PathBuf::from(h.trim()))
+                })
+            {
+                return Some(home_dir);
+            }
+            // Fallback: expand ~user via shell (safe — username validated above)
+            if let Some(home) = std::process::Command::new("sh")
+                .args(["-c", &format!("eval echo ~{}", sudo_user)])
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .filter(|h| !h.is_empty())
+            {
+                return Some(PathBuf::from(home));
+            }
         }
     }
     // Default: use HOME
@@ -807,12 +815,7 @@ fn register_hook_in_settings(claude_dir: &Path) -> ConfigResult {
 fn configure_claude_settings(claude_dir: &Path) -> ConfigResult {
     let settings_path = claude_dir.join("settings.json");
 
-    let content = match fs::read_to_string(&settings_path) {
-        Ok(c) => c,
-        Err(_) => {
-            return ConfigResult::Error("Could not read ~/.claude/settings.json".to_string());
-        }
-    };
+    let content = fs::read_to_string(&settings_path).unwrap_or_else(|_| "{}".to_string());
 
     if content.contains(IG_PERMISSION) {
         return ConfigResult::AlreadyDone(
@@ -958,11 +961,13 @@ mod tests {
     }
 
     #[test]
-    fn test_claude_settings_missing_file_returns_error() {
+    fn test_claude_settings_missing_file_creates_it() {
         let dir = TempDir::new().unwrap();
-        // No settings.json written — file does not exist
+        // No settings.json written — file does not exist, should create with defaults
         let result = configure_claude_settings(&dir.path().to_path_buf());
-        assert!(matches!(result, ConfigResult::Error(_)));
+        assert!(matches!(result, ConfigResult::Configured(_)));
+        let content = fs::read_to_string(dir.path().join("settings.json")).unwrap();
+        assert!(content.contains("Bash(ig *)"));
     }
 
     #[test]

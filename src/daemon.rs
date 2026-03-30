@@ -147,13 +147,14 @@ pub fn start_daemon(root: &Path) -> Result<()> {
     let sock_path = socket_path(&root);
     let _ = std::fs::remove_file(&sock_path);
 
+    // Register cleanup handler BEFORE bind so socket is always cleaned up
+    let sock_cleanup = sock_path.clone();
+    ctrlc_cleanup(sock_cleanup);
+
     let listener =
         UnixListener::bind(&sock_path).with_context(|| format!("bind {}", sock_path.display()))?;
 
     eprintln!("Socket: {}", sock_path.display());
-
-    let sock_cleanup = sock_path.clone();
-    ctrlc_cleanup(sock_cleanup);
 
     // Spawn background file watcher thread for automatic index rebuilds
     spawn_file_watcher(&root);
@@ -254,6 +255,8 @@ fn run_file_watcher(root: &Path) -> Result<()> {
 }
 
 fn handle_client(stream: UnixStream, state: &Arc<RwLock<DaemonState>>) -> Result<()> {
+    // Set read timeout to prevent hung clients from blocking threads indefinitely
+    stream.set_read_timeout(Some(Duration::from_secs(30)))?;
     let mut buf_reader = BufReader::new(&stream);
     let mut writer = &stream;
 

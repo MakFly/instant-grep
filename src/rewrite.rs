@@ -63,13 +63,16 @@ pub fn classify_command(cmd: &str) -> RewriteResult {
 }
 
 fn is_deny_git_reset_hard(cmd: &str) -> bool {
-    let parts: Vec<&str> = shell_split(cmd);
+    let parts = shell_split(cmd);
     // git reset --hard [ref]
-    parts.len() >= 3 && parts[0] == "git" && parts[1] == "reset" && parts.contains(&"--hard")
+    parts.len() >= 3
+        && parts[0] == "git"
+        && parts[1] == "reset"
+        && parts.iter().any(|p| p == "--hard")
 }
 
 fn is_deny_git_clean(cmd: &str) -> bool {
-    let parts: Vec<&str> = shell_split(cmd);
+    let parts = shell_split(cmd);
     if parts.len() < 2 || parts[0] != "git" || parts[1] != "clean" {
         return false;
     }
@@ -81,42 +84,51 @@ fn is_deny_git_clean(cmd: &str) -> bool {
 }
 
 fn is_deny_rm_rf(cmd: &str) -> bool {
-    let parts: Vec<&str> = shell_split(cmd);
+    let parts = shell_split(cmd);
     if parts.is_empty() || parts[0] != "rm" {
         return false;
     }
     let has_recursive = parts.iter().any(|p| {
-        *p == "-r"
-            || *p == "-R"
-            || *p == "--recursive"
+        p == "-r"
+            || p == "-R"
+            || p == "--recursive"
             || (p.starts_with('-') && !p.starts_with("--") && (p.contains('r') || p.contains('R')))
     });
     let has_force = parts.iter().any(|p| {
-        *p == "-f"
-            || *p == "--force"
+        p == "-f"
+            || p == "--force"
             || (p.starts_with('-') && !p.starts_with("--") && p.contains('f'))
     });
     if !has_recursive || !has_force {
         return false;
     }
-    // Check for dangerous targets
+    // Check for dangerous targets — strip trailing '/' before comparison (Fix R3)
     let dangerous_targets = ["/", ".", "~"];
     parts
         .iter()
         .filter(|p| !p.starts_with('-'))
         .skip(1) // skip "rm"
-        .any(|p| dangerous_targets.contains(p))
+        .any(|p| {
+            // Strip trailing slashes; if that empties the string it was "/"
+            let normalized = p.trim_end_matches('/');
+            let normalized = if normalized.is_empty() {
+                "/"
+            } else {
+                normalized
+            };
+            dangerous_targets.contains(&normalized)
+        })
 }
 
 fn is_ask_git_push_force(cmd: &str) -> bool {
-    let parts: Vec<&str> = shell_split(cmd);
+    let parts = shell_split(cmd);
     if parts.len() < 2 || parts[0] != "git" || parts[1] != "push" {
         return false;
     }
     parts
         .iter()
         .skip(2)
-        .any(|p| *p == "--force" || *p == "-f" || *p == "--force-with-lease")
+        .any(|p| p == "--force" || p == "-f" || p == "--force-with-lease")
 }
 
 fn try_rewrite(cmd: &str) -> Option<String> {
@@ -130,12 +142,12 @@ fn try_rewrite(cmd: &str) -> Option<String> {
         return None;
     }
 
-    let parts: Vec<&str> = shell_split(cmd);
+    let parts = shell_split(cmd);
     if parts.is_empty() {
         return None;
     }
 
-    let bin = parts[0];
+    let bin = parts[0].as_str();
     match bin {
         "cat" => rewrite_cat(&parts),
         "head" => rewrite_head(&parts),
@@ -151,7 +163,7 @@ fn try_rewrite(cmd: &str) -> Option<String> {
 }
 
 /// cat file → ig read file
-fn rewrite_cat(parts: &[&str]) -> Option<String> {
+fn rewrite_cat(parts: &[String]) -> Option<String> {
     // Only rewrite simple `cat file` (no flags like -n, -A, etc.)
     if parts.len() == 2 && !parts[1].starts_with('-') {
         Some(format!("ig read {}", parts[1]))
@@ -161,7 +173,7 @@ fn rewrite_cat(parts: &[&str]) -> Option<String> {
 }
 
 /// head -N file → ig read file (first N lines shown by default)
-fn rewrite_head(parts: &[&str]) -> Option<String> {
+fn rewrite_head(parts: &[String]) -> Option<String> {
     match parts.len() {
         2 if !parts[1].starts_with('-') => {
             // head file → ig read file
@@ -180,7 +192,7 @@ fn rewrite_head(parts: &[&str]) -> Option<String> {
 }
 
 /// tail -N file → ig read file
-fn rewrite_tail(parts: &[&str]) -> Option<String> {
+fn rewrite_tail(parts: &[String]) -> Option<String> {
     match parts.len() {
         2 if !parts[1].starts_with('-') => Some(format!("ig read {}", parts[1])),
         3 => {
@@ -195,12 +207,12 @@ fn rewrite_tail(parts: &[&str]) -> Option<String> {
 }
 
 /// grep -r pattern dir → ig "pattern" dir
-fn rewrite_grep(parts: &[&str]) -> Option<String> {
+fn rewrite_grep(parts: &[String]) -> Option<String> {
     // Only intercept recursive grep (code search)
     let has_recursive = parts.iter().any(|p| {
-        *p == "-r"
-            || *p == "-R"
-            || *p == "--recursive"
+        p == "-r"
+            || p == "-R"
+            || p == "--recursive"
             || (p.starts_with('-') && !p.starts_with("--") && (p.contains('r') || p.contains('R')))
     });
 
@@ -209,33 +221,41 @@ fn rewrite_grep(parts: &[&str]) -> Option<String> {
     }
 
     // Extract pattern and path
-    let mut pattern = None;
-    let mut path = None;
+    let mut pattern: Option<&str> = None;
+    let mut path: Option<&str> = None;
     let mut skip_next = false;
+    let mut next_is_pattern = false;
 
     for part in parts.iter().skip(1) {
         if skip_next {
             skip_next = false;
             continue;
         }
+        if next_is_pattern {
+            pattern = Some(part.as_str());
+            next_is_pattern = false;
+            continue;
+        }
         if part.starts_with('-') {
-            // Flags like -e, --include take a value
-            if *part == "-e" || *part == "--include" || *part == "--exclude" {
+            if part == "-e" {
+                // Fix R2: next token is the explicit pattern
+                next_is_pattern = true;
+            } else if part == "--include" || part == "--exclude" {
                 skip_next = true;
             }
             continue;
         }
         if pattern.is_none() {
-            pattern = Some(*part);
+            pattern = Some(part.as_str());
         } else if path.is_none() {
-            path = Some(*part);
+            path = Some(part.as_str());
         }
     }
 
     let pattern = pattern?;
     let case_flag = if parts
         .iter()
-        .any(|p| *p == "-i" || (p.starts_with('-') && !p.starts_with("--") && p.contains('i')))
+        .any(|p| p == "-i" || (p.starts_with('-') && !p.starts_with("--") && p.contains('i')))
     {
         " -i"
     } else {
@@ -249,9 +269,9 @@ fn rewrite_grep(parts: &[&str]) -> Option<String> {
 }
 
 /// rg pattern [path] → ig "pattern" [path]
-fn rewrite_rg(parts: &[&str]) -> Option<String> {
-    let mut pattern = None;
-    let mut path = None;
+fn rewrite_rg(parts: &[String]) -> Option<String> {
+    let mut pattern: Option<&str> = None;
+    let mut path: Option<&str> = None;
     let mut case_flag = "";
     let mut type_filter: Option<&str> = None;
     let mut skip_next = false;
@@ -263,26 +283,26 @@ fn rewrite_rg(parts: &[&str]) -> Option<String> {
             continue;
         }
         if next_is_type {
-            type_filter = Some(*part);
+            type_filter = Some(part.as_str());
             next_is_type = false;
             continue;
         }
-        if *part == "-i" || *part == "--ignore-case" {
+        if part == "-i" || part == "--ignore-case" {
             case_flag = " -i";
             continue;
         }
         if part.starts_with('-') {
-            if *part == "-t" || *part == "--type" {
+            if part == "-t" || part == "--type" {
                 next_is_type = true;
-            } else if *part == "-g" || *part == "--glob" {
+            } else if part == "-g" || part == "--glob" {
                 skip_next = true;
             }
             continue;
         }
         if pattern.is_none() {
-            pattern = Some(*part);
+            pattern = Some(part.as_str());
         } else if path.is_none() {
-            path = Some(*part);
+            path = Some(part.as_str());
         }
     }
 
@@ -298,21 +318,21 @@ fn rewrite_rg(parts: &[&str]) -> Option<String> {
 }
 
 /// tree → cat .ig/tree.txt (if exists) or ig ls
-fn rewrite_tree(_parts: &[&str]) -> Option<String> {
+fn rewrite_tree(_parts: &[String]) -> Option<String> {
     // Always rewrite tree (with or without flags like -L N -I pattern)
     Some("cat .ig/tree.txt 2>/dev/null || ig ls".to_string())
 }
 
 /// find . -name "*.ts" → ig files --glob "*.ts"
-fn rewrite_find(parts: &[&str]) -> Option<String> {
+fn rewrite_find(parts: &[String]) -> Option<String> {
     // Only rewrite find with -name pattern
-    let name_idx = parts.iter().position(|p| *p == "-name" || *p == "-iname")?;
+    let name_idx = parts.iter().position(|p| p == "-name" || p == "-iname")?;
     let pattern = parts.get(name_idx + 1)?;
 
     // Skip if there are destructive or complex action flags
     if parts
         .iter()
-        .any(|p| *p == "-exec" || *p == "-delete" || *p == "-print0")
+        .any(|p| p == "-exec" || p == "-delete" || p == "-print0")
     {
         return None;
     }
@@ -321,29 +341,30 @@ fn rewrite_find(parts: &[&str]) -> Option<String> {
     // Reject other -type values (d, l, etc.)
     let mut i = 1;
     while i < parts.len() {
-        if parts[i] == "-type"
-            && let Some(val) = parts.get(i + 1)
-        {
-            if *val != "f" {
-                return None;
+        if parts[i] == "-type" {
+            if let Some(val) = parts.get(i + 1) {
+                if val != "f" {
+                    return None;
+                }
+                i += 2;
+                continue;
             }
-            i += 2;
-            continue;
         }
         i += 1;
     }
 
-    Some(format!("ig files --glob {}", pattern))
+    // Fix R4: quote the glob pattern in output
+    Some(format!("ig files --glob \"{}\"", pattern))
 }
 
 /// ls [dir] → ig ls [dir]
-fn rewrite_ls(parts: &[&str]) -> Option<String> {
+fn rewrite_ls(parts: &[String]) -> Option<String> {
     // Collect non-flag args
     let args: Vec<&str> = parts
         .iter()
         .skip(1)
         .filter(|p| !p.starts_with('-'))
-        .copied()
+        .map(|p| p.as_str())
         .collect();
 
     match args.len() {
@@ -355,11 +376,11 @@ fn rewrite_ls(parts: &[&str]) -> Option<String> {
 
 /// git status/log/diff/branch/show → ig git <subcmd> [args]
 /// Destructive commands (push, reset, checkout, clean, rebase, merge, commit) are NOT rewritten.
-fn rewrite_git(parts: &[&str]) -> Option<String> {
+fn rewrite_git(parts: &[String]) -> Option<String> {
     if parts.len() < 2 {
         return None;
     }
-    let subcmd = parts[1];
+    let subcmd = parts[1].as_str();
     // Only rewrite read-only git subcommands
     match subcmd {
         "status" | "log" | "diff" | "branch" | "show" => {
@@ -374,9 +395,52 @@ fn rewrite_git(parts: &[&str]) -> Option<String> {
     }
 }
 
-/// Simple shell-like splitting (handles quotes minimally)
-fn shell_split(cmd: &str) -> Vec<&str> {
-    cmd.split_whitespace().collect()
+/// Quote-aware shell tokenizer (Fix R1).
+///
+/// Handles double and single quotes, stripping them from the resulting tokens.
+/// Supports escaped characters within double-quoted strings.
+fn shell_split(cmd: &str) -> Vec<String> {
+    let mut tokens: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut chars = cmd.chars().peekable();
+    let mut in_double = false;
+    let mut in_single = false;
+    let mut in_token = false;
+
+    while let Some(c) = chars.next() {
+        match c {
+            '"' if !in_single => {
+                in_double = !in_double;
+                in_token = true;
+            }
+            '\'' if !in_double => {
+                in_single = !in_single;
+                in_token = true;
+            }
+            '\\' if in_double => {
+                // Escape sequence inside double quotes
+                if let Some(next) = chars.next() {
+                    current.push(next);
+                }
+                in_token = true;
+            }
+            ' ' | '\t' if !in_double && !in_single => {
+                if in_token {
+                    tokens.push(current.clone());
+                    current.clear();
+                    in_token = false;
+                }
+            }
+            _ => {
+                current.push(c);
+                in_token = true;
+            }
+        }
+    }
+    if in_token {
+        tokens.push(current);
+    }
+    tokens
 }
 
 #[cfg(test)]
@@ -490,13 +554,13 @@ mod tests {
     #[test]
     fn test_rewrite_find() {
         assert!(matches!(
-            classify_command("find . -name \"*.ts\""),
-            RewriteResult::Rewrite(s) if s == "ig files --glob \"*.ts\""
+            classify_command(r#"find . -name "*.ts""#),
+            RewriteResult::Rewrite(s) if s == r#"ig files --glob "*.ts""#
         ));
         // Bug fix: -type f must be allowed (ig only indexes files anyway)
         assert!(matches!(
-            classify_command("find . -type f -name \"*.rs\""),
-            RewriteResult::Rewrite(s) if s == "ig files --glob \"*.rs\""
+            classify_command(r#"find . -type f -name "*.rs""#),
+            RewriteResult::Rewrite(s) if s == r#"ig files --glob "*.rs""#
         ));
         // -type d (directory) should not be rewritten
         assert!(matches!(
@@ -505,7 +569,7 @@ mod tests {
         ));
         // Don't rewrite find with -exec
         assert!(matches!(
-            classify_command("find . -name \"*.ts\" -exec rm {} ;"),
+            classify_command(r#"find . -name "*.ts" -exec rm {} ;"#),
             RewriteResult::Passthrough
         ));
     }
@@ -640,6 +704,44 @@ mod tests {
         assert!(matches!(
             classify_command("cargo test"),
             RewriteResult::Passthrough
+        ));
+    }
+
+    // --- New tests for fixes R1/R2/R3 ---
+
+    #[test]
+    fn test_shell_split_quotes() {
+        let parts = shell_split(r#"grep -r "hello world" src/"#);
+        assert_eq!(parts, vec!["grep", "-r", "hello world", "src/"]);
+    }
+
+    #[test]
+    fn test_shell_split_single_quotes() {
+        let parts = shell_split("cat 'my file.rs'");
+        assert_eq!(parts, vec!["cat", "my file.rs"]);
+    }
+
+    #[test]
+    fn test_rewrite_grep_e_flag() {
+        assert!(matches!(
+            classify_command("grep -r -e pattern src/"),
+            RewriteResult::Rewrite(s) if s == r#"ig "pattern" src/"#
+        ));
+    }
+
+    #[test]
+    fn test_deny_rm_rf_dot_slash() {
+        assert!(matches!(
+            classify_command("rm -rf ./"),
+            RewriteResult::Deny(_)
+        ));
+    }
+
+    #[test]
+    fn test_deny_rm_rf_tilde_slash() {
+        assert!(matches!(
+            classify_command("rm -rf ~/"),
+            RewriteResult::Deny(_)
         ));
     }
 }
