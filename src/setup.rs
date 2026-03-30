@@ -510,28 +510,28 @@ fn resolve_real_home() -> Option<PathBuf> {
     // If SUDO_USER is set, we're running under sudo — use the real user's home
     if let Ok(sudo_user) = std::env::var("SUDO_USER") {
         // Try /etc/passwd lookup via getent (Linux)
-        if let Ok(output) = std::process::Command::new("getent")
+        if let Some(home_dir) = std::process::Command::new("getent")
             .args(["passwd", &sudo_user])
             .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .and_then(|o| {
+                let line = String::from_utf8_lossy(&o.stdout).to_string();
+                line.split(':').nth(5).map(|h| PathBuf::from(h.trim()))
+            })
         {
-            if output.status.success() {
-                let line = String::from_utf8_lossy(&output.stdout);
-                if let Some(home_dir) = line.split(':').nth(5) {
-                    return Some(PathBuf::from(home_dir.trim()));
-                }
-            }
+            return Some(home_dir);
         }
         // Fallback: expand ~user via shell
-        if let Ok(output) = std::process::Command::new("sh")
+        if let Some(home) = std::process::Command::new("sh")
             .args(["-c", &format!("eval echo ~{}", sudo_user)])
             .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .filter(|h| !h.is_empty())
         {
-            if output.status.success() {
-                let home = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !home.is_empty() {
-                    return Some(PathBuf::from(home));
-                }
-            }
+            return Some(PathBuf::from(home));
         }
     }
     // Default: use HOME
