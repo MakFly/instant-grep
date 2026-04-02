@@ -30,6 +30,7 @@ use clap::Parser;
 
 use cli::{Cli, Commands};
 use index::metadata::{INDEX_VERSION, IndexMetadata};
+use index::overlay::OverlayReader;
 use index::writer;
 use output::printer::Printer;
 use search::indexed;
@@ -129,9 +130,15 @@ fn main() -> Result<()> {
                 );
             }
 
+            // Account for overlay files (added/modified since last full rebuild)
+            let total_file_count = if let Ok(Some(overlay)) = OverlayReader::open(&ig) {
+                meta.file_count + overlay.metadata.overlay_file_count
+            } else {
+                meta.file_count
+            };
             eprintln!(
                 "Index: {} files, {} trigrams, {:.1} MB, built {}",
-                meta.file_count,
+                total_file_count,
                 meta.ngram_count,
                 size as f64 / 1_048_576.0,
                 format_age(age_secs),
@@ -443,6 +450,11 @@ fn prepare_pattern(pattern: &str, word_regexp: bool, fixed_strings: bool) -> Str
 /// Core search logic shared between `ig "pattern"` and `ig search "pattern"`.
 #[allow(clippy::too_many_arguments)]
 fn do_search(opts: &SearchOpts) -> Result<()> {
+    // Reject empty patterns — they match everything and waste tokens
+    if opts.pattern.is_empty() {
+        anyhow::bail!("empty pattern — provide a search term");
+    }
+
     // Detect single-file search: if path points to a file, scope search to it
     let (root, path_filter) = resolve_root_and_filter(opts.path);
     let pattern = prepare_pattern(opts.pattern, opts.word_regexp, opts.fixed_strings);

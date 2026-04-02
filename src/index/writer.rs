@@ -97,9 +97,32 @@ fn check_and_rebuild(
     current_git_commit: &Option<String>,
     meta: &IndexMetadata,
 ) -> Result<IndexMetadata> {
-    let changed = detect_changed_files(root, meta, current_git_commit);
+    let changed = detect_changed_files(root, meta, current_git_commit, use_default_excludes, max_file_size);
     if let Some(changed_paths) = changed {
         if changed_paths.is_empty() {
+            // Sanity check: verify total file count on disk matches what the index knows.
+            // This catches edge cases where detect_changed_files missed new files (e.g.
+            // git-diff path used but untracked files were added outside git's view).
+            let overlay_file_count = OverlayReader::open(ig)
+                .ok()
+                .flatten()
+                .map(|r| r.metadata.overlay_file_count as usize)
+                .unwrap_or(0);
+            let indexed_count = meta.file_count as usize + overlay_file_count;
+
+            let disk_count = walk_files(root, use_default_excludes, max_file_size, None, None)
+                .map(|f| f.len())
+                .unwrap_or(0);
+
+            if disk_count != indexed_count {
+                eprintln!(
+                    "File count mismatch (index: {}, disk: {}), rebuilding...",
+                    indexed_count, disk_count
+                );
+                overlay::clear_overlay(ig);
+                return full_rebuild(root, use_default_excludes, max_file_size, current_git_commit);
+            }
+
             eprintln!("Index is up to date");
             return Ok(meta.clone());
         }
@@ -339,6 +362,8 @@ fn detect_changed_files(
     root: &Path,
     meta: &IndexMetadata,
     current_commit: &Option<String>,
+    use_default_excludes: bool,
+    max_file_size: u64,
 ) -> Option<Vec<String>> {
     let mut changed = Vec::new();
 
@@ -347,6 +372,10 @@ fn detect_changed_files(
     {
         return detect_git_diff_files(root, old_commit, new_commit);
     }
+
+    // Build a set of indexed paths for O(1) lookup when scanning for new files
+    let indexed_paths: std::collections::HashSet<&str> =
+        meta.files.iter().map(|f| f.path.as_str()).collect();
 
     for file in &meta.files {
         let full_path = root.join(&file.path);
@@ -364,6 +393,18 @@ fn detect_changed_files(
             }
             Err(_) => {
                 changed.push(file.path.clone());
+            }
+        }
+    }
+
+    // Discover new files on disk that are not yet in the index
+    if let Ok(disk_files) = walk_files(root, use_default_excludes, max_file_size, None, None) {
+        for path in disk_files {
+            if let Ok(rel) = path.strip_prefix(root) {
+                let rel_str = rel.to_string_lossy();
+                if !indexed_paths.contains(rel_str.as_ref()) {
+                    changed.push(rel_str.into_owned());
+                }
             }
         }
     }

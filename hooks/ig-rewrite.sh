@@ -28,7 +28,8 @@ CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 [ -z "$CMD" ] && exit 0
 
 # Delegate rewrite logic to the ig binary
-REWRITTEN=$($IG rewrite "$CMD" 2>/dev/null)
+REWRITE_ERR=$(mktemp)
+REWRITTEN=$($IG rewrite "$CMD" 2>"$REWRITE_ERR")
 EXIT_CODE=$?
 
 ORIGINAL_INPUT=$(echo "$INPUT" | jq -c '.tool_input')
@@ -37,20 +38,26 @@ UPDATED_INPUT=$(echo "$ORIGINAL_INPUT" | jq --arg cmd "$REWRITTEN" '.command = $
 case $EXIT_CODE in
   0)
     # Rewrite found — auto-allow
+    rm -f "$REWRITE_ERR"
     [ "$CMD" = "$REWRITTEN" ] && exit 0
     ;;
   1)
     # No rewrite — passthrough
+    rm -f "$REWRITE_ERR"
     exit 0
     ;;
   2)
-    # Deny — let Claude Code's native deny handle it
-    exit 0
+    # Deny — block destructive command, forward reason to stderr
+    cat "$REWRITE_ERR" >&2
+    rm -f "$REWRITE_ERR"
+    exit 2
     ;;
   3)
     # Ask — rewrite but don't auto-allow (user confirms)
+    rm -f "$REWRITE_ERR"
     ;;
   *)
+    rm -f "$REWRITE_ERR"
     exit 0
     ;;
 esac
