@@ -374,6 +374,10 @@ fn main() -> Result<()> {
             uninstall::run_uninstall(dry_run, yes);
         }
 
+        Some(Commands::Update) => {
+            update::run_update()?;
+        }
+
         Some(Commands::Query { pattern, path }) => {
             let root = resolve_root(path.as_deref());
             let response = daemon::query_daemon(&root, &pattern, ignore_case)?;

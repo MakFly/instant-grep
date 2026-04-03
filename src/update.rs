@@ -1,7 +1,9 @@
 use std::fs;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use anyhow::{Context, Result};
 
 const GITHUB_API_URL: &str = "https://api.github.com/repos/MakFly/instant-grep/releases/latest";
 const CHECK_INTERVAL_SECS: u64 = 86400; // 24h
@@ -13,6 +15,120 @@ pub fn check_update_background() {
     std::thread::spawn(|| {
         let _ = check_update();
     });
+}
+
+/// Interactive self-update with progress bar.
+pub fn run_update() -> Result<()> {
+    eprint!("  Checking latest version... ");
+    let response: serde_json::Value = ureq::get(GITHUB_API_URL)
+        .header("User-Agent", &format!("ig/{}", CURRENT_VERSION))
+        .call()
+        .context("failed to reach GitHub API")?
+        .body_mut()
+        .read_json()
+        .context("failed to parse release info")?;
+
+    let tag = response
+        .get("tag_name")
+        .and_then(|t| t.as_str())
+        .context("no tag_name in release")?;
+    let latest = tag.strip_prefix('v').unwrap_or(tag);
+
+    if !is_newer(latest) {
+        eprintln!("✓");
+        eprintln!("\n  Already up to date (v{}).", CURRENT_VERSION);
+        return Ok(());
+    }
+
+    eprintln!("v{} → v{}", CURRENT_VERSION, latest);
+
+    // Detect platform
+    let artifact = detect_artifact()?;
+    let url = format!(
+        "https://github.com/MakFly/instant-grep/releases/download/{}/{}",
+        tag, artifact
+    );
+
+    // Find current binary path
+    let bin_path = std::env::current_exe().context("cannot determine binary path")?;
+    let bin_path = bin_path.canonicalize().unwrap_or_else(|_| bin_path.clone());
+
+    // Download binary
+    let tmp_path = bin_path.with_extension("tmp");
+
+    eprint!("  Downloading {}...", artifact);
+    io::stderr().flush().ok();
+
+    let bytes = ureq::get(&url)
+        .header("User-Agent", &format!("ig/{}", CURRENT_VERSION))
+        .call()
+        .context("download failed")?
+        .body_mut()
+        .read_to_vec()
+        .context("failed to read response body")?;
+
+    let size_mb = bytes.len() as f64 / 1_048_576.0;
+    eprint!(
+        "\r  Downloading {}... [{}] {:.1} MB ✓\n",
+        artifact,
+        "█".repeat(20),
+        size_mb
+    );
+
+    fs::write(&tmp_path, &bytes).context("cannot write temp file")?;
+
+    // Set executable permission
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&tmp_path, fs::Permissions::from_mode(0o755))?;
+    }
+
+    // Atomic replace: rename tmp over current binary
+    eprint!("  Installing... ");
+    fs::rename(&tmp_path, &bin_path)
+        .or_else(|_| {
+            // rename fails across filesystems — fallback to copy
+            fs::copy(&tmp_path, &bin_path)?;
+            fs::remove_file(&tmp_path)?;
+            Ok::<_, io::Error>(())
+        })
+        .context("failed to replace binary")?;
+
+    eprintln!("✓");
+    eprintln!("\n  Updated: v{} → v{}", CURRENT_VERSION, latest);
+    eprintln!("  Path: {}", bin_path.display());
+
+    // Update cache so background check doesn't re-notify
+    if let Some(cache) = cache_path() {
+        if let Some(dir) = cache.parent() {
+            let _ = fs::create_dir_all(dir);
+        }
+        if let Ok(mut f) = fs::File::create(&cache) {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let _ = writeln!(f, "{}", now);
+            let _ = writeln!(f, "{}", latest);
+        }
+    }
+
+    Ok(())
+}
+
+fn detect_artifact() -> Result<String> {
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
+
+    let name = match (os, arch) {
+        ("macos", "aarch64") => "ig-macos-aarch64",
+        ("macos", "x86_64") => "ig-macos-x86_64",
+        ("linux", "x86_64") => "ig-linux-x86_64",
+        ("linux", "aarch64") => "ig-linux-aarch64",
+        _ => anyhow::bail!("unsupported platform: {}-{}", os, arch),
+    };
+    Ok(name.to_string())
 }
 
 fn cache_dir() -> Option<PathBuf> {
@@ -95,7 +211,7 @@ fn is_newer(latest: &str) -> bool {
 
 fn print_update_message(latest: &str) {
     eprintln!(
-        "\x1b[33m\u{1f4a1} ig v{} available (current: v{}) \u{2192} https://github.com/MakFly/instant-grep/releases\x1b[0m",
+        "\x1b[33mig v{} available (current: v{}). Run `ig update` to upgrade.\x1b[0m",
         latest, CURRENT_VERSION,
     );
 }
@@ -106,8 +222,6 @@ mod tests {
 
     #[test]
     fn test_is_newer_true() {
-        // CURRENT_VERSION is determined at compile time from Cargo.toml
-        // Use versions guaranteed to be newer than any realistic current version
         assert!(is_newer("99.0.0"));
         assert!(is_newer("99.99.99"));
     }
@@ -116,14 +230,14 @@ mod tests {
     fn test_is_newer_false() {
         assert!(!is_newer("0.0.1"));
         assert!(!is_newer("0.1.0"));
-        assert!(!is_newer(CURRENT_VERSION)); // same version is not newer
+        assert!(!is_newer(CURRENT_VERSION));
     }
 
     #[test]
     fn test_is_newer_invalid() {
         assert!(!is_newer("not-a-version"));
         assert!(!is_newer(""));
-        assert!(!is_newer("1.0")); // only two parts — not a valid semver triple
+        assert!(!is_newer("1.0"));
     }
 
     #[test]
@@ -133,5 +247,11 @@ mod tests {
             let path = cache_path().unwrap();
             assert!(path.to_string_lossy().contains(".config/ig"));
         }
+    }
+
+    #[test]
+    fn test_detect_artifact() {
+        let artifact = detect_artifact().unwrap();
+        assert!(artifact.starts_with("ig-"));
     }
 }

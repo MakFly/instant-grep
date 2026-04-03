@@ -234,6 +234,9 @@ pub enum Commands {
         yes: bool,
     },
 
+    /// Update ig to the latest version
+    Update,
+
     /// Send a search query to a running daemon
     Query {
         /// Regex pattern to search for
