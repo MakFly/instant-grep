@@ -20,6 +20,7 @@ pub struct SearchStats {
 
 /// Search using the trigram index.
 /// Falls back to brute-force if the pattern cannot be optimized.
+#[allow(clippy::too_many_arguments)]
 pub fn search_indexed(
     root: &Path,
     pattern: &str,
@@ -28,6 +29,7 @@ pub fn search_indexed(
     type_filter: Option<&str>,
     glob_filter: Option<&str>,
     path_filter: Option<&str>,
+    max_file_size: u64,
 ) -> Result<(Vec<FileMatches>, SearchStats)> {
     let ig = ig_dir(root);
     let start = Instant::now();
@@ -46,6 +48,7 @@ pub fn search_indexed(
             type_filter,
             glob_filter,
             path_filter,
+            max_file_size,
         )?;
         let stats = SearchStats {
             total_files,
@@ -71,6 +74,7 @@ pub fn search_indexed(
             type_filter,
             glob_filter,
             path_filter,
+            max_file_size,
         )?;
         let stats = SearchStats {
             total_files,
@@ -112,6 +116,16 @@ pub fn search_indexed(
                 && !matches_glob(&rel_path, glob)
             {
                 return None;
+            }
+
+            // Apply max file size filter
+            if max_file_size > 0 {
+                let full_path = root.join(&rel_path);
+                if let Ok(metadata) = std::fs::metadata(&full_path)
+                    && metadata.len() > max_file_size
+                {
+                    return None;
+                }
             }
 
             Some((*doc_id, rel_path))

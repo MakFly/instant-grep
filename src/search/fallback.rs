@@ -6,7 +6,7 @@ use rayon::prelude::*;
 use regex::bytes::RegexBuilder;
 
 use crate::search::matcher::{self, FileMatches, SearchConfig};
-use crate::walk::{DEFAULT_MAX_FILE_SIZE, walk_files};
+use crate::walk::walk_files;
 
 /// Quick binary check: read only the first 8KB to look for null bytes.
 fn is_binary_file(path: &Path) -> bool {
@@ -22,6 +22,7 @@ fn is_binary_file(path: &Path) -> bool {
 
 /// Brute-force search: scan all files with regex (no index).
 /// Uses rayon for parallel file verification.
+#[allow(clippy::too_many_arguments)]
 pub fn search_brute_force(
     root: &Path,
     pattern: &str,
@@ -30,6 +31,7 @@ pub fn search_brute_force(
     type_filter: Option<&str>,
     glob_filter: Option<&str>,
     path_filter: Option<&str>,
+    max_file_size: u64,
 ) -> Result<Vec<FileMatches>> {
     let regex = RegexBuilder::new(pattern)
         .case_insensitive(case_insensitive)
@@ -48,8 +50,8 @@ pub fn search_brute_force(
         return Ok(Vec::new());
     }
 
-    let paths = walk_files(root, true, DEFAULT_MAX_FILE_SIZE, type_filter, glob_filter)
-        .context("walking files")?;
+    let paths =
+        walk_files(root, true, max_file_size, type_filter, glob_filter).context("walking files")?;
 
     let mut results: Vec<FileMatches> = paths
         .par_iter()

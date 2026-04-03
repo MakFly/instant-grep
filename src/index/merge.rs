@@ -242,10 +242,12 @@ fn write_entry(w: &mut BufWriter<File>, key: NgramKey, offset: u32, length: u32)
 ///
 /// Returns the table as a byte vector ready to write to lexicon.bin.
 pub fn build_lexicon(entries: &[MergedEntry]) -> Vec<u8> {
-    let table_size = next_prime((entries.len() as f64 * 1.3) as usize);
-    if table_size == 0 {
+    if entries.is_empty() {
         return Vec::new();
     }
+    // Ensure at least 1 empty slot so linear-probing lookups always terminate.
+    let min_size = entries.len() + 1;
+    let table_size = next_prime(min_size.max((entries.len() as f64 * 1.3) as usize));
 
     const ENTRY_SIZE: usize = 16; // u64 key + u32 offset + u32 length
     let mut table = vec![0u8; table_size * ENTRY_SIZE];

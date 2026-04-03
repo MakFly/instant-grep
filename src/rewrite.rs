@@ -341,14 +341,14 @@ fn rewrite_find(parts: &[String]) -> Option<String> {
     // Reject other -type values (d, l, etc.)
     let mut i = 1;
     while i < parts.len() {
-        if parts[i] == "-type" {
-            if let Some(val) = parts.get(i + 1) {
-                if val != "f" {
-                    return None;
-                }
-                i += 2;
-                continue;
+        if parts[i] == "-type"
+            && let Some(val) = parts.get(i + 1)
+        {
+            if val != "f" {
+                return None;
             }
+            i += 2;
+            continue;
         }
         i += 1;
     }
