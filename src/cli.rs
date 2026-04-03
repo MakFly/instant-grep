@@ -10,9 +10,9 @@ pub struct Cli {
     #[arg(global = false)]
     pub pattern: Option<String>,
 
-    /// Directory or file to search (default: current dir)
-    #[arg(global = false)]
-    pub path: Option<String>,
+    /// Directories or files to search (default: current dir)
+    #[arg(global = false, num_args = 0..)]
+    pub paths: Vec<String>,
 
     /// Case-insensitive search
     #[arg(short = 'i', long, global = true)]
@@ -82,8 +82,9 @@ pub enum Commands {
         /// Regex pattern to search for
         pattern: String,
 
-        /// Directory or file to search (default: current dir)
-        path: Option<String>,
+        /// Directories or files to search (default: current dir)
+        #[arg(num_args = 0..)]
+        paths: Vec<String>,
     },
 
     /// Build or rebuild the trigram index
@@ -232,6 +233,12 @@ pub enum Commands {
         /// Skip interactive confirmation
         #[arg(long, short = 'y')]
         yes: bool,
+    },
+
+    /// Connect to brain.dev for persistent AI memory
+    Brain {
+        /// Action: login, sync, pull, status
+        action: String,
     },
 
     /// Update ig to the latest version

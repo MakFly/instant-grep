@@ -1,3 +1,4 @@
+mod brain;
 mod cli;
 mod context;
 mod daemon;
@@ -63,10 +64,10 @@ fn main() -> Result<()> {
 
     match cli.command {
         // Explicit subcommands
-        Some(Commands::Search { pattern, path }) => {
+        Some(Commands::Search { pattern, paths }) => {
             do_search(&SearchOpts {
                 pattern: &pattern,
-                path: path.as_deref(),
+                paths: &paths,
                 ignore_case,
                 after_context,
                 before_context,
@@ -374,6 +375,18 @@ fn main() -> Result<()> {
             uninstall::run_uninstall(dry_run, yes);
         }
 
+        Some(Commands::Brain { action }) => match action.as_str() {
+            "login" => brain::brain_login()?,
+            "sync" => brain::brain_sync()?,
+            "pull" => brain::brain_pull()?,
+            "status" => brain::brain_status()?,
+            _ => {
+                eprintln!("Unknown brain action: {action}");
+                eprintln!("Usage: ig brain [login|sync|pull|status]");
+                std::process::exit(1);
+            }
+        },
+
         Some(Commands::Update) => {
             update::run_update()?;
         }
@@ -389,7 +402,7 @@ fn main() -> Result<()> {
             if let Some(pattern) = cli.pattern {
                 do_search(&SearchOpts {
                     pattern: &pattern,
-                    path: cli.path.as_deref(),
+                    paths: &cli.paths,
                     ignore_case,
                     after_context,
                     before_context,
@@ -420,7 +433,7 @@ fn main() -> Result<()> {
 
 struct SearchOpts<'a> {
     pattern: &'a str,
-    path: Option<&'a str>,
+    paths: &'a [String],
     ignore_case: bool,
     after_context: usize,
     before_context: usize,
@@ -459,8 +472,8 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
         anyhow::bail!("empty pattern — provide a search term");
     }
 
-    // Detect single-file search: if path points to a file, scope search to it
-    let (root, path_filter) = resolve_root_and_filter(opts.path);
+    // Resolve paths: detect single-file, directory prefixes, or default to cwd
+    let (root, path_filters) = resolve_root_and_filters(opts.paths);
     let pattern = prepare_pattern(opts.pattern, opts.word_regexp, opts.fixed_strings);
     let pattern = pattern.as_str();
     let (before, after) = match opts.context {
@@ -486,7 +499,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
             &config,
             opts.file_type,
             opts.glob,
-            path_filter.as_deref(),
+            &path_filters,
             max_size,
         )?;
         let mut printer = Printer::new(use_color, opts.json);
@@ -510,7 +523,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
             &config,
             opts.file_type,
             opts.glob,
-            path_filter.as_deref(),
+            &path_filters,
             max_size,
         )?;
         let mut printer = Printer::new(use_color, opts.json);
@@ -531,7 +544,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
         &config,
         opts.file_type,
         opts.glob,
-        path_filter.as_deref(),
+        &path_filters,
         max_size,
     )?;
     let mut printer = Printer::new(use_color, opts.json);
@@ -575,35 +588,43 @@ fn resolve_root(path: Option<&str>) -> PathBuf {
     find_root(&base)
 }
 
-/// Like resolve_root, but also detects single-file paths.
-/// Returns (project_root, Some(relative_path)) when path points to a file.
-fn resolve_root_and_filter(path: Option<&str>) -> (PathBuf, Option<String>) {
-    let base = match path {
-        Some(p) => PathBuf::from(p),
-        None => {
-            return (
-                std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-                None,
-            );
-        }
-    };
-
-    if base.is_file() {
-        let root = find_root(&base);
-        if let Ok(rel) = base.canonicalize().and_then(|abs| {
-            root.canonicalize().map(|root_abs| {
-                abs.strip_prefix(&root_abs)
-                    .unwrap_or(&abs)
-                    .to_string_lossy()
-                    .to_string()
-            })
-        }) {
-            return (root, Some(rel));
-        }
-        return (root, None);
+/// Resolve multiple paths into (project_root, path_filters).
+/// Each filter is a relative path (file or directory prefix) under the root.
+/// Empty input means no filtering (search everything).
+fn resolve_root_and_filters(paths: &[String]) -> (PathBuf, Vec<String>) {
+    if paths.is_empty() {
+        return (
+            find_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))),
+            Vec::new(),
+        );
     }
 
-    (find_root(&base), None)
+    // Single path: use it to find the root (backward compat)
+    // Multiple paths: use cwd to find the root, all paths are relative filters
+    let root = if paths.len() == 1 {
+        find_root(&PathBuf::from(&paths[0]))
+    } else {
+        find_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+    };
+
+    let root_abs = root.canonicalize().unwrap_or_else(|_| root.clone());
+    let mut filters = Vec::new();
+
+    for p in paths {
+        let base = PathBuf::from(p);
+        if let Ok(abs) = base.canonicalize()
+            && let Ok(rel) = abs.strip_prefix(&root_abs)
+        {
+            let mut rel_str = rel.to_string_lossy().to_string();
+            // For directories, ensure trailing slash so starts_with works as prefix
+            if base.is_dir() && !rel_str.is_empty() && !rel_str.ends_with('/') {
+                rel_str.push('/');
+            }
+            filters.push(rel_str);
+        }
+    }
+
+    (root, filters)
 }
 
 fn dir_size(path: &std::path::Path) -> u64 {

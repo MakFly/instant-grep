@@ -19,7 +19,11 @@ const IG_HOOK_MARKER: &str = "ig-rewrite.sh";
 const IG_PREFER_HOOK: &str = include_str!("../hooks/prefer-ig.sh");
 const IG_SESSION_START_HOOK: &str = include_str!("../hooks/session-start.sh");
 const IG_FORMAT_HOOK: &str = include_str!("../hooks/format.sh");
+const IG_FIND_REWRITE_HOOK: &str = include_str!("../hooks/find-rewrite.sh");
 const IG_CURSORRULES_SNIPPET: &str = include_str!("../hooks/cursorrules-snippet.txt");
+
+const BRAIN_INJECT_HOOK: &str = include_str!("../hooks/brain-inject.sh");
+const BRAIN_CAPTURE_HOOK: &str = include_str!("../hooks/brain-capture.sh");
 
 enum ConfigResult {
     Configured(String),
@@ -167,6 +171,12 @@ fn configure_claude_hooks_full(claude_dir: &Path, dry_run: bool) -> Vec<ConfigRe
         IG_FORMAT_HOOK,
         dry_run,
     ));
+    results.push(install_hook_file(
+        &hooks_dir,
+        "find-rewrite.sh",
+        IG_FIND_REWRITE_HOOK,
+        dry_run,
+    ));
 
     // Register all hooks in settings.json
     let settings_path = claude_dir.join("settings.json");
@@ -241,6 +251,21 @@ fn configure_claude_hooks_full(claude_dir: &Path, dry_run: bool) -> Vec<ConfigRe
     ) {
         results.push(ConfigResult::Configured(
             "Registered prefer-ig.sh hook".to_string(),
+        ));
+        changes += 1;
+    }
+
+    // PreToolUse/Bash — find-rewrite.sh (bypass fd alias)
+    if ensure_hook_registered(
+        &mut parsed,
+        "PreToolUse",
+        "Bash",
+        "~/.claude/hooks/find-rewrite.sh",
+        "find-rewrite.sh",
+        None,
+    ) {
+        results.push(ConfigResult::Configured(
+            "Registered find-rewrite.sh hook".to_string(),
         ));
         changes += 1;
     }
@@ -321,6 +346,58 @@ fn configure_claude_hooks_full(claude_dir: &Path, dry_run: bool) -> Vec<ConfigRe
             "Registered secret detection hook".to_string(),
         ));
         changes += 1;
+    }
+
+    // brain.dev hooks — only if config exists
+    let brain_config_path =
+        PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
+            .join(".config")
+            .join("brain")
+            .join("config.json");
+
+    if brain_config_path.exists() {
+        results.push(install_hook_file(
+            &hooks_dir,
+            "brain-inject.sh",
+            BRAIN_INJECT_HOOK,
+            dry_run,
+        ));
+        results.push(install_hook_file(
+            &hooks_dir,
+            "brain-capture.sh",
+            BRAIN_CAPTURE_HOOK,
+            dry_run,
+        ));
+
+        // UserPromptSubmit — brain-inject.sh
+        if ensure_hook_registered(
+            &mut parsed,
+            "UserPromptSubmit",
+            "*",
+            "~/.claude/hooks/brain-inject.sh",
+            "brain-inject.sh",
+            Some(3),
+        ) {
+            results.push(ConfigResult::Configured(
+                "Registered brain-inject.sh hook".to_string(),
+            ));
+            changes += 1;
+        }
+
+        // PostToolUse/Write|Edit — brain-capture.sh
+        if ensure_hook_registered(
+            &mut parsed,
+            "PostToolUse",
+            "Write|Edit",
+            "~/.claude/hooks/brain-capture.sh",
+            "brain-capture.sh",
+            Some(5),
+        ) {
+            results.push(ConfigResult::Configured(
+                "Registered brain-capture.sh hook".to_string(),
+            ));
+            changes += 1;
+        }
     }
 
     // Write settings.json if changes were made
