@@ -14,10 +14,8 @@ use crate::util::format_bytes;
 /// This gives more accurate "missed savings" numbers.
 fn discover_classify(cmd: &str) -> RewriteResult {
     let result = classify_command(cmd);
-    if matches!(result, RewriteResult::Passthrough) {
-        if is_discoverable(cmd) {
-            return RewriteResult::Rewrite(String::new());
-        }
+    if matches!(result, RewriteResult::Passthrough) && is_discoverable(cmd) {
+        return RewriteResult::Rewrite(String::new());
     }
     result
 }
@@ -291,42 +289,40 @@ fn extract_bash_commands(line: &str) -> Vec<(String, u64)> {
     };
 
     // Walk content array for assistant messages
-    if msg_type == Some("assistant") {
-        if let Some(content) = value
+    if msg_type == Some("assistant")
+        && let Some(content) = value
             .get("message")
             .and_then(|m| m.get("content"))
             .and_then(|c| c.as_array())
-        {
-            for item in content {
-                if item.get("type").and_then(|t| t.as_str()) == Some("tool_use")
-                    && item.get("name").and_then(|n| n.as_str()) == Some("Bash")
-                    && let Some(cmd) = item
-                        .get("input")
-                        .and_then(|i| i.get("command"))
-                        .and_then(|c| c.as_str())
-                {
-                    push_cmd(cmd);
-                }
+    {
+        for item in content {
+            if item.get("type").and_then(|t| t.as_str()) == Some("tool_use")
+                && item.get("name").and_then(|n| n.as_str()) == Some("Bash")
+                && let Some(cmd) = item
+                    .get("input")
+                    .and_then(|i| i.get("command"))
+                    .and_then(|c| c.as_str())
+            {
+                push_cmd(cmd);
             }
         }
     }
 
     // Also check progress messages (subagent tool calls)
-    if msg_type == Some("progress") {
-        if let Some(content) = value
+    if msg_type == Some("progress")
+        && let Some(content) = value
             .pointer("/data/message/message/content")
             .and_then(|c| c.as_array())
-        {
-            for item in content {
-                if item.get("type").and_then(|t| t.as_str()) == Some("tool_use")
-                    && item.get("name").and_then(|n| n.as_str()) == Some("Bash")
-                    && let Some(cmd) = item
-                        .get("input")
-                        .and_then(|i| i.get("command"))
-                        .and_then(|c| c.as_str())
-                {
-                    push_cmd(cmd);
-                }
+    {
+        for item in content {
+            if item.get("type").and_then(|t| t.as_str()) == Some("tool_use")
+                && item.get("name").and_then(|n| n.as_str()) == Some("Bash")
+                && let Some(cmd) = item
+                    .get("input")
+                    .and_then(|i| i.get("command"))
+                    .and_then(|c| c.as_str())
+            {
+                push_cmd(cmd);
             }
         }
     }

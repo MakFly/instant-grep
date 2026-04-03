@@ -483,6 +483,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
             opts.file_type,
             opts.glob,
             path_filter.as_deref(),
+            max_size,
         )?;
         let mut printer = Printer::new(use_color, opts.json);
         for file_matches in &results {
@@ -506,6 +507,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
             opts.file_type,
             opts.glob,
             path_filter.as_deref(),
+            max_size,
         )?;
         let mut printer = Printer::new(use_color, opts.json);
         for file_matches in &results {
@@ -520,12 +522,13 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
 
     let (results, search_stats) = indexed::search_indexed(
         &root,
-        opts.pattern,
+        pattern,
         opts.ignore_case,
         &config,
         opts.file_type,
         opts.glob,
         path_filter.as_deref(),
+        max_size,
     )?;
     let mut printer = Printer::new(use_color, opts.json);
     for file_matches in &results {

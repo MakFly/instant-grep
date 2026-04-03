@@ -97,7 +97,13 @@ fn check_and_rebuild(
     current_git_commit: &Option<String>,
     meta: &IndexMetadata,
 ) -> Result<IndexMetadata> {
-    let changed = detect_changed_files(root, meta, current_git_commit, use_default_excludes, max_file_size);
+    let changed = detect_changed_files(
+        root,
+        meta,
+        current_git_commit,
+        use_default_excludes,
+        max_file_size,
+    );
     if let Some(changed_paths) = changed {
         if changed_paths.is_empty() {
             // Sanity check: verify total file count on disk matches what the index knows.
@@ -120,7 +126,12 @@ fn check_and_rebuild(
                     indexed_count, disk_count
                 );
                 overlay::clear_overlay(ig);
-                return full_rebuild(root, use_default_excludes, max_file_size, current_git_commit);
+                return full_rebuild(
+                    root,
+                    use_default_excludes,
+                    max_file_size,
+                    current_git_commit,
+                );
             }
 
             eprintln!("Index is up to date");

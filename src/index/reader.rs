@@ -89,9 +89,16 @@ impl IndexReader {
         }
 
         let stored_key = key + 1; // sentinel: 0 = empty
-        let mut slot = (stored_key as usize) % self.table_size;
+        let start_slot = (stored_key as usize) % self.table_size;
+        let mut slot = start_slot;
+        let mut first = true;
 
         loop {
+            // Guard: if we've wrapped around to the start, table is full → key absent
+            if !first && slot == start_slot {
+                return Vec::new();
+            }
+            first = false;
             let base = slot * LEXICON_ENTRY_SIZE;
             if base + LEXICON_ENTRY_SIZE > self.lexicon.len() {
                 return Vec::new();

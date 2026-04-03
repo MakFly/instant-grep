@@ -66,7 +66,19 @@ pub fn walk_files(
     if let Some(file_type) = type_filter {
         let mut types_builder = ignore::types::TypesBuilder::new();
         types_builder.add_defaults();
-        types_builder.select(file_type);
+        // Map short aliases to the names the ignore crate recognizes
+        let canonical = match file_type {
+            "rs" => "rust",
+            "ts" => "ts",
+            "js" => "js",
+            "py" => "python",
+            "rb" => "ruby",
+            "yml" => "yaml",
+            "md" => "markdown",
+            "sh" => "sh",
+            other => other,
+        };
+        types_builder.select(canonical);
         if let Ok(types) = types_builder.build() {
             builder.types(types);
         }
