@@ -145,6 +145,63 @@ pub fn clear_history() {
     }
 }
 
+// =========================================================================
+// Brain.dev tracking
+// =========================================================================
+
+pub fn brain_history_path() -> PathBuf {
+    if cfg!(target_os = "macos") {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join("ig")
+            .join("brain-history.jsonl")
+    } else {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        PathBuf::from(home)
+            .join(".local")
+            .join("share")
+            .join("ig")
+            .join("brain-history.jsonl")
+    }
+}
+
+pub struct BrainStats {
+    pub injections: u64,
+    pub memories_served: u64,
+    pub estimated_tokens_saved: u64,
+}
+
+pub fn read_brain_stats() -> BrainStats {
+    let path = brain_history_path();
+    let mut stats = BrainStats {
+        injections: 0,
+        memories_served: 0,
+        estimated_tokens_saved: 0,
+    };
+
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
+                if entry.get("type").and_then(|t| t.as_str()) == Some("inject") {
+                    stats.injections += 1;
+                    stats.memories_served += entry
+                        .get("memories")
+                        .and_then(|m| m.as_u64())
+                        .unwrap_or(0);
+                    stats.estimated_tokens_saved += entry
+                        .get("est_saved")
+                        .and_then(|s| s.as_u64())
+                        .unwrap_or(0);
+                }
+            }
+        }
+    }
+
+    stats
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

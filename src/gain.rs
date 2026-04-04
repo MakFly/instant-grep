@@ -25,11 +25,15 @@ pub fn show_gain(clear: bool, history: bool, json: bool) {
         let total_input: u64 = entries.iter().map(|e| e.original_bytes).sum();
         let total_output: u64 = entries.iter().map(|e| e.output_bytes).sum();
         let total_saved = total_input.saturating_sub(total_output);
+        let brain = tracking::read_brain_stats();
         println!(
-            "{{\"total_tokens_saved\":{},\"total_input\":{},\"total_commands\":{}}}",
+            "{{\"total_tokens_saved\":{},\"total_input\":{},\"total_commands\":{},\"brain_injections\":{},\"brain_memories\":{},\"brain_tokens_saved\":{}}}",
             total_saved,
             total_input,
-            entries.len()
+            entries.len(),
+            brain.injections,
+            brain.memories_served,
+            brain.estimated_tokens_saved,
         );
         return;
     }
@@ -127,6 +131,35 @@ pub fn show_gain(clear: bool, history: bool, json: bool) {
         );
     }
     eprintln!("────────────────────────────────────────────────────────────");
+
+    // Brain.dev savings
+    let brain = tracking::read_brain_stats();
+    if brain.injections > 0 {
+        eprintln!();
+        eprintln!("\x1b[1mbrain.dev savings\x1b[0m");
+        eprintln!("────────────────────────────────────────────────────────────");
+        eprintln!("  Injections:      {} prompts", format_number(brain.injections));
+        eprintln!("  Memories served: {}", format_number(brain.memories_served));
+        let dollars = brain.estimated_tokens_saved as f64 / 1000.0 * 0.02;
+        eprintln!(
+            "  Est. tokens saved: {} (~${:.2})",
+            format_number(brain.estimated_tokens_saved),
+            dollars,
+        );
+        eprintln!("────────────────────────────────────────────────────────────");
+    }
+}
+
+fn format_number(n: u64) -> String {
+    let s = n.to_string();
+    let mut result = String::new();
+    for (i, c) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            result.push(',');
+        }
+        result.push(c);
+    }
+    result.chars().rev().collect()
 }
 
 fn show_history(entries: &[tracking::HistoryEntry]) {

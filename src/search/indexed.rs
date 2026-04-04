@@ -28,7 +28,7 @@ pub fn search_indexed(
     config: &SearchConfig,
     type_filter: Option<&str>,
     glob_filter: Option<&str>,
-    path_filter: Option<&str>,
+    path_filters: &[String],
     max_file_size: u64,
 ) -> Result<(Vec<FileMatches>, SearchStats)> {
     let ig = ig_dir(root);
@@ -47,7 +47,7 @@ pub fn search_indexed(
             config,
             type_filter,
             glob_filter,
-            path_filter,
+            path_filters,
             max_file_size,
         )?;
         let stats = SearchStats {
@@ -73,7 +73,7 @@ pub fn search_indexed(
             config,
             type_filter,
             glob_filter,
-            path_filter,
+            path_filters,
             max_file_size,
         )?;
         let stats = SearchStats {
@@ -97,9 +97,15 @@ pub fn search_indexed(
         .filter_map(|doc_id| {
             let rel_path = reader.file_path(*doc_id).to_string();
 
-            // Apply single-file filter
-            if let Some(pf) = path_filter
-                && rel_path != pf
+            // Apply path filters (files or directory prefixes)
+            if !path_filters.is_empty()
+                && !path_filters.iter().any(|pf| {
+                    if pf.ends_with('/') {
+                        rel_path.starts_with(pf.as_str())
+                    } else {
+                        rel_path == *pf
+                    }
+                })
             {
                 return None;
             }

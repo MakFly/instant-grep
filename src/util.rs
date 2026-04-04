@@ -16,14 +16,23 @@ pub fn find_root(start: &Path) -> PathBuf {
         start
     };
 
-    let mut current = start.to_path_buf();
+    // Resolve to absolute path so pop() can walk above the relative path components
+    let abs_start = if start.is_relative() {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(start))
+            .unwrap_or_else(|_| start.to_path_buf())
+    } else {
+        start.to_path_buf()
+    };
+
+    let mut current = abs_start.clone();
     loop {
         if current.join(".git").exists() {
             return current;
         }
         if !current.pop() {
             // No .git found, use the original start path
-            return start.to_path_buf();
+            return abs_start;
         }
     }
 }

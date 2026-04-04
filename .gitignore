@@ -5,3 +5,4 @@ documentation/dist
 documentation/.astro
 /plans-reviews
 test-local.sh
+docs/

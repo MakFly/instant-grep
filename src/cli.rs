@@ -54,6 +54,10 @@ pub struct Cli {
     #[arg(short = 'g', long, global = true)]
     pub glob: Option<String>,
 
+    /// Show line numbers (always on, accepted for grep/rg compatibility)
+    #[arg(short = 'n', long = "line-number", global = true)]
+    pub line_number: bool,
+
     /// Match whole words only (wraps pattern with \b)
     #[arg(short = 'w', long, global = true)]
     pub word_regexp: bool,

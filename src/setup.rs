@@ -24,6 +24,7 @@ const IG_CURSORRULES_SNIPPET: &str = include_str!("../hooks/cursorrules-snippet.
 
 const BRAIN_INJECT_HOOK: &str = include_str!("../hooks/brain-inject.sh");
 const BRAIN_CAPTURE_HOOK: &str = include_str!("../hooks/brain-capture.sh");
+const BRAIN_SESSION_HOOK: &str = include_str!("../hooks/brain-session.sh");
 
 enum ConfigResult {
     Configured(String),
@@ -368,6 +369,12 @@ fn configure_claude_hooks_full(claude_dir: &Path, dry_run: bool) -> Vec<ConfigRe
             BRAIN_CAPTURE_HOOK,
             dry_run,
         ));
+        results.push(install_hook_file(
+            &hooks_dir,
+            "brain-session.sh",
+            BRAIN_SESSION_HOOK,
+            dry_run,
+        ));
 
         // UserPromptSubmit — brain-inject.sh
         if ensure_hook_registered(
@@ -395,6 +402,21 @@ fn configure_claude_hooks_full(claude_dir: &Path, dry_run: bool) -> Vec<ConfigRe
         ) {
             results.push(ConfigResult::Configured(
                 "Registered brain-capture.sh hook".to_string(),
+            ));
+            changes += 1;
+        }
+
+        // SessionStart — brain-session.sh
+        if ensure_hook_registered(
+            &mut parsed,
+            "SessionStart",
+            "*",
+            "~/.claude/hooks/brain-session.sh",
+            "brain-session.sh",
+            Some(5),
+        ) {
+            results.push(ConfigResult::Configured(
+                "Registered brain-session.sh hook".to_string(),
             ));
             changes += 1;
         }

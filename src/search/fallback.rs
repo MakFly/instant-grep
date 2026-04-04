@@ -30,7 +30,7 @@ pub fn search_brute_force(
     config: &SearchConfig,
     type_filter: Option<&str>,
     glob_filter: Option<&str>,
-    path_filter: Option<&str>,
+    path_filters: &[String],
     max_file_size: u64,
 ) -> Result<Vec<FileMatches>> {
     let regex = RegexBuilder::new(pattern)
@@ -39,15 +39,16 @@ pub fn search_brute_force(
         .build()
         .context("invalid regex")?;
 
-    // Single-file mode: skip walk, search only the target file
-    if let Some(pf) = path_filter {
+    // Single-file mode: if exactly one filter pointing to a file, skip walk
+    if path_filters.len() == 1 && !path_filters[0].ends_with('/') {
+        let pf = &path_filters[0];
         let full_path = root.join(pf);
-        if full_path.exists()
-            && let Ok(Some(file_matches)) = matcher::match_file(root, pf, &regex, config)
-        {
-            return Ok(vec![file_matches]);
+        if full_path.is_file() {
+            if let Ok(Some(file_matches)) = matcher::match_file(root, pf, &regex, config) {
+                return Ok(vec![file_matches]);
+            }
+            return Ok(Vec::new());
         }
-        return Ok(Vec::new());
     }
 
     let paths =
@@ -57,6 +58,19 @@ pub fn search_brute_force(
         .par_iter()
         .filter_map(|path| {
             let rel_path = path.strip_prefix(root).ok()?.to_string_lossy().to_string();
+
+            // Apply path filters (files or directory prefixes)
+            if !path_filters.is_empty()
+                && !path_filters.iter().any(|pf| {
+                    if pf.ends_with('/') {
+                        rel_path.starts_with(pf.as_str())
+                    } else {
+                        rel_path == *pf
+                    }
+                })
+            {
+                return None;
+            }
 
             // Quick binary check — reads only 8KB, not the whole file
             if is_binary_file(path) {

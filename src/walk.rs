@@ -113,7 +113,10 @@ pub fn walk_files(
     let mut paths = Vec::new();
 
     for entry in builder.build() {
-        let entry = entry?;
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue, // skip permission denied, broken symlinks, etc.
+        };
         if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
             continue;
         }
