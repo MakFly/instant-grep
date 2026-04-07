@@ -15,8 +15,7 @@ use crate::setup::resolve_real_home;
 /// Markers in hook commands that identify ig-installed entries.
 /// If a hook's `command` field contains any of these, it was installed by ig.
 const IG_HOOK_MARKERS: &[&str] = &[
-    "ig-rewrite.sh",
-    "prefer-ig.sh",
+    "ig-guard.sh",
     "format.sh",
     "session-start.sh",
     "Use ig via Bash",  // Grep blocker
@@ -26,12 +25,7 @@ const IG_HOOK_MARKERS: &[&str] = &[
     ".env",             // .env warning
 ];
 
-const IG_HOOK_FILES: &[&str] = &[
-    "ig-rewrite.sh",
-    "prefer-ig.sh",
-    "session-start.sh",
-    "format.sh",
-];
+const IG_HOOK_FILES: &[&str] = &["ig-guard.sh", "session-start.sh", "format.sh"];
 
 const IG_ENV_VARS: &[&str] = &[
     "CLAUDE_CODE_EFFORT_LEVEL",
@@ -513,7 +507,7 @@ mod tests {
                     {
                         "matcher": "Bash",
                         "hooks": [
-                            {"type": "command", "command": "~/.claude/hooks/ig-rewrite.sh"},
+                            {"type": "command", "command": "~/.claude/hooks/ig-guard.sh"},
                             {"type": "command", "command": "echo custom hook"}
                         ]
                     },
@@ -599,7 +593,7 @@ mod tests {
                     "PreToolUse": [{
                         "matcher": "Bash",
                         "hooks": [
-                            {"type": "command", "command": "~/.claude/hooks/ig-rewrite.sh"}
+                            {"type": "command", "command": "~/.claude/hooks/ig-guard.sh"}
                         ]
                     }]
                 },
@@ -732,7 +726,7 @@ mod tests {
         // Setup full config
         let hooks = claude.join("hooks");
         fs::create_dir_all(&hooks).unwrap();
-        fs::write(hooks.join("ig-rewrite.sh"), "hook").unwrap();
+        fs::write(hooks.join("ig-guard.sh"), "hook").unwrap();
         fs::write(
             claude.join("settings.json"),
             r#"{"permissions":{"allow":["Bash(ig *)"]}}"#,
@@ -748,7 +742,7 @@ mod tests {
         let _ = remove_claude_config(claude, true);
 
         // Everything should still exist unchanged
-        assert!(hooks.join("ig-rewrite.sh").exists());
+        assert!(hooks.join("ig-guard.sh").exists());
         let settings = fs::read_to_string(claude.join("settings.json")).unwrap();
         assert!(settings.contains("Bash(ig *)"));
         let md = fs::read_to_string(claude.join("CLAUDE.md")).unwrap();

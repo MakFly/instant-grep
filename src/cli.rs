@@ -239,12 +239,6 @@ pub enum Commands {
         yes: bool,
     },
 
-    /// Connect to brain.dev for persistent AI memory
-    Brain {
-        /// Action: login, sync, pull, status
-        action: String,
-    },
-
     /// Update ig to the latest version
     Update,
 

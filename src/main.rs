@@ -1,4 +1,3 @@
-mod brain;
 mod cli;
 mod context;
 mod daemon;
@@ -373,22 +372,6 @@ fn main() -> Result<()> {
 
         Some(Commands::Uninstall { dry_run, yes }) => {
             uninstall::run_uninstall(dry_run, yes);
-        }
-
-        Some(Commands::Brain { action }) => {
-            // Support `ig brain pull --quiet` by checking remaining args
-            let quiet = std::env::args().any(|a| a == "--quiet" || a == "-q");
-            match action.as_str() {
-                "login" => brain::brain_login()?,
-                "sync" => brain::brain_sync()?,
-                "pull" => brain::brain_pull(quiet)?,
-                "status" => brain::brain_status()?,
-                _ => {
-                    eprintln!("Unknown brain action: {action}");
-                    eprintln!("Usage: ig brain [login|sync|pull|status]");
-                    std::process::exit(1);
-                }
-            }
         }
 
         Some(Commands::Update) => {
