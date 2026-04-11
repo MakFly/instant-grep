@@ -13,7 +13,19 @@ else
   REAL_HOME="$HOME"
 fi
 
-INSTALL_DIR="${IG_INSTALL_DIR:-$REAL_HOME/.local/bin}"
+# Detect existing ig location — update in-place if found
+if [ -z "${IG_INSTALL_DIR:-}" ]; then
+  EXISTING_IG=$(command -v ig 2>/dev/null || true)
+  if [ -n "$EXISTING_IG" ]; then
+    # Resolve symlinks to get the real path
+    EXISTING_IG=$(readlink -f "$EXISTING_IG" 2>/dev/null || realpath "$EXISTING_IG" 2>/dev/null || echo "$EXISTING_IG")
+    INSTALL_DIR="$(dirname "$EXISTING_IG")"
+  else
+    INSTALL_DIR="$REAL_HOME/.local/bin"
+  fi
+else
+  INSTALL_DIR="$IG_INSTALL_DIR"
+fi
 
 # Detect platform
 OS="$(uname -s)"
@@ -60,6 +72,15 @@ else
   echo "✗ Installation failed"
   exit 1
 fi
+
+# Clean up stale binaries in other locations
+for dir in "$REAL_HOME/.local/bin" "$REAL_HOME/.cargo/bin"; do
+  other="$dir/ig"
+  if [ -f "$other" ] && [ "$(readlink -f "$other" 2>/dev/null || realpath "$other" 2>/dev/null || echo "$other")" != "$(readlink -f "$INSTALL_DIR/ig" 2>/dev/null || realpath "$INSTALL_DIR/ig" 2>/dev/null || echo "$INSTALL_DIR/ig")" ]; then
+    echo "  → Removed stale binary: $other"
+    rm -f "$other"
+  fi
+done
 
 # Check PATH
 if ! echo "$PATH" | grep -q "$INSTALL_DIR"; then

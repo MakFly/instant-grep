@@ -99,6 +99,10 @@ pub fn run_update() -> Result<()> {
     eprintln!("\n  Updated: v{} → v{}", CURRENT_VERSION, latest);
     eprintln!("  Path: {}", bin_path.display());
 
+    // Re-run setup to update hooks, agents, and config files
+    eprintln!();
+    crate::setup::run_setup(false);
+
     // Update cache so background check doesn't re-notify
     if let Some(cache) = cache_path() {
         if let Some(dir) = cache.parent() {
