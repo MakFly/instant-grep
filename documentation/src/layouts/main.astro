@@ -15,7 +15,39 @@ const { title = "instant-grep", description = "Trigram-indexed search for AI age
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{title}</title>
   <meta name="description" content={description} />
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/svg+xml" href="/instant-grep/favicon.svg" />
+  <link rel="canonical" href={`https://makfly.github.io/instant-grep${Astro.url.pathname}`} />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content={title} />
+  <meta property="og:description" content={description} />
+  <meta property="og:url" content={`https://makfly.github.io/instant-grep${Astro.url.pathname}`} />
+  <meta property="og:site_name" content="instant-grep" />
+  <meta property="og:image" content="https://makfly.github.io/instant-grep/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content={title} />
+  <meta name="twitter:description" content={description} />
+  <meta name="twitter:image" content="https://makfly.github.io/instant-grep/og-image.png" />
+
+  <!-- JSON-LD -->
+  <script type="application/ld+json" set:html={JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "instant-grep",
+    "alternateName": "ig",
+    "description": "Trigram-indexed regex search CLI — sub-ms code search for AI agents",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "macOS, Linux",
+    "license": "https://opensource.org/licenses/MIT",
+    "url": "https://makfly.github.io/instant-grep",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "author": { "@type": "Person", "name": "MakFly", "url": "https://github.com/MakFly" }
+  })} />
 </head>
 <body class="min-h-screen bg-background text-foreground antialiased font-sans">
   <slot />

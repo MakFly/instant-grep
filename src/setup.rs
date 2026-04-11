@@ -17,7 +17,27 @@ const IG_PERMISSION: &str = "Bash(ig *)";
 const IG_GUARD_HOOK: &str = include_str!("../hooks/ig-guard.sh");
 const IG_SESSION_START_HOOK: &str = include_str!("../hooks/session-start.sh");
 const IG_FORMAT_HOOK: &str = include_str!("../hooks/format.sh");
+const IG_SUBAGENT_CONTEXT_HOOK: &str = include_str!("../hooks/subagent-context.sh");
 const IG_CURSORRULES_SNIPPET: &str = include_str!("../hooks/cursorrules-snippet.txt");
+
+const IG_EXPLORER_AGENT: &str = "\
+---
+name: explorer
+description: Explores codebases to answer questions, find patterns, and map dependencies. Read-only, never modifies files. Use to understand unfamiliar code or find specific implementations. Replaces the built-in Explore subagent with git-aware capabilities and sonnet model.
+model: sonnet
+effort: medium
+tools: Read, Glob, Bash(ig *), Bash(git log *), Bash(git show *), Bash(git blame *), Bash(git diff *), Bash(wc *), Bash(ls *), Bash(tree *), Bash(find *), Bash(cat *), Bash(head *), Bash(tail *), Bash(jq *), WebFetch, WebSearch
+initialPrompt: |
+  SEARCH STRATEGY (mandatory order):
+  1. ig symbols | grep KEYWORD — find all class/function definitions matching the concept
+  2. ig -l \"KEYWORD\" — list all files containing the keyword
+  3. Read the KEY files (config, controllers, models, services) — not all of them
+  4. Only then do targeted ig searches for specific patterns
+
+  This 4-step approach covers 100% of a concept in <500ms instead of 69 sequential reads.
+  Use ig for ALL code search. Never use grep, rg, or find. Never use the Grep tool.
+---
+";
 
 enum ConfigResult {
     Configured(String),
@@ -170,6 +190,12 @@ fn configure_claude_hooks_full(claude_dir: &Path, dry_run: bool) -> Vec<ConfigRe
         &hooks_dir,
         "format.sh",
         IG_FORMAT_HOOK,
+        dry_run,
+    ));
+    results.push(install_hook_file(
+        &hooks_dir,
+        "subagent-context.sh",
+        IG_SUBAGENT_CONTEXT_HOOK,
         dry_run,
     ));
 
@@ -335,6 +361,21 @@ fn configure_claude_hooks_full(claude_dir: &Path, dry_run: bool) -> Vec<ConfigRe
         changes += 1;
     }
 
+    // SubagentStart — subagent-context.sh
+    if ensure_hook_registered(
+        &mut parsed,
+        "SubagentStart",
+        "*",
+        "~/.claude/hooks/subagent-context.sh",
+        "subagent-context.sh",
+        None,
+    ) {
+        results.push(ConfigResult::Configured(
+            "Registered subagent-context.sh hook".to_string(),
+        ));
+        changes += 1;
+    }
+
     // Write settings.json if changes were made
     if changes > 0 && !dry_run {
         let formatted = serde_json::to_string_pretty(&parsed).unwrap_or_default();
@@ -350,6 +391,9 @@ fn configure_claude_hooks_full(claude_dir: &Path, dry_run: bool) -> Vec<ConfigRe
             "All hooks already registered".to_string(),
         ));
     }
+
+    // Install explorer agent definition
+    results.push(install_explorer_agent(claude_dir, dry_run));
 
     results
 }
@@ -418,6 +462,39 @@ fn configure_claude_env_vars(claude_dir: &Path, dry_run: bool) -> Vec<ConfigResu
     }
 
     results
+}
+
+// ─── Claude Code — explorer agent ────────────────────────────────────────────
+
+fn install_explorer_agent(claude_dir: &Path, dry_run: bool) -> ConfigResult {
+    let agents_dir = claude_dir.join("agents");
+    let agent_path = agents_dir.join("explorer.md");
+
+    if agent_path.exists() {
+        // Check if the tools: line contains the outdated Grep tool reference
+        let content = fs::read_to_string(&agent_path).unwrap_or_default();
+        let has_grep_tool = content
+            .lines()
+            .any(|line| line.starts_with("tools:") && line.contains("Grep"));
+        if has_grep_tool {
+            // Update: remove Grep from tools (blocked by hook, wastes agent turns)
+            let updated = content.replace(", Grep,", ",").replace("Grep, ", "");
+            match write_if_not_dry(&agent_path, updated.as_bytes(), dry_run) {
+                Ok(_) => {
+                    return ConfigResult::Configured(
+                        "Updated explorer.md: removed Grep tool (blocked by hook)".to_string(),
+                    )
+                }
+                Err(e) => return ConfigResult::Error(e),
+            }
+        }
+        return ConfigResult::AlreadyDone("agents/explorer.md already installed".to_string());
+    }
+
+    match write_if_not_dry(&agent_path, IG_EXPLORER_AGENT.as_bytes(), dry_run) {
+        Ok(_) => ConfigResult::Configured("Installed agents/explorer.md".to_string()),
+        Err(e) => ConfigResult::Error(e),
+    }
 }
 
 // ─── OpenCode ─────────────────────────────────────────────────────────────────
@@ -1418,5 +1495,82 @@ mod tests {
         configure_opencode(dir.path(), true);
         // AGENTS.md should NOT be created in dry_run
         assert!(!opencode_dir.join("AGENTS.md").exists());
+    }
+
+    // --- explorer agent tests ---
+
+    #[test]
+    fn test_install_explorer_agent_creates_file() {
+        let dir = TempDir::new().unwrap();
+        let result = install_explorer_agent(dir.path(), false);
+        assert!(matches!(result, ConfigResult::Configured(_)));
+        let agent = dir.path().join("agents/explorer.md");
+        assert!(agent.exists());
+        let content = fs::read_to_string(&agent).unwrap();
+        assert!(content.contains("name: explorer"));
+        assert!(content.contains("Bash(ig *)"));
+        // Must NOT have Grep in tools line
+        let tools_line = content.lines().find(|l| l.starts_with("tools:")).unwrap();
+        assert!(!tools_line.contains("Grep"), "tools must not contain Grep");
+    }
+
+    #[test]
+    fn test_install_explorer_agent_idempotent() {
+        let dir = TempDir::new().unwrap();
+        install_explorer_agent(dir.path(), false);
+        let result = install_explorer_agent(dir.path(), false);
+        assert!(matches!(result, ConfigResult::AlreadyDone(_)));
+    }
+
+    #[test]
+    fn test_install_explorer_agent_migrates_grep() {
+        let dir = TempDir::new().unwrap();
+        let agents_dir = dir.path().join("agents");
+        fs::create_dir_all(&agents_dir).unwrap();
+        // Write old version with Grep in tools
+        fs::write(
+            agents_dir.join("explorer.md"),
+            "---\nname: explorer\ntools: Read, Grep, Glob, Bash(ig *)\ninitialPrompt: |\n  Use ig.\n---\n",
+        )
+        .unwrap();
+
+        let result = install_explorer_agent(dir.path(), false);
+        assert!(matches!(result, ConfigResult::Configured(_)));
+
+        let content = fs::read_to_string(agents_dir.join("explorer.md")).unwrap();
+        let tools_line = content.lines().find(|l| l.starts_with("tools:")).unwrap();
+        assert!(
+            !tools_line.contains("Grep"),
+            "Grep should be removed from tools after migration"
+        );
+    }
+
+    #[test]
+    fn test_install_explorer_agent_dry_run() {
+        let dir = TempDir::new().unwrap();
+        let result = install_explorer_agent(dir.path(), true);
+        assert!(matches!(result, ConfigResult::Configured(_)));
+        assert!(
+            !dir.path().join("agents/explorer.md").exists(),
+            "dry_run should not create file"
+        );
+    }
+
+    // --- subagent-context hook tests ---
+
+    #[test]
+    fn test_subagent_context_hook_installed() {
+        let dir = TempDir::new().unwrap();
+        let results = configure_claude_hooks_full(dir.path(), false);
+        assert!(dir.path().join("hooks/subagent-context.sh").exists());
+        // Verify SubagentStart registered in settings.json
+        let settings = fs::read_to_string(dir.path().join("settings.json")).unwrap();
+        assert!(settings.contains("SubagentStart"));
+        assert!(settings.contains("subagent-context.sh"));
+        let has_subagent = results.iter().any(|r| match r {
+            ConfigResult::Configured(m) => m.contains("subagent-context"),
+            _ => false,
+        });
+        assert!(has_subagent);
     }
 }

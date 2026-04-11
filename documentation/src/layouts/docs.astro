@@ -16,8 +16,23 @@ const { title, description } = Astro.props
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{title} — ig docs</title>
-  {description && <meta name="description" content={description} />}
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <meta name="description" content={description || "instant-grep documentation — trigram-indexed search for AI agents"} />
+  <link rel="icon" type="image/svg+xml" href="/instant-grep/favicon.svg" />
+  <link rel="canonical" href={`https://makfly.github.io/instant-grep${Astro.url.pathname}`} />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="article" />
+  <meta property="og:title" content={`${title} — ig docs`} />
+  <meta property="og:description" content={description || "instant-grep documentation"} />
+  <meta property="og:url" content={`https://makfly.github.io/instant-grep${Astro.url.pathname}`} />
+  <meta property="og:site_name" content="instant-grep" />
+  <meta property="og:image" content="https://makfly.github.io/instant-grep/og-image.png" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content={`${title} — ig docs`} />
+  <meta name="twitter:description" content={description || "instant-grep documentation"} />
+  <meta name="twitter:image" content="https://makfly.github.io/instant-grep/og-image.png" />
 </head>
 <body class="min-h-screen bg-background text-foreground antialiased font-sans">
   <Topbar />

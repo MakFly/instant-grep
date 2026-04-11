@@ -10,14 +10,18 @@
     <a href="#agent-integration">Agent Integration</a> &middot;
     <a href="#how-it-works">How it works</a>
   </p>
-  <p align="center">
-    <code>brew install MakFly/tap/ig</code>
-  </p>
+</p>
+
+<p align="center">
+  <a href="https://github.com/MakFly/instant-grep/actions/workflows/ci.yml"><img src="https://github.com/MakFly/instant-grep/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/MakFly/instant-grep/releases/latest"><img src="https://img.shields.io/github/v/release/MakFly/instant-grep" alt="Release"></a>
+  <a href="https://github.com/MakFly/instant-grep/blob/main/LICENSE"><img src="https://img.shields.io/github/license/MakFly/instant-grep" alt="License"></a>
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-blue" alt="Platform">
 </p>
 
 ---
 
-**One binary. 4MB. Zero dependencies.** `ig` replaces `grep`, `cat`, `ls`, `tree`, `find`, and `git status/log/diff` with token-optimized alternatives — built for AI coding agents (Claude Code, Codex, OpenCode, Cursor).
+**One binary. ~5MB. Zero runtime dependencies.** `ig` replaces `grep`, `cat`, `ls`, `tree`, `find`, and `git status/log/diff` with token-optimized alternatives — built for AI coding agents (Claude Code, Codex, OpenCode, Cursor).
 
 ```
 $ ig "async fn.*Result" src/ --stats
@@ -43,8 +47,8 @@ Index: yes
 | **Index build** | **226ms** for 1,609 files, **483ms** for 3,084 files |
 | **Symbols extracted** | **4,834** from a Laravel project, **7,702** from a monorepo |
 | **Context reduction** | 12,841 bytes → 3,828 bytes per turn (**-70%**) |
-| **Agent setup** | 4 agents configured in **one command** |
-| **Rust tests** | **285 tests** |
+| **Agent setup** | 8 agents configured in **one command** |
+| **Rust tests** | **320 tests** |
 | **Integration tests** | **63/65 pass** (2 voluntary skips, 0 failures) |
 
 > Every number on this page is measured with `wc -c` on real commands, on real projects (1,609-file Laravel app, 3,084-file monorepo). See the [interactive benchmark dashboard](benchmarks/index.html) for charts.
@@ -74,15 +78,9 @@ curl -fsSL https://raw.githubusercontent.com/MakFly/instant-grep/main/install.sh
 
 > Installs the binary and runs `ig setup` to configure all detected AI agents.
 
-### Homebrew
-
-```bash
-brew install MakFly/tap/ig
-```
-
 ### Download binary
 
-Grab the latest from [Releases](https://github.com/MakFly/instant-grep/releases/tag/v1.6.23):
+Grab the latest from [Releases](https://github.com/MakFly/instant-grep/releases/latest):
 
 | Platform                | Binary             |
 | ----------------------- | ------------------ |
@@ -229,20 +227,20 @@ ig setup --dry-run                # preview without writing
 
 | Agent | What it configures |
 |-------|--------------------|
-| **Claude Code** | 4 hook scripts + 9 hook registrations + permissions + env vars + CLAUDE.md |
+| **Claude Code** | 3 hook scripts + 8 hook registrations + permissions + env vars + CLAUDE.md |
 | **Codex CLI** | AGENTS.md with search instructions |
 | **OpenCode** | AGENTS.md + opencode.json instructions array |
 | **Cursor** | `~/.cursor/rules/ig-search.mdc` (alwaysApply) |
+| **GitHub Copilot** | `copilot-instructions.md` with search instructions |
+| **Windsurf** | `.windsurfrules` with search instructions |
+| **Cline** | `.clinerules` with search instructions |
 | **Gemini CLI** | Manual instructions (print-only) |
 
 **Claude Code hooks installed:**
-- `ig-rewrite.sh` — transparent command rewriting
-- `prefer-ig.sh` — blocks `rg`/`grep -r`/`find` in favor of ig
+- `ig-guard.sh` — command rewriting + blocks `rg`/`grep -r`/`find` in favor of ig
 - `session-start.sh` — version change detection + token savings summary
 - `format.sh` — auto-format on file writes
 - Grep tool blocker, npm/npx blocker, destructive git blocker, secret detection, .env warning
-- SubagentStart context injection (every subagent receives ig instructions)
-- TaskCompleted quality gate (runs tests before marking done)
 
 100% idempotent. Safe to run multiple times. `--dry-run` to preview.
 
@@ -255,7 +253,7 @@ ig setup --dry-run                # preview without writing
 - **LLMs already know CLIs** — trained on millions of man pages
 - **Composable** — pipe to `jq`, `head`, `wc`
 
-Since v1.6.23, ig is a **complete standalone solution** for AI agent token optimization. No additional tools needed.
+Since v1.7.0, ig is a **complete standalone solution** for AI agent token optimization. No additional tools needed.
 
 ## Benchmarks
 
@@ -374,7 +372,7 @@ Trigrams:     23 keys → 47 candidate files
 Sparse grams:  3 keys →  4 candidate files (12x better)
 ```
 
-### On-disk format (v7)
+### On-disk format (v10)
 
 | File | Format | Size (1,552 files) |
 |------|--------|-------------------|

@@ -1,12 +1,13 @@
 [package]
 name = "instant-grep"
-version = "1.7.0"
+version = "1.7.1"
 edition = "2024"
 description = "Trigram-indexed regex search CLI — sub-ms code search for AI agents"
 license = "MIT"
 repository = "https://github.com/MakFly/instant-grep"
-homepage = "https://github.com/MakFly/instant-grep"
-keywords = ["grep", "search", "trigram", "index", "cli"]
+homepage = "https://makfly.github.io/instant-grep"
+documentation = "https://makfly.github.io/instant-grep/docs/getting-started"
+keywords = ["grep", "search", "code-search", "ai-agent", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"
 
