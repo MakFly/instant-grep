@@ -151,6 +151,7 @@ impl IndexReader {
 
     /// Look up bloom and loc masks for a base ngram key.
     /// Returns (bloom_mask, loc_mask), or (0, 0) if key not found.
+    #[allow(dead_code)]
     pub fn lookup_masks(&self, key: NgramKey) -> (u8, u8) {
         if self.table_size == 0 {
             return (0, 0);

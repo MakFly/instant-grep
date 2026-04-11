@@ -40,6 +40,7 @@ pub fn run_filtered(args: &[&str], filter: Option<&CompiledFilter>) -> Result<i3
 }
 
 /// Run a command as passthrough (no filter) but still track it.
+#[allow(dead_code)]
 pub fn run_passthrough(args: &[&str]) -> Result<i32> {
     run_filtered(args, None)
 }

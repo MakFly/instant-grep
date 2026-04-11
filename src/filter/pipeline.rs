@@ -3,6 +3,7 @@ use regex::Regex;
 /// A compiled filter ready to match commands and transform output.
 #[derive(Debug)]
 pub struct CompiledFilter {
+    #[allow(dead_code)]
     pub name: String,
     pub match_regex: Regex,
     pub strip_ansi: bool,

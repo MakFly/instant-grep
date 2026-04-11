@@ -24,6 +24,7 @@ pub enum FilterLevel {
 
 /// Read a file and return numbered lines.
 /// In signatures mode, only return import lines and symbol definitions.
+#[allow(dead_code)]
 pub fn read_file(file: &Path, signatures_only: bool) -> Result<ReadResult> {
     let level = if signatures_only {
         FilterLevel::Signatures

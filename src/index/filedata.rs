@@ -36,6 +36,7 @@ pub struct FileDataIndex {
 }
 
 impl FileDataIndex {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             version: 1,

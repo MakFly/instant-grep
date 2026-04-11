@@ -127,6 +127,7 @@ pub struct BigramDfTable {
 }
 
 impl BigramDfTable {
+    #[allow(dead_code)]
     pub fn new(entries: Vec<(u32, u32)>, total_docs: u32) -> Self {
         Self {
             entries,
