@@ -33,15 +33,14 @@ pub fn compress_lsc(
             let mut score = entropy * weight;
 
             // Relevance boost
-            if let Some(ref re) = relevance_re {
-                if re.is_match(&line) {
+            if let Some(ref re) = relevance_re
+                && re.is_match(&line) {
                     if is_signature(line.trim()) {
                         score *= 3.0; // Signature matching pattern = highest priority
                     } else {
                         score *= 2.0; // Any line matching pattern = boosted
                     }
                 }
-            }
 
             (num, line, score)
         })

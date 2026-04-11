@@ -84,8 +84,8 @@ fn parse_delta(file: &Path, diff: &str) -> Result<ReadResult> {
     for &line_num in &changed_lines {
         let start = line_num.saturating_sub(context_radius).max(1);
         let end = (line_num + context_radius).min(total);
-        for l in start..=end {
-            include[l] = true;
+        for item in include.iter_mut().take(end + 1).skip(start) {
+            *item = true;
         }
     }
 
@@ -102,12 +102,11 @@ fn parse_delta(file: &Path, diff: &str) -> Result<ReadResult> {
         // Look backward for nearest signature
         for i in (0..line_num.min(total)).rev() {
             let line = all_lines[i];
-            if let Some(ref re) = sym_regex {
-                if re.is_match(line) {
+            if let Some(ref re) = sym_regex
+                && re.is_match(line) {
                     include[i + 1] = true; // 1-indexed
                     break;
                 }
-            }
         }
     }
 
@@ -118,13 +117,12 @@ fn parse_delta(file: &Path, diff: &str) -> Result<ReadResult> {
 
     for i in 1..=total {
         if include[i] {
-            if let Some(last) = last_included {
-                if i > last + 1 {
+            if let Some(last) = last_included
+                && i > last + 1 {
                     // Gap — insert marker
                     let skipped = i - last - 1;
                     result_lines.push((0, format!("    // ... [{} lines]", skipped)));
                 }
-            }
 
             // Mark changed lines with a prefix
             let line_text = all_lines[i - 1];

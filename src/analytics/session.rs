@@ -138,13 +138,11 @@ fn find_sessions(since_days: u32) -> Vec<PathBuf> {
         if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
             continue;
         }
-        if let Ok(meta) = path.metadata() {
-            if let Ok(mtime) = meta.modified() {
-                if mtime >= cutoff {
+        if let Ok(meta) = path.metadata()
+            && let Ok(mtime) = meta.modified()
+                && mtime >= cutoff {
                     sessions.push(path.to_path_buf());
                 }
-            }
-        }
     }
     sessions
 }
@@ -196,17 +194,13 @@ fn extract_bash_commands(path: &Path) -> anyhow::Result<Vec<String>> {
         };
 
         for block in blocks {
-            if let Ok(tu) = serde_json::from_value::<ToolUseBlock>(block.clone()) {
-                if tu.block_type.as_deref() == Some("tool_use")
+            if let Ok(tu) = serde_json::from_value::<ToolUseBlock>(block.clone())
+                && tu.block_type.as_deref() == Some("tool_use")
                     && tu.name.as_deref() == Some("Bash")
-                {
-                    if let Some(input) = tu.input {
-                        if let Some(cmd) = input.command {
+                    && let Some(input) = tu.input
+                        && let Some(cmd) = input.command {
                             commands.push(cmd);
                         }
-                    }
-                }
-            }
         }
     }
 

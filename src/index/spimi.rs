@@ -69,6 +69,7 @@ pub fn flush_segment(
     segment_id: u32,
 ) -> Result<SegmentInfo> {
     // Sort entries by key for sequential merge later
+    #[allow(clippy::type_complexity)]
     let mut entries: Vec<(NgramKey, (Vec<DocId>, u8, u8))> = postings_map.drain().collect();
     entries.sort_unstable_by_key(|(k, _)| *k);
 

@@ -126,8 +126,8 @@ fn find_block_end(lines: &[&str], start_line: usize) -> usize {
     let mut depth: i32 = 0;
     let mut found_open = false;
 
-    for i in start_line..lines.len() {
-        for ch in lines[i].chars() {
+    for (i, line) in lines.iter().enumerate().skip(start_line) {
+        for ch in line.chars() {
             if ch == '{' {
                 depth += 1;
                 found_open = true;
@@ -144,8 +144,8 @@ fn find_block_end(lines: &[&str], start_line: usize) -> usize {
     // For languages without braces (Python), use indentation
     if !found_open && start_line + 1 < lines.len() {
         let base_indent = lines[start_line].len() - lines[start_line].trim_start().len();
-        for i in (start_line + 1)..lines.len() {
-            let line = lines[i];
+        for (i, line) in lines.iter().enumerate().skip(start_line + 1) {
+            let line = *line;
             if line.trim().is_empty() {
                 continue;
             }
@@ -176,8 +176,8 @@ pub fn extract_simple_role(content: &str, ext: &str) -> String {
     if let Some((mod_prefix, _item_prefix)) = comment_prefix {
         for line in content.lines().take(20) {
             let trimmed = line.trim();
-            if trimmed.starts_with(mod_prefix) {
-                let text = trimmed[mod_prefix.len()..].trim();
+            if let Some(stripped) = trimmed.strip_prefix(mod_prefix) {
+                let text = stripped.trim();
                 if !text.is_empty() && text.len() > 3 {
                     return truncate_str(text, 120);
                 }

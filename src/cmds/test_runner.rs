@@ -78,8 +78,8 @@ fn detect_test_command(cwd: &Path, extra_args: &[String]) -> Result<Vec<String>>
 /// Check package.json scripts for vitest or jest.
 fn detect_js_test_framework(cwd: &Path) -> String {
     let pkg_path = cwd.join("package.json");
-    if let Ok(content) = std::fs::read_to_string(&pkg_path) {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+    if let Ok(content) = std::fs::read_to_string(&pkg_path)
+        && let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
             // Check scripts.test
             if let Some(test_script) = json
                 .get("scripts")
@@ -103,7 +103,6 @@ fn detect_js_test_framework(cwd: &Path) -> String {
                 }
             }
         }
-    }
     "vitest".into() // Default
 }
 

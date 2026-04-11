@@ -303,7 +303,7 @@ fn show_quota(entries: &[&tracking::HistoryEntry], tier: &str) {
     let (tier_label, tier_desc) = match tier {
         "pro" => ("Pro", "Pro ($20/mo)"),
         "5x" => ("Max 5x", "Max 5x ($100/mo)"),
-        "20x" | _ => ("Max 20x", "Max 20x ($200/mo)"),
+        _ => ("Max 20x", "Max 20x ($200/mo)"),
     };
 
     eprintln!("\x1b[1mMonthly Quota Estimate ({} tier)\x1b[0m", tier_label);

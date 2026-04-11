@@ -136,12 +136,7 @@ use crate::index::vbyte::PostingIterator;
 pub fn intersect_two_iters(a: &mut PostingIterator, b: &mut PostingIterator) -> Vec<DocId> {
     let mut result = Vec::with_capacity(a.doc_count().min(b.doc_count()) as usize);
 
-    loop {
-        let (va, vb) = match (a.current(), b.current()) {
-            (Some(va), Some(vb)) => (va, vb),
-            _ => break,
-        };
-
+    while let (Some(va), Some(vb)) = (a.current(), b.current()) {
         if va == vb {
             result.push(va);
             a.advance();

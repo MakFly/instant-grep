@@ -84,8 +84,8 @@ fn extract_toml_section(content: &str, section: &str) -> Vec<(String, String)> {
         if in_section && trimmed.starts_with('[') {
             break;
         }
-        if in_section && !trimmed.is_empty() && !trimmed.starts_with('#') {
-            if let Some((key, rest)) = trimmed.split_once('=') {
+        if in_section && !trimmed.is_empty() && !trimmed.starts_with('#')
+            && let Some((key, rest)) = trimmed.split_once('=') {
                 let key = key.trim().to_string();
                 let rest = rest.trim();
                 let version = if rest.starts_with('"') {
@@ -98,7 +98,6 @@ fn extract_toml_section(content: &str, section: &str) -> Vec<(String, String)> {
                 };
                 result.push((key, version));
             }
-        }
     }
     result
 }
@@ -202,8 +201,8 @@ fn print_pyproject_deps(path: &Path) -> Result<()> {
         if trimmed.starts_with("dependencies") && trimmed.contains('[') {
             in_deps = true;
             // Check for inline list
-            if let Some(start) = trimmed.find('[') {
-                if let Some(end) = trimmed.find(']') {
+            if let Some(start) = trimmed.find('[')
+                && let Some(end) = trimmed.find(']') {
                     let items = &trimmed[start + 1..end];
                     for item in items.split(',') {
                         let dep = item.trim().trim_matches('"').trim().to_string();
@@ -213,7 +212,6 @@ fn print_pyproject_deps(path: &Path) -> Result<()> {
                     }
                     in_deps = false;
                 }
-            }
             continue;
         }
         if in_deps {

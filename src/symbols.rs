@@ -23,8 +23,8 @@ pub fn extract_symbols(
     glob_filter: Option<&str>,
 ) -> Result<Vec<SymbolMatch>> {
     // If scope is a single file, extract symbols from just that file
-    if let Some(s) = scope {
-        if s.is_file() {
+    if let Some(s) = scope
+        && s.is_file() {
             let content = std::fs::read(s)?;
             if is_binary(&content) {
                 return Ok(Vec::new());
@@ -39,7 +39,6 @@ pub fn extract_symbols(
             extract_from_text(&rel_str, text, lang, &mut symbols);
             return Ok(symbols);
         }
-    }
 
     // Walk the scope directory (or root if no scope given)
     let walk_dir = scope.filter(|s| s.is_dir()).unwrap_or(root);
@@ -193,9 +192,7 @@ fn classify_kind(matched: &str, lang: Lang) -> &'static str {
                 "trait"
             } else if m.contains("enum ") {
                 "enum"
-            } else if m.trim().starts_with("case ") {
-                "const"
-            } else if m.contains("const ") {
+            } else if m.trim().starts_with("case ") || m.contains("const ") {
                 "const"
             } else if m.contains("$") {
                 "property"

@@ -486,17 +486,15 @@ fn classify_line(trimmed: &str, sym_regex: &Option<regex::Regex>, lang: Lang) ->
     if !is_php_attribute && is_preamble_line(trimmed) {
         return LineRole::Import;
     }
-    if let Some(re) = sym_regex {
-        if re.is_match(trimmed) {
+    if let Some(re) = sym_regex
+        && re.is_match(trimmed) {
             return LineRole::SymbolDef;
         }
-    }
     // PHP-specific: recognize Laravel model properties and relation returns as definitions
-    if matches!(lang, Lang::Php) {
-        if is_php_structural_line(trimmed) {
+    if matches!(lang, Lang::Php)
+        && is_php_structural_line(trimmed) {
             return LineRole::SymbolDef;
         }
-    }
     LineRole::Code
 }
 

@@ -43,11 +43,10 @@ pub fn load_filters() -> Vec<CompiledFilter> {
     let mut filters = Vec::new();
 
     // 1. Builtin filters
-    if !BUILTIN_FILTERS.is_empty() {
-        if let Some(mut compiled) = parse_and_compile(BUILTIN_FILTERS, "builtin") {
+    if !BUILTIN_FILTERS.is_empty()
+        && let Some(mut compiled) = parse_and_compile(BUILTIN_FILTERS, "builtin") {
             filters.append(&mut compiled);
         }
-    }
 
     // 2. User filters from ~/.config/ig/filters/*.toml
     if let Some(user_dir) = user_filters_dir() {

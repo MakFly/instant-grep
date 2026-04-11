@@ -66,11 +66,10 @@ pub fn apply_filter(filter: &CompiledFilter, raw: &str) -> String {
     }
 
     // Stage 8: fallback message when output is empty
-    if let Some(ref msg) = filter.on_empty {
-        if output.trim().is_empty() {
+    if let Some(ref msg) = filter.on_empty
+        && output.trim().is_empty() {
             output = msg.clone();
         }
-    }
 
     // Cleanup: collapse consecutive blank lines
     output = collapse_blank_lines(&output);

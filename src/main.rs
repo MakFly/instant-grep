@@ -355,8 +355,8 @@ fn main() -> Result<()> {
 
                 // Track savings
                 let output_bytes: u64 = result.lines.iter().map(|(_, l)| l.len() as u64 + 7).sum();
-                let flag = if budget.is_some() {
-                    format!(" -b {}", budget.unwrap())
+                let flag = if let Some(b) = budget {
+                    format!(" -b {}", b)
                 } else if aggressive {
                     " -a".to_string()
                 } else if signatures {
