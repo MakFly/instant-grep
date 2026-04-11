@@ -84,20 +84,23 @@ fn extract_toml_section(content: &str, section: &str) -> Vec<(String, String)> {
         if in_section && trimmed.starts_with('[') {
             break;
         }
-        if in_section && !trimmed.is_empty() && !trimmed.starts_with('#')
-            && let Some((key, rest)) = trimmed.split_once('=') {
-                let key = key.trim().to_string();
-                let rest = rest.trim();
-                let version = if rest.starts_with('"') {
-                    rest.trim_matches('"').to_string()
-                } else if rest.starts_with('{') {
-                    // Parse { version = "..." }
-                    extract_inline_version(rest)
-                } else {
-                    rest.to_string()
-                };
-                result.push((key, version));
-            }
+        if in_section
+            && !trimmed.is_empty()
+            && !trimmed.starts_with('#')
+            && let Some((key, rest)) = trimmed.split_once('=')
+        {
+            let key = key.trim().to_string();
+            let rest = rest.trim();
+            let version = if rest.starts_with('"') {
+                rest.trim_matches('"').to_string()
+            } else if rest.starts_with('{') {
+                // Parse { version = "..." }
+                extract_inline_version(rest)
+            } else {
+                rest.to_string()
+            };
+            result.push((key, version));
+        }
     }
     result
 }
@@ -202,16 +205,17 @@ fn print_pyproject_deps(path: &Path) -> Result<()> {
             in_deps = true;
             // Check for inline list
             if let Some(start) = trimmed.find('[')
-                && let Some(end) = trimmed.find(']') {
-                    let items = &trimmed[start + 1..end];
-                    for item in items.split(',') {
-                        let dep = item.trim().trim_matches('"').trim().to_string();
-                        if !dep.is_empty() {
-                            deps.push(dep);
-                        }
+                && let Some(end) = trimmed.find(']')
+            {
+                let items = &trimmed[start + 1..end];
+                for item in items.split(',') {
+                    let dep = item.trim().trim_matches('"').trim().to_string();
+                    if !dep.is_empty() {
+                        deps.push(dep);
                     }
-                    in_deps = false;
                 }
+                in_deps = false;
+            }
             continue;
         }
         if in_deps {

@@ -41,9 +41,10 @@ pub fn run(args: &[String]) -> Result<i32> {
     }
 
     if vars.is_empty()
-        && let Some(pat) = pattern {
-            println!("No environment variables matching '{}'", pat);
-        }
+        && let Some(pat) = pattern
+    {
+        println!("No environment variables matching '{}'", pat);
+    }
 
     Ok(0)
 }

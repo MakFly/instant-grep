@@ -487,14 +487,14 @@ fn classify_line(trimmed: &str, sym_regex: &Option<regex::Regex>, lang: Lang) ->
         return LineRole::Import;
     }
     if let Some(re) = sym_regex
-        && re.is_match(trimmed) {
-            return LineRole::SymbolDef;
-        }
+        && re.is_match(trimmed)
+    {
+        return LineRole::SymbolDef;
+    }
     // PHP-specific: recognize Laravel model properties and relation returns as definitions
-    if matches!(lang, Lang::Php)
-        && is_php_structural_line(trimmed) {
-            return LineRole::SymbolDef;
-        }
+    if matches!(lang, Lang::Php) && is_php_structural_line(trimmed) {
+        return LineRole::SymbolDef;
+    }
     LineRole::Code
 }
 

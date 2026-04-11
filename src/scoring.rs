@@ -34,13 +34,14 @@ pub fn compress_lsc(
 
             // Relevance boost
             if let Some(ref re) = relevance_re
-                && re.is_match(&line) {
-                    if is_signature(line.trim()) {
-                        score *= 3.0; // Signature matching pattern = highest priority
-                    } else {
-                        score *= 2.0; // Any line matching pattern = boosted
-                    }
+                && re.is_match(&line)
+            {
+                if is_signature(line.trim()) {
+                    score *= 3.0; // Signature matching pattern = highest priority
+                } else {
+                    score *= 2.0; // Any line matching pattern = boosted
                 }
+            }
 
             (num, line, score)
         })

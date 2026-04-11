@@ -428,12 +428,11 @@ impl Printer {
         let child_prefix = "  ".repeat(child_indent);
 
         // Print files in this directory (excluding root which is printed separately)
-        if print_header
-            && let Some(filenames) = tree.get(dir) {
-                for chunk in filenames.chunks(4) {
-                    let _ = writeln!(self.stdout, "{}{}", child_prefix, chunk.join("  "));
-                }
+        if print_header && let Some(filenames) = tree.get(dir) {
+            for chunk in filenames.chunks(4) {
+                let _ = writeln!(self.stdout, "{}{}", child_prefix, chunk.join("  "));
             }
+        }
 
         // Find and print subdirectories
         let mut subdirs: Vec<&PathBuf> = tree

@@ -340,9 +340,9 @@ impl IndexReader {
             }
             // Merge base + overlay (both sorted, disjoint ID ranges)
             debug_assert!(
-                base_result.last().is_none_or(|&last| overlay_result
-                    .first()
-                    .is_none_or(|&first| last < first)),
+                base_result
+                    .last()
+                    .is_none_or(|&last| overlay_result.first().is_none_or(|&first| last < first)),
                 "overlay IDs must be greater than all base IDs"
             );
             base_result.extend_from_slice(&overlay_result);

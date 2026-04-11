@@ -79,30 +79,31 @@ fn detect_test_command(cwd: &Path, extra_args: &[String]) -> Result<Vec<String>>
 fn detect_js_test_framework(cwd: &Path) -> String {
     let pkg_path = cwd.join("package.json");
     if let Ok(content) = std::fs::read_to_string(&pkg_path)
-        && let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-            // Check scripts.test
-            if let Some(test_script) = json
-                .get("scripts")
-                .and_then(|s| s.get("test"))
-                .and_then(|t| t.as_str())
-            {
-                if test_script.contains("vitest") {
-                    return "vitest".into();
-                }
-                if test_script.contains("jest") {
-                    return "jest".into();
-                }
+        && let Ok(json) = serde_json::from_str::<serde_json::Value>(&content)
+    {
+        // Check scripts.test
+        if let Some(test_script) = json
+            .get("scripts")
+            .and_then(|s| s.get("test"))
+            .and_then(|t| t.as_str())
+        {
+            if test_script.contains("vitest") {
+                return "vitest".into();
             }
-            // Check devDependencies
-            if let Some(dev_deps) = json.get("devDependencies") {
-                if dev_deps.get("vitest").is_some() {
-                    return "vitest".into();
-                }
-                if dev_deps.get("jest").is_some() {
-                    return "jest".into();
-                }
+            if test_script.contains("jest") {
+                return "jest".into();
             }
         }
+        // Check devDependencies
+        if let Some(dev_deps) = json.get("devDependencies") {
+            if dev_deps.get("vitest").is_some() {
+                return "vitest".into();
+            }
+            if dev_deps.get("jest").is_some() {
+                return "jest".into();
+            }
+        }
+    }
     "vitest".into() // Default
 }
 

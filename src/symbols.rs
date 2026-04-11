@@ -24,21 +24,22 @@ pub fn extract_symbols(
 ) -> Result<Vec<SymbolMatch>> {
     // If scope is a single file, extract symbols from just that file
     if let Some(s) = scope
-        && s.is_file() {
-            let content = std::fs::read(s)?;
-            if is_binary(&content) {
-                return Ok(Vec::new());
-            }
-            let text = std::str::from_utf8(&content)
-                .map_err(|e| anyhow::anyhow!("invalid UTF-8: {}", e))?;
-            let rel_path = s.strip_prefix(root).unwrap_or(s);
-            let rel_str = rel_path.to_string_lossy();
-            let ext = s.extension().and_then(|e| e.to_str()).unwrap_or("");
-            let lang = Lang::from_ext(ext);
-            let mut symbols = Vec::new();
-            extract_from_text(&rel_str, text, lang, &mut symbols);
-            return Ok(symbols);
+        && s.is_file()
+    {
+        let content = std::fs::read(s)?;
+        if is_binary(&content) {
+            return Ok(Vec::new());
         }
+        let text =
+            std::str::from_utf8(&content).map_err(|e| anyhow::anyhow!("invalid UTF-8: {}", e))?;
+        let rel_path = s.strip_prefix(root).unwrap_or(s);
+        let rel_str = rel_path.to_string_lossy();
+        let ext = s.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let lang = Lang::from_ext(ext);
+        let mut symbols = Vec::new();
+        extract_from_text(&rel_str, text, lang, &mut symbols);
+        return Ok(symbols);
+    }
 
     // Walk the scope directory (or root if no scope given)
     let walk_dir = scope.filter(|s| s.is_dir()).unwrap_or(root);

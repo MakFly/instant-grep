@@ -70,9 +70,10 @@ fn find_sessions(since_days: u32) -> Vec<PathBuf> {
         }
         if let Ok(meta) = path.metadata()
             && let Ok(mtime) = meta.modified()
-                && mtime >= cutoff {
-                    sessions.push(path.to_path_buf());
-                }
+            && mtime >= cutoff
+        {
+            sessions.push(path.to_path_buf());
+        }
     }
     sessions
 }
@@ -146,31 +147,33 @@ fn extract_commands(path: &Path) -> anyhow::Result<Vec<CommandExec>> {
             for block in &blocks {
                 if let Ok(tu) = serde_json::from_value::<ToolUseBlock>(block.clone())
                     && tu.block_type.as_deref() == Some("tool_use")
-                        && tu.name.as_deref() == Some("Bash")
-                        && let (Some(id), Some(input)) = (tu.id, tu.input)
-                            && let Some(cmd) = input.command {
-                                pending.push(PendingCmd { id, command: cmd });
-                            }
+                    && tu.name.as_deref() == Some("Bash")
+                    && let (Some(id), Some(input)) = (tu.id, tu.input)
+                    && let Some(cmd) = input.command
+                {
+                    pending.push(PendingCmd { id, command: cmd });
+                }
             }
         } else if role == "user" {
             for block in &blocks {
                 if let Ok(tr) = serde_json::from_value::<ToolResultBlock>(block.clone())
                     && tr.block_type.as_deref() == Some("tool_result")
-                        && let Some(id) = tr.tool_use_id {
-                            let is_err = tr.is_error.unwrap_or(false);
-                            let text = match tr.content {
-                                Some(serde_json::Value::String(s)) => s,
-                                Some(serde_json::Value::Array(arr)) => arr
-                                    .iter()
-                                    .filter_map(|v| v.as_str())
-                                    .collect::<Vec<_>>()
-                                    .join("\n"),
-                                _ => String::new(),
-                            };
-                            // Also detect errors from output content
-                            let has_error_text = contains_error_signal(&text);
-                            results.insert(id, (is_err || has_error_text, text));
-                        }
+                    && let Some(id) = tr.tool_use_id
+                {
+                    let is_err = tr.is_error.unwrap_or(false);
+                    let text = match tr.content {
+                        Some(serde_json::Value::String(s)) => s,
+                        Some(serde_json::Value::Array(arr)) => arr
+                            .iter()
+                            .filter_map(|v| v.as_str())
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                        _ => String::new(),
+                    };
+                    // Also detect errors from output content
+                    let has_error_text = contains_error_signal(&text);
+                    results.insert(id, (is_err || has_error_text, text));
+                }
             }
         }
     }
