@@ -16,13 +16,13 @@ const navItems = [
     section: "Reference",
     links: [
       { href: "/docs/cli", label: "CLI Reference" },
-      { href: "/docs/architecture", label: "Architecture" },
     ],
   },
   {
     section: "Advanced",
     links: [
       { href: "/docs/performance", label: "Performance" },
+      { href: "/docs/vs-rtk", label: "ig vs RTK" },
       { href: "/docs/agents", label: "Agent Integration" },
     ],
   },
@@ -33,10 +33,10 @@ function isActive(href: string) {
 }
 ---
 
-<aside class="hidden lg:flex flex-col w-64 shrink-0 border-r border-border/50 sticky top-16 h-[calc(100vh-64px)] overflow-y-auto">
-  <nav class="p-4 space-y-6">
-    <div class="px-3">
-      <a href="/" class="flex items-center gap-2 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors font-mono">
+<aside class="hidden lg:flex flex-col w-[240px] shrink-0 sticky top-12 h-[calc(100vh-48px)] overflow-y-auto border-r border-border/50">
+  <nav class="py-8 pl-6 pr-4 space-y-6">
+    <div>
+      <a href="/" class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-2">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M19 12H5M12 19l-7-7 7-7"/>
         </svg>
@@ -46,7 +46,7 @@ function isActive(href: string) {
 
     {navItems.map((section) => (
       <div>
-        <p class="px-3 mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground/50 font-mono">
+        <p class="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
           {section.section}
         </p>
         <ul class="space-y-0.5">
@@ -54,15 +54,12 @@ function isActive(href: string) {
             <li>
               <a
                 href={link.href}
-                class={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all ${
+                class={`block px-3 py-1.5 rounded-md text-[13px] transition-colors ${
                   isActive(link.href)
-                    ? "sidebar-active font-medium"
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                    ? "text-foreground font-medium bg-muted"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                 }`}
               >
-                {isActive(link.href) && (
-                  <span class="w-1 h-1 rounded-full bg-primary flex-shrink-0"></span>
-                )}
                 {link.label}
               </a>
             </li>
@@ -70,26 +67,5 @@ function isActive(href: string) {
         </ul>
       </div>
     ))}
-
-    <div class="px-3 pt-4 border-t border-border/30">
-      <div class="p-3 rounded-lg chakra-widget border border-border">
-        <p class="text-xs chakra-label font-mono font-medium mb-1">Chakra Status</p>
-        <div class="flex items-center gap-2">
-          <div class="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
-            <div class="h-full w-[92%] rounded-full bg-gradient-to-r from-primary to-amber-400 animate-chakra-pulse"></div>
-          </div>
-          <span class="text-xs text-muted-foreground font-mono">92%</span>
-        </div>
-        <p class="text-xs text-muted-foreground/60 mt-1.5 font-mono">0.9ms average</p>
-      </div>
-    </div>
   </nav>
 </aside>
-
-<style>
-  .chakra-widget { background: color-mix(in oklch, var(--primary) 5%, transparent); }
-  .chakra-label { color: var(--primary); }
-
-  :global(.dark) .chakra-widget { background: rgba(255,107,0,0.05); border-color: rgba(255,107,0,0.15); }
-  :global(.dark) .chakra-label { color: #FF9500; }
-</style>

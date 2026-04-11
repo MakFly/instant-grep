@@ -1,9 +1,15 @@
+mod analytics;
 mod cli;
+mod cmds;
+mod config;
 mod context;
 mod daemon;
+mod delta;
 mod discover;
+mod filter;
 mod gain;
 mod git;
+mod hooks;
 mod index;
 mod ls;
 mod output;
@@ -11,12 +17,16 @@ mod pack;
 mod query;
 mod read;
 mod rewrite;
+mod runner;
+mod scoring;
 mod search;
 mod setup;
 mod smart;
 mod symbols;
 mod tracking;
+mod trust;
 mod uninstall;
+mod verify;
 mod update;
 mod util;
 mod walk;
@@ -51,6 +61,7 @@ fn main() -> Result<()> {
     let context = cli.context;
     let count = cli.count;
     let files_with_matches = cli.files_with_matches;
+    let compact = cli.compact;
     let no_index = cli.no_index;
     let stats = cli.stats;
     let file_type = cli.file_type;
@@ -73,6 +84,7 @@ fn main() -> Result<()> {
                 context,
                 count,
                 files_with_matches,
+                compact,
                 no_index,
                 stats,
                 file_type: file_type.as_deref(),
@@ -187,7 +199,7 @@ fn main() -> Result<()> {
             }
         }
 
-        Some(Commands::Files { path }) => {
+        Some(Commands::Files { path, compact: files_compact }) => {
             let root = resolve_root(path.as_deref());
             let max_size = max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
             let use_excludes = !no_default_excludes;
@@ -200,15 +212,28 @@ fn main() -> Result<()> {
             )?;
             let use_color = util::use_color(json);
             let mut printer = Printer::new(use_color, json);
-            printer.print_file_list(&files, &root);
+            if files_compact || compact {
+                printer.print_file_tree(&files, &root);
+            } else {
+                printer.print_file_list(&files, &root);
+            }
         }
 
         Some(Commands::Symbols { path }) => {
             let root = resolve_root(path.as_deref());
+            let scope = path.as_deref().map(std::path::Path::new).and_then(|p| {
+                // Resolve to absolute path for scope filtering
+                if p.is_absolute() {
+                    Some(p.to_path_buf())
+                } else {
+                    p.canonicalize().ok()
+                }
+            });
             let max_size = max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
             let use_excludes = !no_default_excludes;
             let syms = symbols::extract_symbols(
                 &root,
+                scope.as_deref(),
                 use_excludes,
                 max_size,
                 file_type.as_deref(),
@@ -221,34 +246,115 @@ fn main() -> Result<()> {
 
         Some(Commands::Context { file, line }) => {
             let path = std::path::Path::new(&file);
-            let block = context::extract_block(path, line)?;
+            let block = {
+                let root = find_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+                let ig = ig_dir(&root);
+                let fdi = index::filedata::FileDataIndex::load(&ig);
+                let rel = path.canonicalize().ok()
+                    .and_then(|abs| abs.strip_prefix(root.canonicalize().unwrap_or(root.clone())).ok().map(|r| r.to_string_lossy().to_string()));
+                if let Some(ref fdi) = fdi
+                    && let Some(ref rel) = rel
+                    && let Some(fd) = fdi.get(rel)
+                {
+                    context::extract_block_cached(path, line, fd)?
+                } else {
+                    context::extract_block(path, line)?
+                }
+            };
             let use_color = util::use_color(json);
             let mut printer = Printer::new(use_color, json);
             printer.print_context(&block);
         }
 
-        Some(Commands::Read { file, signatures }) => {
+        Some(Commands::Read { file, signatures, aggressive, budget, relevant, delta }) => {
             let path = std::path::Path::new(&file);
             let original_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-            let result = read::read_file(path, signatures)?;
+
+            // Delta mode: show only git-changed lines with enclosing context
+            let delta_done = if delta {
+                if let Ok(result) = delta::read_delta(path) {
+                    let use_color = util::use_color(json);
+                    let mut printer = Printer::new(use_color, json);
+                    printer.print_read(&result);
+                    let output_bytes: u64 =
+                        result.lines.iter().map(|(_, l)| l.len() as u64 + 7).sum();
+                    tracking::log_savings(&tracking::TrackEntry {
+                        command: format!("ig read -d {}", file),
+                        original_bytes: original_size,
+                        output_bytes,
+                        project: std::env::current_dir()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_default(),
+                    });
+                    true
+                } else {
+                    false // No git changes — fall through to signatures-only mode
+                }
+            } else {
+                false
+            };
+
+            if !delta_done {
+            let use_lsc = budget.is_some() || aggressive;
+            let level = if delta {
+                // Delta with no changes falls back to signatures
+                read::FilterLevel::Signatures
+            } else if use_lsc {
+                read::FilterLevel::Aggressive
+            } else if signatures {
+                read::FilterLevel::Signatures
+            } else {
+                read::FilterLevel::Full
+            };
+
+            // Try cached signatures when in Signatures mode
+            let mut result = if level == read::FilterLevel::Signatures {
+                let root = find_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+                let ig = ig_dir(&root);
+                let fdi = index::filedata::FileDataIndex::load(&ig);
+                let rel = path.canonicalize().ok()
+                    .and_then(|abs| abs.strip_prefix(root.canonicalize().unwrap_or(root.clone())).ok().map(|r| r.to_string_lossy().to_string()));
+                if let Some(ref fdi) = fdi
+                    && let Some(ref rel) = rel
+                    && let Some(fd) = fdi.get(rel)
+                {
+                    read::read_signatures_cached(path, fd)?
+                } else {
+                    read::read_file_filtered(path, level)?
+                }
+            } else {
+                read::read_file_filtered(path, level)?
+            };
+
+            // Apply Layered Semantic Compression (Phases 2-5) on aggressive output
+            if use_lsc {
+                result.lines = scoring::compress_lsc(result.lines, budget, relevant.as_deref());
+            }
+
             let use_color = util::use_color(json);
             let mut printer = Printer::new(use_color, json);
             printer.print_read(&result);
 
-            // Track savings (cat would output original_size bytes)
-            let output_bytes: u64 = result.lines.iter().map(|(_, l)| l.len() as u64 + 7).sum(); // +7 for line num prefix
+            // Track savings
+            let output_bytes: u64 = result.lines.iter().map(|(_, l)| l.len() as u64 + 7).sum();
+            let flag = if budget.is_some() {
+                format!(" -b {}", budget.unwrap())
+            } else if aggressive {
+                " -a".to_string()
+            } else if signatures {
+                " -s".to_string()
+            } else {
+                String::new()
+            };
             tracking::log_savings(&tracking::TrackEntry {
-                command: if signatures {
-                    format!("ig read -s {}", file)
-                } else {
-                    format!("ig read {}", file)
-                },
+                command: format!("ig read{} {}", flag, file),
                 original_bytes: original_size,
                 output_bytes,
                 project: std::env::current_dir()
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_default(),
             });
+            } // if !delta_done
         }
 
         Some(Commands::Smart { path }) => {
@@ -260,11 +366,24 @@ fn main() -> Result<()> {
             let use_color = util::use_color(json);
             let mut printer = Printer::new(use_color, json);
 
+            // Load filedata cache
+            let ig = ig_dir(&root);
+            let fdi = index::filedata::FileDataIndex::load(&ig);
+
             if let Some(p) = base_path
                 && p.is_file()
             {
-                // Single file
-                let s = smart::smart_summarize_file(p, &root)?;
+                // Single file -- try cached first
+                let rel = p.canonicalize().ok()
+                    .and_then(|abs| abs.strip_prefix(root.canonicalize().unwrap_or(root.clone())).ok().map(|r| r.to_string_lossy().to_string()));
+                let s = if let Some(ref fdi) = fdi
+                    && let Some(ref rel) = rel
+                    && let Some(fd) = fdi.get(rel)
+                {
+                    smart::smart_summary_cached(rel, fd)
+                } else {
+                    smart::smart_summarize_file(p, &root)?
+                };
                 printer.print_smart(&[s]);
             } else {
                 // Directory — use the specified path if it's a subdir, otherwise root
@@ -338,8 +457,32 @@ fn main() -> Result<()> {
             clear,
             history,
             json: gain_json,
+            project,
+            graph,
+            quota,
+            tier,
+            daily,
+            weekly,
+            monthly,
+            discover: gain_discover,
+            since,
         }) => {
-            gain::show_gain(clear, history, gain_json);
+            if gain_discover {
+                discover::run_discover(since, 15);
+            } else {
+                gain::show_gain(gain::GainOpts {
+                    clear,
+                    history,
+                    json: gain_json,
+                    project,
+                    graph,
+                    quota,
+                    tier,
+                    daily,
+                    weekly,
+                    monthly,
+                });
+            }
         }
 
         Some(Commands::Proxy { command: proxy_cmd }) => {
@@ -384,6 +527,106 @@ fn main() -> Result<()> {
             print!("{}", response);
         }
 
+        Some(Commands::Run { args }) => {
+            let code = cmds::run::run(&args)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+
+        Some(Commands::Err { args }) => {
+            let code = cmds::err::run(&args)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+
+        Some(Commands::Test { args }) => {
+            let code = cmds::test_runner::run(&args)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+
+        Some(Commands::Json { file, schema }) => {
+            let mut json_args = vec![file];
+            if schema {
+                json_args.push("--schema".to_string());
+            }
+            let code = cmds::json_cmd::run(&json_args)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+
+        Some(Commands::Deps) => {
+            let code = cmds::deps::run(&[])?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+
+        Some(Commands::Docker { args }) => {
+            let code = cmds::docker::run(&args)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+
+        Some(Commands::Env { pattern }) => {
+            let env_args: Vec<String> = pattern.into_iter().collect();
+            let code = cmds::env_cmd::run(&env_args)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+
+        Some(Commands::Diff { file1, file2 }) => {
+            let code = cmds::diff_cmd::run(&[file1, file2])?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+
+        Some(Commands::Trust { file, list }) => {
+            if list {
+                let entries = trust::list_trusted();
+                if entries.is_empty() {
+                    eprintln!("No trusted filter files.");
+                } else {
+                    for (path, hash) in &entries {
+                        eprintln!("{} ({})", path, &hash[..8]);
+                    }
+                }
+            } else if let Some(f) = file {
+                trust::trust_path(std::path::Path::new(&f))?;
+                eprintln!("Trusted: {}", f);
+            } else {
+                eprintln!("Usage: ig trust <file> or ig trust --list");
+            }
+        }
+
+        Some(Commands::Untrust { file }) => {
+            trust::untrust_path(std::path::Path::new(&file))?;
+            eprintln!("Untrusted: {}", file);
+        }
+
+        Some(Commands::Verify) => {
+            verify::run_verify();
+        }
+
+        Some(Commands::Learn { since, limit }) => {
+            analytics::learn::run_learn(since, limit);
+        }
+
+        Some(Commands::Session { since }) => {
+            analytics::session::run_session(since);
+        }
+
+        Some(Commands::Economics { since }) => {
+            analytics::economics::run_economics(since);
+        }
+
         // No subcommand — shortcut mode: `ig "pattern" [path]`
         None => {
             if let Some(pattern) = cli.pattern {
@@ -396,6 +639,7 @@ fn main() -> Result<()> {
                     context,
                     count,
                     files_with_matches,
+                    compact,
                     no_index,
                     stats,
                     file_type: file_type.as_deref(),
@@ -427,6 +671,7 @@ struct SearchOpts<'a> {
     context: Option<usize>,
     count: bool,
     files_with_matches: bool,
+    compact: bool,
     no_index: bool,
     stats: bool,
     file_type: Option<&'a str>,
@@ -489,9 +734,13 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
             &path_filters,
             max_size,
         )?;
-        let mut printer = Printer::new(use_color, opts.json);
-        for file_matches in &results {
-            printer.print_file_matches(file_matches, opts.count, opts.files_with_matches);
+        if opts.compact {
+            print_compact(&results);
+        } else {
+            let mut printer = Printer::new(use_color, opts.json);
+            for file_matches in &results {
+                printer.print_file_matches(file_matches, opts.count, opts.files_with_matches);
+            }
         }
         return Ok(());
     }
@@ -513,9 +762,13 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
             &path_filters,
             max_size,
         )?;
-        let mut printer = Printer::new(use_color, opts.json);
-        for file_matches in &results {
-            printer.print_file_matches(file_matches, opts.count, opts.files_with_matches);
+        if opts.compact {
+            print_compact(&results);
+        } else {
+            let mut printer = Printer::new(use_color, opts.json);
+            for file_matches in &results {
+                printer.print_file_matches(file_matches, opts.count, opts.files_with_matches);
+            }
         }
 
         // Build index after results are printed (user sees output immediately)
@@ -534,15 +787,81 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
         &path_filters,
         max_size,
     )?;
-    let mut printer = Printer::new(use_color, opts.json);
-    for file_matches in &results {
-        printer.print_file_matches(file_matches, opts.count, opts.files_with_matches);
+
+    if opts.compact {
+        print_compact(&results);
+    } else {
+        let mut printer = Printer::new(use_color, opts.json);
+        for file_matches in &results {
+            printer.print_file_matches(file_matches, opts.count, opts.files_with_matches);
+        }
     }
     if opts.stats {
+        let mut printer = Printer::new(use_color, opts.json);
         printer.print_stats(&search_stats);
     }
 
     Ok(())
+}
+
+/// Compact output for --compact mode: header + truncated matches per file.
+/// Designed for AI agents that need to locate matches, not read every line.
+fn print_compact(results: &[search::matcher::FileMatches]) {
+    const MAX_FILES: usize = 25;
+    const MAX_MATCHES_PER_FILE: usize = 5;
+    const MAX_LINE_LEN: usize = 120;
+
+    let total_matches: usize = results.iter().map(|f| f.match_count).sum();
+    let total_files = results.len();
+
+    println!("{} matches in {}F:", total_matches, total_files);
+    println!();
+
+    // Sort by match count descending (most relevant files first)
+    let mut sorted: Vec<&search::matcher::FileMatches> = results.iter().collect();
+    sorted.sort_by(|a, b| b.match_count.cmp(&a.match_count));
+
+    for (i, file_matches) in sorted.iter().enumerate() {
+        if i >= MAX_FILES {
+            let remaining_files = total_files - MAX_FILES;
+            let remaining_matches: usize = sorted[MAX_FILES..].iter().map(|f| f.match_count).sum();
+            println!("... +{} files ({} matches)", remaining_files, remaining_matches);
+            break;
+        }
+
+        // Shorten path if too long
+        let path = &file_matches.path;
+        let display_path = if path.len() > 50 {
+            format!(".../{}", path.rsplit('/').take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("/"))
+        } else {
+            path.clone()
+        };
+
+        println!("[file] {} ({}):", display_path, file_matches.match_count);
+
+        // Show first N matches (non-context only), truncated
+        let mut shown = 0;
+        for m in &file_matches.matches {
+            if m.is_context {
+                continue;
+            }
+            if shown >= MAX_MATCHES_PER_FILE {
+                let remaining = file_matches.match_count.saturating_sub(MAX_MATCHES_PER_FILE);
+                println!("  +{}", remaining);
+                break;
+            }
+            let line_text = String::from_utf8_lossy(&m.line);
+            let line_text = line_text.trim();
+            let truncated = if line_text.len() > MAX_LINE_LEN {
+                format!("{}...", &line_text[..MAX_LINE_LEN])
+            } else {
+                line_text.to_string()
+            };
+            println!("  {:>4}: {}", m.line_number, truncated);
+            shown += 1;
+        }
+        println!();
+    }
 }
 
 fn ensure_index(root: &std::path::Path, use_excludes: bool, max_size: u64) -> Result<()> {

@@ -1,865 +1,830 @@
 ---
 import DocsLayout from "@/layouts/docs.astro"
+import { Code } from "astro:components"
 ---
 
-<DocsLayout title="CLI Reference" description="Complete command reference — all 19 instant-grep commands with full flag documentation">
-  <div class="max-w-none">
-    <!-- Page header -->
-    <div class="mb-10">
-      <div class="flex items-center gap-2 text-xs font-mono uppercase tracking-widest mb-3 theme-gold">
-        <span>⚡</span>
-        <span>Jutsu Compendium — All Techniques</span>
-      </div>
-      <h1 class="text-4xl font-mono font-black mb-4 gradient-text-gold">
-        CLI Reference
-      </h1>
-      <p class="text-muted-foreground text-lg leading-relaxed">
-        Nineteen commands. Each one mastered to perfection. No bloat, no ceremony — pure power.
-      </p>
+<DocsLayout title="CLI Reference" description="Complete command reference — all ig commands with full flag documentation">
 
-      <!-- Quick nav -->
-      <div class="flex flex-wrap gap-2 mt-5">
-        {["search", "index", "status", "watch", "daemon", "query", "files", "symbols", "context", "ls", "read", "smart", "pack", "gain", "setup", "git", "discover", "proxy"].map((cmd) => (
-          <a href={`#${cmd}`} class="px-3 py-1.5 rounded-lg text-xs font-mono border border-border theme-orange nav-pill transition-all">
-            ig {cmd}
-          </a>
-        ))}
+  <h1>CLI Reference</h1>
+
+  <p>Complete documentation for every ig command and flag. The <code>search</code> subcommand is the default — most commands listed here have no required subcommand prefix.</p>
+
+  <!-- Quick nav -->
+  <nav class="quick-nav" aria-label="Commands">
+    {["search", "index", "status", "watch", "daemon", "query", "files", "symbols", "context", "ls", "read", "smart", "pack", "gain", "setup", "git", "discover", "proxy"].map((cmd) => (
+      <a href={`#${cmd}`} class="quick-nav-link">ig {cmd}</a>
+    ))}
+  </nav>
+
+  <!-- ig search -->
+  <section id="search">
+    <h2>ig search</h2>
+
+    <p>The primary command. Searches for regex patterns across indexed files. Auto-builds the index on first run if no <code>.ig/</code> directory exists.</p>
+
+    <div class="docs-callout">
+      <div>
+        <p><strong>Shortcut:</strong> the <code>search</code> subcommand is optional. <code>ig "pattern" .</code> and <code>ig search "pattern" .</code> are equivalent — all flags work the same way in both forms.</p>
       </div>
     </div>
 
-    <!-- ig search -->
-    <section id="search" class="mb-14 scroll-mt-20">
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-2 h-8 rounded-full section-bar-orange"></div>
-        <h2 class="text-2xl font-mono font-bold text-foreground">ig search</h2>
-        <div class="jutsu-tooltip">
-          <span class="text-xs font-mono px-2 py-1 rounded border border-border theme-orange tooltip-trigger cursor-help">
-            hover for jutsu
-          </span>
-          <div class="tooltip-content">🌀 Kage Bunshin no Search!</div>
-        </div>
-      </div>
+    <div class="relative">
+      <div class="code-label">syntax</div>
+      <Code code={`ig [OPTIONS] <PATTERN> [PATH]
+ig search [OPTIONS] <PATTERN> [PATH]  # also works`} lang="bash" theme="github-dark" />
+    </div>
 
-      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        The primary command. Searches for regex patterns across indexed files.
-        Auto-builds index on first run. The most-used jutsu in the arsenal.
-      </p>
+    <table>
+      <thead>
+        <tr>
+          <th>Flag</th>
+          <th>Short</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><code class="flag">--ignore-case</code></td><td><code class="flag">-i</code></td><td>Case-insensitive matching</td></tr>
+        <tr><td><code class="flag">--after-context N</code></td><td><code class="flag">-A N</code></td><td>Show N lines after each match</td></tr>
+        <tr><td><code class="flag">--before-context N</code></td><td><code class="flag">-B N</code></td><td>Show N lines before each match</td></tr>
+        <tr><td><code class="flag">--context N</code></td><td><code class="flag">-C N</code></td><td>Show N lines before and after (overrides -A/-B)</td></tr>
+        <tr><td><code class="flag">--type EXT</code></td><td></td><td>Filter by file extension (e.g. <code>--type rs</code>)</td></tr>
+        <tr><td><code class="flag">--glob PATTERN</code></td><td></td><td>Filter files by glob pattern (e.g. <code>--glob '*.rs'</code>)</td></tr>
+        <tr><td><code class="flag">--json</code></td><td></td><td>Output results as JSON (for AI agents)</td></tr>
+        <tr><td><code class="flag">--stats</code></td><td></td><td>Print search statistics (candidates, time, etc.)</td></tr>
+        <tr><td><code class="flag">--no-index</code></td><td></td><td>Skip index, grep files directly (slow but always fresh)</td></tr>
+      </tbody>
+    </table>
 
-      <div class="flex items-start gap-3 p-4 rounded-lg border border-border bg-secondary/30 mb-5">
-        <span class="text-lg mt-0.5 theme-orange">⚡</span>
-        <div class="text-sm text-muted-foreground">
-          <strong class="text-foreground">Shortcut:</strong> the <code class="font-mono">search</code> subcommand is optional.
-          <code class="font-mono">ig "pattern" .</code> and <code class="font-mono">ig search "pattern" .</code> are equivalent.
-          All flags work the same way in both forms.
-        </div>
-      </div>
+    <div class="relative">
+      <div class="code-label">examples</div>
+      <Code code={`# Basic regex search
+ig "async fn \\w+" src/
 
-      <div class="code-block rounded-xl overflow-hidden mb-5">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> <span class="theme-gold">[OPTIONS]</span> <span class="theme-orange">&lt;PATTERN&gt;</span> [PATH]
-<span class="theme-blue">ig</span> search <span class="theme-gold">[OPTIONS]</span> <span class="theme-orange">&lt;PATTERN&gt;</span> [PATH]  <span class="theme-comment"># also works</span>`}></code></pre>
-      </div>
+# Case-insensitive with 2 lines of context
+ig -i -C 2 "TODO" .
 
-      <div class="overflow-x-auto mb-5">
-        <table class="w-full text-sm border-collapse">
-          <thead>
-            <tr class="border-b border-border/30">
-              <th class="text-left py-2.5 px-3 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Flag</th>
-              <th class="text-left py-2.5 px-3 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Short</th>
-              <th class="text-left py-2.5 px-3 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Description</th>
-            </tr>
-          </thead>
-          <tbody class="font-mono text-xs">
-            {[
-              ["--ignore-case", "-i", "Case-insensitive matching"],
-              ["--after-context N", "-A N", "Show N lines after each match"],
-              ["--before-context N", "-B N", "Show N lines before each match"],
-              ["--context N", "-C N", "Show N lines before and after (overrides -A/-B)"],
-              ["--type EXT", "", "Filter by file extension (e.g. --type rs)"],
-              ["--glob PATTERN", "", "Filter files by glob pattern (e.g. --glob '*.rs')"],
-              ["--json", "", "Output results as JSON (for AI agents)"],
-              ["--stats", "", "Print search statistics (candidates, time, etc.)"],
-              ["--no-index", "", "Skip index, grep files directly (slow but always fresh)"],
-            ].map(([flag, short, desc]) => (
-              <tr class="border-b border-border/20 hover:bg-secondary/30 transition-colors">
-                <td class="py-2.5 px-3 font-mono theme-orange">{flag}</td>
-                <td class="py-2.5 px-3 font-mono theme-blue">{short}</td>
-                <td class="py-2.5 px-3 text-muted-foreground">{desc}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+# JSON output for AI agents
+ig --json "impl \\w+ for" src/
 
-      <div class="code-block rounded-xl overflow-hidden">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Basic regex search</span>
-<span class="theme-blue">ig</span> <span class="theme-gold">"async fn \\w+"</span> src/
+# Only Rust files
+ig --type rs "pub fn" .
 
-<span class="theme-orange"># Case-insensitive with 2 lines of context</span>
-<span class="theme-blue">ig</span> -i -C 2 <span class="theme-gold">"TODO"</span> .
+# Files matching glob
+ig --glob 'src/**/*.rs' "Result<" .
 
-<span class="theme-orange"># JSON output for AI agents</span>
-<span class="theme-blue">ig</span> --json <span class="theme-gold">"impl \\w+ for"</span> src/
+# Show stats (candidates filtered, time)
+ig --stats "use std" .`} lang="bash" theme="github-dark" />
+    </div>
+  </section>
 
-<span class="theme-orange"># Only Rust files</span>
-<span class="theme-blue">ig</span> --type rs <span class="theme-gold">"pub fn"</span> .
+  <!-- ig index -->
+  <section id="index">
+    <h2>ig index</h2>
 
-<span class="theme-orange"># Files matching glob</span>
-<span class="theme-blue">ig</span> --glob <span class="theme-gold">'src/**/*.rs'</span> <span class="theme-gold">"Result&lt;"</span> .
+    <p>Build or rebuild the sparse n-gram index for a directory. Creates <code>.ig/</code> with three binary files: <code>lexicon.bin</code>, <code>postings.bin</code>, and <code>metadata.bin</code>. Called automatically by <code>ig search</code> when no index exists.</p>
 
-<span class="theme-orange"># Show stats (candidates filtered, time)</span>
-<span class="theme-blue">ig</span> --stats <span class="theme-gold">"use std"</span> .`}></code></pre>
-      </div>
-    </section>
+    <div class="relative">
+      <div class="code-label">syntax</div>
+      <Code code={`ig index [OPTIONS]   # default: current directory`} lang="bash" theme="github-dark" />
+    </div>
 
-    <!-- ig index -->
-    <section id="index" class="mb-14 scroll-mt-20">
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-2 h-8 rounded-full section-bar-blue"></div>
-        <h2 class="text-2xl font-mono font-bold text-foreground">ig index</h2>
-      </div>
+    <div class="relative">
+      <div class="code-label">examples</div>
+      <Code code={`# Index current directory
+ig index
 
-      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        Build or rebuild the sparse n-gram index for a directory.
-        Creates <code class="font-mono theme-blue">.ig/</code> with three binary files.
-        Called automatically by <code class="font-mono">ig search</code> when no index exists.
-      </p>
+# Index specific path
+ig index /path/to/project
 
-      <div class="code-block rounded-xl overflow-hidden mb-5">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> index <span class="theme-gold">[OPTIONS]</span>   <span class="theme-comment"># default: current directory</span>`}></code></pre>
-      </div>
+# Force rebuild (even if index exists)
+ig index --force .`} lang="bash" theme="github-dark" />
+    </div>
+  </section>
 
-      <div class="code-block rounded-xl overflow-hidden">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Index current directory</span>
-<span class="theme-blue">ig</span> index
+  <!-- ig status -->
+  <section id="status">
+    <h2>ig status</h2>
 
-<span class="theme-orange"># Index specific path</span>
-<span class="theme-blue">ig</span> index /path/to/project
+    <p>Display statistics about the current index — file count, index size, n-gram count, version, and last build time.</p>
 
-<span class="theme-orange"># Force rebuild (even if index exists)</span>
-<span class="theme-blue">ig</span> index --force .`}></code></pre>
-      </div>
-    </section>
+    <div class="relative">
+      <div class="code-label">output example</div>
+      <Code code={`ig status .
 
-    <!-- ig status -->
-    <section id="status" class="mb-14 scroll-mt-20">
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-2 h-8 rounded-full section-bar-gold"></div>
-        <h2 class="text-2xl font-mono font-bold text-foreground">ig status</h2>
-      </div>
-
-      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        Display statistics about the current index — file count, index size, n-gram count, version, and last build time.
-      </p>
-
-      <div class="code-block rounded-xl overflow-hidden mb-4">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">output example</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange">❯</span> <span class="theme-blue">ig</span> status .
-
-<span class="theme-gold">instant-grep index status</span>
+instant-grep index status
 ──────────────────────────
-<span class="theme-blue">Location:</span>    /home/user/project/.ig/
-<span class="theme-blue">Version:</span>     7
-<span class="theme-blue">Files:</span>       <span class="theme-gold">1,552</span>
-<span class="theme-blue">N-grams:</span>     <span class="theme-gold">48,392</span>
-<span class="theme-blue">Lexicon:</span>     31 MB
-<span class="theme-blue">Postings:</span>    7.1 MB
-<span class="theme-blue">Metadata:</span>    111 KB
-<span class="theme-blue">Built:</span>       2026-03-24 10:12:08`}></code></pre>
-      </div>
-    </section>
+Location:    /home/user/project/.ig/
+Version:     7
+Files:       1,552
+N-grams:     48,392
+Lexicon:     31 MB
+Postings:    7.1 MB
+Metadata:    111 KB
+Built:       2026-03-24 10:12:08`} lang="text" theme="github-dark" />
+    </div>
+  </section>
 
-    <!-- ig watch -->
-    <section id="watch" class="mb-14 scroll-mt-20">
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-2 h-8 rounded-full section-bar-green"></div>
-        <h2 class="text-2xl font-mono font-bold text-foreground">ig watch</h2>
-      </div>
+  <!-- ig watch -->
+  <section id="watch">
+    <h2>ig watch</h2>
 
-      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        Watch a directory for file changes and automatically rebuild the index when files are created, modified, or deleted.
-        Continuous chakra flow — the index is always fresh.
-      </p>
+    <p>Watch a directory for file changes and automatically rebuild the index when files are created, modified, or deleted. The index stays fresh without manual intervention.</p>
 
-      <div class="code-block rounded-xl overflow-hidden mb-4">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">usage</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Watch and auto-rebuild on changes</span>
-<span class="theme-blue">ig</span> watch .
+    <div class="relative">
+      <div class="code-label">usage</div>
+      <Code code={`# Watch and auto-rebuild on changes
+ig watch .
 
 [watching] src/ — press Ctrl+C to stop
-<span class="theme-gold">[rebuild]</span>  src/main.rs modified → rebuilding... done (43ms)
-<span class="theme-gold">[rebuild]</span>  src/lib.rs created → rebuilding... done (51ms)`}></code></pre>
+[rebuild]  src/main.rs modified → rebuilding... done (43ms)
+[rebuild]  src/lib.rs created → rebuilding... done (51ms)`} lang="bash" theme="github-dark" />
+    </div>
+
+    <div class="docs-callout">
+      <div>
+        <p>Combine with <code>ig daemon start</code> for best results: watch keeps the index fresh, daemon keeps it in memory. Together they give you permanent sub-ms search on a live codebase.</p>
       </div>
+    </div>
+  </section>
 
-      <div class="flex items-start gap-3 p-4 rounded-lg border border-border bg-secondary/30">
-        <span class="text-lg mt-0.5 theme-orange">💡</span>
-        <div class="text-sm text-muted-foreground">
-          Combine with <code class="font-mono">ig daemon start</code> for best results:
-          watch keeps the index fresh, daemon keeps it in memory.
-          Together they give you permanent sub-ms search on a live codebase.
-        </div>
+  <!-- ig daemon -->
+  <section id="daemon">
+    <h2>ig daemon</h2>
+
+    <p>Manage the background daemon — a Unix socket server that keeps the index mmap'd in process memory. Full lifecycle: start, stop, check status, or install as a launchd service for auto-restart on macOS. Use <code>ig query</code> to send queries to the running daemon.</p>
+
+    <div class="relative">
+      <div class="code-label">syntax</div>
+      <Code code={`ig daemon start     [PATH]   # start daemon in background
+ig daemon stop      [PATH]   # stop running daemon
+ig daemon status    [PATH]   # check if daemon is running
+ig daemon install   [PATH]   # install launchd service (macOS auto-restart)
+ig daemon uninstall [PATH]   # remove launchd service`} lang="bash" theme="github-dark" />
+    </div>
+
+    <div class="relative">
+      <div class="code-label">usage</div>
+      <Code code={`# Start daemon
+ig daemon start .
+
+[daemon] Daemon started
+[daemon] Socket: .ig/daemon.sock
+[daemon] Index loaded: 1,552 files (36 MB)
+[daemon] Ready for queries...
+
+# Check status
+ig daemon status .
+[daemon] Running (PID 12345) · socket: .ig/daemon.sock
+
+# Install as launchd service for auto-restart (macOS)
+ig daemon install .`} lang="bash" theme="github-dark" />
+    </div>
+  </section>
+
+  <!-- ig query -->
+  <section id="query">
+    <h2>ig query</h2>
+
+    <p>Send a query to a running daemon via Unix socket. Same interface as <code>ig search</code> but routes through the socket. Requires <code>ig daemon</code> to be running.</p>
+
+    <div class="relative">
+      <div class="code-label">syntax</div>
+      <Code code={`ig query [OPTIONS] <PATTERN> [PATH]`} lang="bash" theme="github-dark" />
+    </div>
+
+    <div class="relative">
+      <div class="code-label">examples</div>
+      <Code code={`# Query daemon (sub-ms)
+ig query "async fn" .
+
+# JSON output via daemon
+ig query --json "Result<" .
+
+# p50 latency: 0.3ms (warm daemon)`} lang="bash" theme="github-dark" />
+    </div>
+  </section>
+
+  <!-- ig files -->
+  <section id="files">
+    <h2>ig files</h2>
+
+    <p>List all project files, respecting <code>.gitignore</code> and default exclusions. Ideal for AI agents needing a file inventory before deciding what to read.</p>
+
+    <div class="relative">
+      <div class="code-label">syntax</div>
+      <Code code={`ig files [OPTIONS] [PATH]`} lang="bash" theme="github-dark" />
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Flag</th>
+          <th>Short</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><code class="flag">--compact</code></td><td></td><td>Tree-compressed listing — groups files by directory with counts and extension breakdown</td></tr>
+        <tr><td><code class="flag">--type EXT</code></td><td><code class="flag">-t</code></td><td>Filter by file extension</td></tr>
+        <tr><td><code class="flag">--glob PATTERN</code></td><td><code class="flag">-g</code></td><td>Filter files by glob pattern</td></tr>
+        <tr><td><code class="flag">--json</code></td><td></td><td>Output results as JSON (for AI agents)</td></tr>
+      </tbody>
+    </table>
+
+    <div class="relative">
+      <div class="code-label">examples</div>
+      <Code code={`# List all project files
+ig files
+
+# Only Rust files
+ig files -t rust
+
+# JSON output for agents
+ig files --json
+
+# With glob filter
+ig files -g "src/**/*.ts"
+
+# Tree-compressed view — directories with file counts
+ig files --compact
+
+# Compact view filtered to PHP files
+ig files --compact -t php`} lang="bash" theme="github-dark" />
+    </div>
+  </section>
+
+  <!-- ig symbols -->
+  <section id="symbols">
+    <h2>ig symbols</h2>
+
+    <p>Extract symbol definitions (functions, classes, structs, interfaces) from source files. Language-aware patterns for Rust, TypeScript, Python, Go, PHP, and more.</p>
+
+    <div class="relative">
+      <div class="code-label">syntax</div>
+      <Code code={`ig symbols [OPTIONS] [PATH]`} lang="bash" theme="github-dark" />
+    </div>
+
+    <div class="relative">
+      <div class="code-label">examples</div>
+      <Code code={`# All symbols in project
+ig symbols
+
+# Only Rust symbols
+ig symbols -t rust
+
+# JSON output (for agents)
+ig symbols --json
+
+# Symbols in specific directory
+ig symbols src/`} lang="bash" theme="github-dark" />
+    </div>
+  </section>
+
+  <!-- ig context -->
+  <section id="context">
+    <h2>ig context</h2>
+
+    <p>Show the full code block (function, class, struct) containing a specific line. Automatically detects block boundaries using brace matching or indentation.</p>
+
+    <div class="relative">
+      <div class="code-label">syntax</div>
+      <Code code={`ig context <FILE> <LINE>`} lang="bash" theme="github-dark" />
+    </div>
+
+    <div class="relative">
+      <div class="code-label">examples</div>
+      <Code code={`# Show function containing line 42
+ig context src/main.rs 42
+
+# JSON output
+ig context --json src/main.rs 42`} lang="bash" theme="github-dark" />
+    </div>
+  </section>
+
+  <!-- ig ls -->
+  <section id="ls">
+    <h2>ig ls</h2>
+
+    <p>Compact directory listing optimized for AI agents. Groups files by directory, shows file counts, and respects <code>.gitignore</code> and default exclusions. Generates a tree-like overview without the noise.</p>
+
+    <div class="relative">
+      <div class="code-label">syntax</div>
+      <Code code={`ig ls [PATH]   # default: current directory`} lang="bash" theme="github-dark" />
+    </div>
+
+    <div class="relative">
+      <div class="code-label">examples</div>
+      <Code code={`# Compact listing of current project
+ig ls
+
+src/          (12 files)
+  index/      (6 files)  ngram.rs  reader.rs  writer.rs  ...
+  query/      (2 files)  extract.rs  mod.rs
+  main.rs  daemon.rs  read.rs  smart.rs
+
+# Listing a subdirectory
+ig ls src/`} lang="text" theme="github-dark" />
+    </div>
+  </section>
+
+  <!-- ig read -->
+  <section id="read">
+    <h2>ig read</h2>
+
+    <p>Smart file reading with multiple compression modes. Full mode returns the complete file; <code>--signatures</code> extracts only function/class/struct definitions — dramatically reducing tokens when an AI agent only needs the API surface. Advanced modes offer aggressive compression, token budgets, relevance boosting, and delta views.</p>
+
+    <div class="relative">
+      <div class="code-label">syntax</div>
+      <Code code={`ig read <FILE> [OPTIONS]`} lang="bash" theme="github-dark" />
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Flag</th>
+          <th>Short</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><code class="flag">--signatures</code></td><td><code class="flag">-s</code></td><td>Signatures only — function/class/struct definitions</td></tr>
+        <tr><td><code class="flag">--aggressive</code></td><td><code class="flag">-a</code></td><td>Strip comments, collapse blanks, elide function bodies. Keep signatures + struct fields</td></tr>
+        <tr><td><code class="flag">--budget N</code></td><td><code class="flag">-b N</code></td><td>Max output tokens — uses entropy scoring to keep the most informative lines</td></tr>
+        <tr><td><code class="flag">--relevance PAT</code></td><td><code class="flag">-r PAT</code></td><td>Boost score for lines matching pattern. Best combined with <code>-b</code></td></tr>
+        <tr><td><code class="flag">--delta</code></td><td><code class="flag">-d</code></td><td>Show only git-changed lines with enclosing function context</td></tr>
+      </tbody>
+    </table>
+
+    <div class="relative">
+      <div class="code-label">examples</div>
+      <Code code={`# Full file content
+ig read src/daemon.rs
+
+# Signatures only (functions + structs — much smaller)
+ig read -s src/daemon.rs
+
+pub fn start_daemon(path: &Path) -> Result<()>
+pub fn stop_daemon(path: &Path) -> Result<()>
+pub async fn handle_connection(stream: UnixStream)
+
+# Aggressive compression — strip comments, collapse blanks, elide bodies
+ig read -a src/daemon.rs
+
+# Budget mode — keep the 500 most informative tokens
+ig read -b 500 src/daemon.rs
+
+# Budget + relevance boost — prioritize payment-related code
+ig read -b 500 -r "payment" src/billing.php
+
+# Delta mode — only git-changed lines with enclosing signatures
+ig read -d src/main.rs`} lang="bash" theme="github-dark" />
+    </div>
+  </section>
+
+  <!-- ig smart -->
+  <section id="smart">
+    <h2>ig smart</h2>
+
+    <p>Generate 2-line heuristic summaries for every file in the project. Each summary captures the file's purpose in minimal tokens — ideal for giving an AI agent a high-level map before deciding which files to read in full.</p>
+
+    <div class="relative">
+      <div class="code-label">syntax</div>
+      <Code code={`ig smart [PATH]   # default: current directory`} lang="bash" theme="github-dark" />
+    </div>
+
+    <div class="relative">
+      <div class="code-label">examples</div>
+      <Code code={`# 2-line summaries for all project files
+ig smart
+
+src/daemon.rs
+  Unix socket server — start/stop/status/install lifecycle.
+  Keeps index mmap'd for sub-ms query latency.
+
+src/index/ngram.rs
+  Sparse n-gram generation via hash_bigram + covering set selection.
+  Core algorithm — port of danlark1/sparse_ngrams.`} lang="text" theme="github-dark" />
+    </div>
+  </section>
+
+  <!-- ig pack -->
+  <section id="pack">
+    <h2>ig pack <span class="badge">New in v1.3</span></h2>
+
+    <p>Generate a <code>.ig/context.md</code> file — a structured project snapshot for AI agents. Includes directory tree, symbol definitions, dependencies (<code>Cargo.toml</code> / <code>package.json</code>), API routes (Next.js), and environment variables (<code>.env.example</code>). Replaces manual context-building.</p>
+
+    <div class="relative">
+      <div class="code-label">syntax</div>
+      <Code code={`ig pack [PATH]   # writes .ig/context.md`} lang="bash" theme="github-dark" />
+    </div>
+
+    <div class="relative">
+      <div class="code-label">output sections</div>
+      <Code code={`# .ig/context.md contains:
+
+## Directory Tree    — compact ig ls output
+## Symbols          — all function/class/struct definitions
+## Dependencies     — Cargo.toml or package.json (v1.3+)
+## API Routes       — Next.js app/api/** routes (v1.3+)
+## Environment      — .env.example keys (v1.3+)`} lang="text" theme="github-dark" />
+    </div>
+
+    <div class="docs-callout">
+      <div>
+        <p><strong>Token savings:</strong> a typical Next.js project context shrinks from <code>1,517 lines</code> to <code>263 lines</code> when using <code>ig pack</code> vs naive directory listing. Also auto-generated by <code>ig index</code> on every rebuild.</p>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <!-- ig daemon -->
-    <section id="daemon" class="mb-14 scroll-mt-20">
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-2 h-8 rounded-full section-bar-orange"></div>
-        <h2 class="text-2xl font-mono font-bold text-foreground">ig daemon</h2>
-        <span class="text-xs font-mono px-2 py-1 rounded border border-border theme-orange sage-badge">Sage Mode</span>
-      </div>
+  <!-- ig gain -->
+  <section id="gain">
+    <h2>ig gain</h2>
 
-      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        Manage the Sage Mode daemon — a Unix socket server that keeps the index mmap'd in process memory.
-        Full lifecycle: start, stop, check status, or install as a launchd service for auto-restart on macOS.
-        Use <code class="font-mono">ig query</code> to send queries to the running daemon.
-      </p>
+    <p>Token savings dashboard. Reads the JSONL tracking log written by the rewrite hook and displays cumulative token savings, cost estimates, and per-command breakdowns.</p>
 
-      <div class="code-block rounded-xl overflow-hidden mb-5">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> daemon start   [PATH]    <span class="theme-comment"># start daemon in background</span>
-<span class="theme-blue">ig</span> daemon stop    [PATH]    <span class="theme-comment"># stop running daemon</span>
-<span class="theme-blue">ig</span> daemon status  [PATH]    <span class="theme-comment"># check if daemon is running</span>
-<span class="theme-blue">ig</span> daemon install [PATH]    <span class="theme-comment"># install launchd service (macOS auto-restart)</span>
-<span class="theme-blue">ig</span> daemon uninstall [PATH]  <span class="theme-comment"># remove launchd service</span>`}></code></pre>
-      </div>
+    <div class="relative">
+      <div class="code-label">syntax</div>
+      <Code code={`ig gain [OPTIONS]    # show savings dashboard
+ig gain --clear      # reset history`} lang="bash" theme="github-dark" />
+    </div>
 
-      <div class="code-block rounded-xl overflow-hidden mb-4">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">usage</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Start daemon</span>
-<span class="theme-blue">ig</span> daemon start .
+    <table>
+      <thead>
+        <tr>
+          <th>Flag</th>
+          <th>Short</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><code class="flag">--graph</code></td><td></td><td>ASCII chart of daily savings (last 14 days)</td></tr>
+        <tr><td><code class="flag">--quota</code></td><td></td><td>Monthly quota savings estimate</td></tr>
+        <tr><td><code class="flag">--tier TIER</code></td><td></td><td>Subscription tier: pro, 5x, 20x (default: 20x)</td></tr>
+        <tr><td><code class="flag">--project</code></td><td><code class="flag">-p</code></td><td>Filter to current project only</td></tr>
+        <tr><td><code class="flag">--daily</code></td><td><code class="flag">-d</code></td><td>Show daily breakdown</td></tr>
+        <tr><td><code class="flag">--weekly</code></td><td></td><td>Show weekly breakdown</td></tr>
+        <tr><td><code class="flag">--monthly</code></td><td><code class="flag">-m</code></td><td>Show monthly breakdown</td></tr>
+        <tr><td><code class="flag">--discover</code></td><td></td><td>Scan Claude Code sessions for missed savings</td></tr>
+        <tr><td><code class="flag">--since N</code></td><td></td><td>Days to scan for --discover (default: 30)</td></tr>
+        <tr><td><code class="flag">--history</code></td><td></td><td>Per-command history with individual savings</td></tr>
+        <tr><td><code class="flag">--json</code></td><td></td><td>Machine-readable JSON output</td></tr>
+        <tr><td><code class="flag">--clear</code></td><td></td><td>Reset history</td></tr>
+      </tbody>
+    </table>
 
-[sage-mode] Daemon started
-[sage-mode] Socket: .ig/daemon.sock
-[sage-mode] Index loaded: 1,552 files (36 MB)
-[sage-mode] Ready for queries...
+    <div class="relative">
+      <div class="code-label">output example</div>
+      <Code code={`ig gain
 
-<span class="theme-orange"># Check status</span>
-<span class="theme-blue">ig</span> daemon status .
-[sage-mode] Running (PID 12345) · socket: .ig/daemon.sock
-
-<span class="theme-orange"># Install as launchd service for auto-restart (macOS)</span>
-<span class="theme-blue">ig</span> daemon install .`}></code></pre>
-      </div>
-    </section>
-
-    <!-- ig files -->
-    <section id="files" class="mb-14 scroll-mt-20">
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-2 h-8 rounded-full section-bar-blue"></div>
-        <h2 class="text-2xl font-mono font-bold text-foreground">ig files</h2>
-      </div>
-
-      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        List all project files, respecting .gitignore and default exclusions. Perfect for AI agents needing a file inventory.
-      </p>
-
-      <div class="code-block rounded-xl overflow-hidden mb-5">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> files <span class="theme-gold">[OPTIONS]</span> [PATH]`}></code></pre>
-      </div>
-
-      <div class="code-block rounded-xl overflow-hidden">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># List all project files</span>
-<span class="theme-blue">ig</span> files
-
-<span class="theme-orange"># Only Rust files</span>
-<span class="theme-blue">ig</span> files -t rust
-
-<span class="theme-orange"># JSON output for agents</span>
-<span class="theme-blue">ig</span> files --json
-
-<span class="theme-orange"># With glob filter</span>
-<span class="theme-blue">ig</span> files -g <span class="theme-gold">"src/**/*.ts"</span>`}></code></pre>
-      </div>
-    </section>
-
-    <!-- ig symbols -->
-    <section id="symbols" class="mb-14 scroll-mt-20">
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-2 h-8 rounded-full section-bar-gold"></div>
-        <h2 class="text-2xl font-mono font-bold text-foreground">ig symbols</h2>
-      </div>
-
-      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        Extract symbol definitions (functions, classes, structs, interfaces) from source files.
-        Language-aware patterns for Rust, TypeScript, Python, Go, PHP, and more.
-      </p>
-
-      <div class="code-block rounded-xl overflow-hidden mb-5">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> symbols <span class="theme-gold">[OPTIONS]</span> [PATH]`}></code></pre>
-      </div>
-
-      <div class="code-block rounded-xl overflow-hidden">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># All symbols in project</span>
-<span class="theme-blue">ig</span> symbols
-
-<span class="theme-orange"># Only Rust symbols</span>
-<span class="theme-blue">ig</span> symbols -t rust
-
-<span class="theme-orange"># JSON output (for agents)</span>
-<span class="theme-blue">ig</span> symbols --json
-
-<span class="theme-orange"># Symbols in specific directory</span>
-<span class="theme-blue">ig</span> symbols src/`}></code></pre>
-      </div>
-    </section>
-
-    <!-- ig ls -->
-    <section id="ls" class="mb-14 scroll-mt-20">
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-2 h-8 rounded-full section-bar-blue"></div>
-        <h2 class="text-2xl font-mono font-bold text-foreground">ig ls</h2>
-      </div>
-
-      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        Compact directory listing optimized for AI agents. Groups files by directory, shows file counts,
-        and respects .gitignore and default exclusions. Generates a tree-like overview without the noise.
-      </p>
-
-      <div class="code-block rounded-xl overflow-hidden mb-5">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> ls <span class="theme-gold">[PATH]</span>   <span class="theme-comment"># default: current directory</span>`}></code></pre>
-      </div>
-
-      <div class="code-block rounded-xl overflow-hidden">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Compact listing of current project</span>
-<span class="theme-blue">ig</span> ls
-
-<span class="theme-comment">src/          (12 files)</span>
-<span class="theme-comment">  index/      (6 files)  ngram.rs  reader.rs  writer.rs  ...</span>
-<span class="theme-comment">  query/      (2 files)  extract.rs  mod.rs</span>
-<span class="theme-comment">  main.rs  daemon.rs  read.rs  smart.rs</span>
-
-<span class="theme-orange"># Listing a subdirectory</span>
-<span class="theme-blue">ig</span> ls src/`}></code></pre>
-      </div>
-    </section>
-
-    <!-- ig read -->
-    <section id="read" class="mb-14 scroll-mt-20">
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-2 h-8 rounded-full section-bar-gold"></div>
-        <h2 class="text-2xl font-mono font-bold text-foreground">ig read</h2>
-      </div>
-
-      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        Smart file reading with an optional signatures-only mode. Full mode returns the complete file;
-        <code class="font-mono">--signatures</code> extracts only function/class/struct definitions —
-        dramatically reducing tokens when an AI agent only needs the API surface.
-      </p>
-
-      <div class="code-block rounded-xl overflow-hidden mb-5">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> read <span class="theme-orange">&lt;FILE&gt;</span> <span class="theme-gold">[--signatures]</span>   <span class="theme-comment"># -s short form also works</span>`}></code></pre>
-      </div>
-
-      <div class="code-block rounded-xl overflow-hidden">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Full file content</span>
-<span class="theme-blue">ig</span> read src/daemon.rs
-
-<span class="theme-orange"># Signatures only (functions + structs — much smaller)</span>
-<span class="theme-blue">ig</span> read -s src/daemon.rs
-
-<span class="theme-comment">pub fn start_daemon(path: &Path) -> Result&lt;()&gt;</span>
-<span class="theme-comment">pub fn stop_daemon(path: &Path) -> Result&lt;()&gt;</span>
-<span class="theme-comment">pub async fn handle_connection(stream: UnixStream)</span>`}></code></pre>
-      </div>
-    </section>
-
-    <!-- ig smart -->
-    <section id="smart" class="mb-14 scroll-mt-20">
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-2 h-8 rounded-full section-bar-green"></div>
-        <h2 class="text-2xl font-mono font-bold text-foreground">ig smart</h2>
-      </div>
-
-      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        Generate 2-line heuristic summaries for every file in the project. Each summary captures
-        the file's purpose in minimal tokens — ideal for giving an AI agent a high-level map
-        before deciding which files to read in full.
-      </p>
-
-      <div class="code-block rounded-xl overflow-hidden mb-5">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> smart <span class="theme-gold">[PATH]</span>   <span class="theme-comment"># default: current directory</span>`}></code></pre>
-      </div>
-
-      <div class="code-block rounded-xl overflow-hidden">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># 2-line summaries for all project files</span>
-<span class="theme-blue">ig</span> smart
-
-<span class="theme-blue">src/daemon.rs</span>
-<span class="theme-comment">  Unix socket server (Sage Mode) — start/stop/status/install lifecycle.</span>
-<span class="theme-comment">  Keeps index mmap'd for sub-ms query latency.</span>
-
-<span class="theme-blue">src/index/ngram.rs</span>
-<span class="theme-comment">  Sparse n-gram generation via hash_bigram + covering set selection.</span>
-<span class="theme-comment">  Core of the Rasengan Algorithm — port of danlark1/sparse_ngrams.</span>`}></code></pre>
-      </div>
-    </section>
-
-    <!-- ig pack -->
-    <section id="pack" class="mb-14 scroll-mt-20">
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-2 h-8 rounded-full section-bar-orange"></div>
-        <h2 class="text-2xl font-mono font-bold text-foreground">ig pack</h2>
-        <span class="text-xs font-mono px-2 py-1 rounded border border-border theme-orange sage-badge">New in v1.3</span>
-      </div>
-
-      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        Generate a <code class="font-mono theme-blue">.ig/context.md</code> file — a structured project snapshot
-        for AI agents. Includes directory tree, symbol definitions, dependencies (Cargo.toml / package.json),
-        API routes (Next.js), and environment variables (.env.example). Replaces manual context-building.
-      </p>
-
-      <div class="code-block rounded-xl overflow-hidden mb-5">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> pack <span class="theme-gold">[PATH]</span>   <span class="theme-comment"># writes .ig/context.md</span>`}></code></pre>
-      </div>
-
-      <div class="code-block rounded-xl overflow-hidden mb-5">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">output sections</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-comment">.ig/context.md contains:</span>
-
-<span class="theme-gold">## Directory Tree</span>    <span class="theme-comment">— compact ig ls output</span>
-<span class="theme-gold">## Symbols</span>          <span class="theme-comment">— all function/class/struct definitions</span>
-<span class="theme-gold">## Dependencies</span>     <span class="theme-comment">— Cargo.toml or package.json (v1.3+)</span>
-<span class="theme-gold">## API Routes</span>       <span class="theme-comment">— Next.js app/api/** routes (v1.3+)</span>
-<span class="theme-gold">## Environment</span>      <span class="theme-comment">— .env.example keys (v1.3+)</span>`}></code></pre>
-      </div>
-
-      <div class="flex items-start gap-3 p-4 rounded-lg border border-border bg-secondary/30">
-        <span class="text-lg mt-0.5 theme-orange">⚡</span>
-        <div class="text-sm text-muted-foreground">
-          <strong class="text-foreground">Token savings:</strong> a typical Next.js project context shrinks from
-          <code class="font-mono">1,517 lines</code> to <code class="font-mono">263 lines</code> when using
-          <code class="font-mono">ig pack</code> vs naive directory listing. Also auto-generated by
-          <code class="font-mono">ig index</code> on every rebuild.
-        </div>
-      </div>
-    </section>
-
-    <!-- ig gain -->
-    <section id="gain" class="mb-14 scroll-mt-20">
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-2 h-8 rounded-full section-bar-gold"></div>
-        <h2 class="text-2xl font-mono font-bold text-foreground">ig gain</h2>
-      </div>
-
-      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        Token savings dashboard. Reads the JSONL tracking log written by the rewrite hook and displays
-        cumulative token savings, cost estimates, and per-command breakdowns.
-      </p>
-
-      <div class="code-block rounded-xl overflow-hidden mb-5">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> gain               <span class="theme-comment"># show savings dashboard</span>
-<span class="theme-blue">ig</span> gain <span class="theme-gold">--clear</span>        <span class="theme-comment"># reset history</span>`}></code></pre>
-      </div>
-
-      <div class="code-block rounded-xl overflow-hidden">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">output example</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange">❯</span> <span class="theme-blue">ig</span> gain
-
-<span class="theme-gold">instant-grep token savings</span>
+instant-grep token savings
 ────────────────────────────────
-<span class="theme-blue">Session:</span>     47 rewrites
-<span class="theme-blue">Tokens saved:</span>  <span class="theme-green">142,380</span>
-<span class="theme-blue">Cost saved:</span>  <span class="theme-green">$0.13</span>
-<span class="theme-blue">Top command:</span>  git status  (38 rewrites, 91K tokens)`}></code></pre>
-      </div>
-    </section>
+Session:      47 rewrites
+Tokens saved: 142,380
+Cost saved:   $0.13
+Top command:  git status  (38 rewrites, 91K tokens)`} lang="text" theme="github-dark" />
+    </div>
 
-    <!-- ig rewrite (hidden) -->
-    <section class="mb-14 p-5 rounded-xl border border-border bg-secondary/20">
-      <div class="flex items-center gap-3 mb-3">
-        <h3 class="font-mono font-bold text-foreground">ig rewrite <span class="text-muted-foreground text-sm font-normal">(hook-internal)</span></h3>
-        <span class="text-xs font-mono px-2 py-1 rounded border border-border text-muted-foreground">hidden</span>
-      </div>
-      <p class="text-sm text-muted-foreground leading-relaxed">
-        Rewrites a shell command to its ig-optimized equivalent. Used internally by the Claude Code
-        <code class="font-mono">PreToolUse</code> hook — not intended for direct invocation.
-        <code class="font-mono">ig setup</code> installs the hook automatically.
-      </p>
-      <div class="code-block rounded-xl overflow-hidden mt-3">
-        <pre class="p-4 font-mono text-xs leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Example rewrites performed by the hook:</span>
-<span class="theme-comment">grep -r "pattern" src/   →  ig "pattern" src/</span>
-<span class="theme-comment">find . -name "*.rs"      →  ig files -t rs .</span>
-<span class="theme-comment">git status               →  rtk git status</span>`}></code></pre>
-      </div>
-    </section>
+    <div class="relative">
+      <div class="code-label">examples</div>
+      <Code code={`# Main dashboard
+ig gain
 
-    <!-- ig context -->
-    <section id="context" class="mb-14 scroll-mt-20">
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-2 h-8 rounded-full section-bar-green"></div>
-        <h2 class="text-2xl font-mono font-bold text-foreground">ig context</h2>
-      </div>
+# Daily savings chart (last 14 days)
+ig gain --graph
 
-      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        Show the full code block (function, class, struct) containing a specific line.
-        Automatically detects block boundaries using brace matching or indentation.
-      </p>
+# Monthly token projection
+ig gain --quota
 
-      <div class="code-block rounded-xl overflow-hidden mb-5">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> context <span class="theme-orange">&lt;FILE&gt;</span> <span class="theme-orange">&lt;LINE&gt;</span>`}></code></pre>
-      </div>
+# Current project only
+ig gain -p
 
-      <div class="code-block rounded-xl overflow-hidden">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Show function containing line 42</span>
-<span class="theme-blue">ig</span> context src/main.rs <span class="theme-gold">42</span>
+# Find missed optimization opportunities
+ig gain --discover
 
-<span class="theme-orange"># JSON output</span>
-<span class="theme-blue">ig</span> context --json src/main.rs <span class="theme-gold">42</span>`}></code></pre>
-      </div>
-    </section>
+# Per-command history with individual savings (new in v1.4)
+ig gain --history
 
-    <!-- ig setup -->
-    <section id="setup" class="mb-14 scroll-mt-20">
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-2 h-8 rounded-full section-bar-orange"></div>
-        <h2 class="text-2xl font-mono font-bold text-foreground">ig setup</h2>
-        <span class="text-xs font-mono px-2 py-1 rounded border border-border theme-orange sage-badge">New</span>
-      </div>
+# Machine-readable JSON output (new in v1.4)
+ig gain --json`} lang="bash" theme="github-dark" />
+    </div>
 
-      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        Auto-configure AI CLI agents (Claude Code, Codex, Gemini CLI) to use ig for code search.
-        Detects installed agents and injects configuration. Idempotent — safe to run multiple times.
-      </p>
-
-      <div class="code-block rounded-xl overflow-hidden mb-5">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> setup`}></code></pre>
-      </div>
-
-      <div class="code-block rounded-xl overflow-hidden">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Configure all detected agents</span>
-<span class="theme-blue">ig</span> setup
-
-<span class="theme-orange"># Output:</span>
-<span class="theme-green">✓</span> Claude Code
-  <span class="theme-comment">→ Added Bash(ig *) permission to settings.json</span>
-  <span class="theme-comment">→ Added Search Tools section to CLAUDE.md</span>
-<span class="theme-green">✓</span> Codex CLI
-  <span class="theme-comment">→ Added Search Tools section to AGENTS.md</span>
-<span class="theme-blue">ℹ</span> Gemini CLI <span class="theme-comment">(manual config needed)</span>`}></code></pre>
-      </div>
-    </section>
-
-    <!-- ig query -->
-    <section id="query" class="mb-10 scroll-mt-20">
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-2 h-8 rounded-full section-bar-red"></div>
-        <h2 class="text-2xl font-mono font-bold text-foreground">ig query</h2>
-      </div>
-
-      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        Send a query to a running daemon via Unix socket.
-        Same interface as <code class="font-mono">ig search</code> but routes through the socket.
-        Requires <code class="font-mono">ig daemon</code> to be running.
-      </p>
-
-      <div class="code-block rounded-xl overflow-hidden mb-4">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> query <span class="theme-gold">[OPTIONS]</span> <span class="theme-orange">&lt;PATTERN&gt;</span> [PATH]`}></code></pre>
-      </div>
-
-      <div class="code-block rounded-xl overflow-hidden">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Query daemon (sub-ms)</span>
-<span class="theme-blue">ig</span> query <span class="theme-gold">"async fn"</span> .
-
-<span class="theme-orange"># JSON output via daemon</span>
-<span class="theme-blue">ig</span> query --json <span class="theme-gold">"Result&lt;"</span> .
-
-<span class="theme-comment"># p50 latency: 0.3ms (warm daemon)</span>`}></code></pre>
-      </div>
-    </section>
-
-    <!-- ig git -->
-    <section id="git" class="mb-14 scroll-mt-20">
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-2 h-8 rounded-full section-bar-green"></div>
-        <h2 class="text-2xl font-mono font-bold text-foreground">ig git</h2>
-        <div class="jutsu-tooltip">
-          <span class="text-xs font-mono px-2 py-1 rounded border border-border theme-orange tooltip-trigger cursor-help">
-            hover for jutsu
-          </span>
-          <div class="tooltip-content">🌊 Suiton — Git Stream Compression!</div>
-        </div>
-        <span class="text-xs font-mono px-2 py-1 rounded border border-border theme-orange sage-badge">New in v1.4</span>
-      </div>
-
-      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        Token-compressed git proxy. Routes git commands through RTK to strip verbose output, filter noise,
-        and track token savings. Supports <code class="font-mono">status</code>, <code class="font-mono">log</code>,
-        <code class="font-mono">diff</code>, <code class="font-mono">show</code>, and <code class="font-mono">branch</code>.
-        Transparent — the output is still valid git output, just compressed.
-      </p>
-
-      <div class="code-block rounded-xl overflow-hidden mb-5">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> git <span class="theme-orange">&lt;SUBCOMMAND&gt;</span> <span class="theme-gold">[GIT OPTIONS]</span>   <span class="theme-comment"># proxies to rtk git &lt;subcommand&gt;</span>`}></code></pre>
-      </div>
-
-      <div class="overflow-x-auto mb-5">
-        <table class="w-full text-sm border-collapse">
-          <thead>
-            <tr class="border-b border-border/30">
-              <th class="text-left py-2.5 px-3 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Subcommand</th>
-              <th class="text-left py-2.5 px-3 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Native size</th>
-              <th class="text-left py-2.5 px-3 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">After ig git</th>
-              <th class="text-left py-2.5 px-3 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Savings</th>
-            </tr>
-          </thead>
-          <tbody class="font-mono text-xs">
-            {[
-              ["status", "732B", "127B", "-83%"],
-              ["log -10", "8,861B", "997B", "-89%"],
-              ["show HEAD", "11,920B", "5,812B", "-51%"],
-              ["diff", "26,288B", "6,906B", "-74%"],
-            ].map(([sub, native, after, savings]) => (
-              <tr class="border-b border-border/20 hover:bg-secondary/30 transition-colors">
-                <td class="py-2.5 px-3 font-mono theme-orange">git {sub}</td>
-                <td class="py-2.5 px-3 text-muted-foreground">{native}</td>
-                <td class="py-2.5 px-3 theme-blue">{after}</td>
-                <td class="py-2.5 px-3 theme-green font-bold">{savings}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="code-block rounded-xl overflow-hidden">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Compressed git status (127B instead of 732B)</span>
-<span class="theme-blue">ig</span> git status
-
-<span class="theme-orange"># Compact log — 10 entries, -89% token reduction</span>
-<span class="theme-blue">ig</span> git log -10
-
-<span class="theme-orange"># Diff with noise stripped</span>
-<span class="theme-blue">ig</span> git diff
-
-<span class="theme-orange"># Show last commit</span>
-<span class="theme-blue">ig</span> git show HEAD
-
-<span class="theme-orange"># Branch list</span>
-<span class="theme-blue">ig</span> git branch`}></code></pre>
-      </div>
-    </section>
-
-    <!-- ig discover -->
-    <section id="discover" class="mb-14 scroll-mt-20">
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-2 h-8 rounded-full section-bar-gold"></div>
-        <h2 class="text-2xl font-mono font-bold text-foreground">ig discover</h2>
-        <div class="jutsu-tooltip">
-          <span class="text-xs font-mono px-2 py-1 rounded border border-border theme-orange tooltip-trigger cursor-help">
-            hover for jutsu
-          </span>
-          <div class="tooltip-content">👁️ Sharingan — Missed Opportunity Detection!</div>
-        </div>
-        <span class="text-xs font-mono px-2 py-1 rounded border border-border theme-orange sage-badge">New in v1.4</span>
-      </div>
-
-      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        Scan Claude Code session history for missed token-saving opportunities. Analyzes past shell commands
-        and reports which ones could have been rewritten to ig equivalents — helping you tune your hook coverage.
-      </p>
-
-      <div class="code-block rounded-xl overflow-hidden mb-5">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> discover <span class="theme-gold">[OPTIONS]</span>   <span class="theme-comment"># scan Claude Code session logs</span>`}></code></pre>
-      </div>
-
-      <div class="overflow-x-auto mb-5">
-        <table class="w-full text-sm border-collapse">
-          <thead>
-            <tr class="border-b border-border/30">
-              <th class="text-left py-2.5 px-3 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Flag</th>
-              <th class="text-left py-2.5 px-3 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Short</th>
-              <th class="text-left py-2.5 px-3 text-xs font-mono text-muted-foreground/60 font-normal uppercase tracking-wider">Description</th>
-            </tr>
-          </thead>
-          <tbody class="font-mono text-xs">
-            {[
-              ["--since DATE", "", "Scan sessions since a date (e.g. --since 2026-03-01)"],
-              ["--limit N", "", "Cap results to top N missed opportunities"],
-            ].map(([flag, short, desc]) => (
-              <tr class="border-b border-border/20 hover:bg-secondary/30 transition-colors">
-                <td class="py-2.5 px-3 font-mono theme-orange">{flag}</td>
-                <td class="py-2.5 px-3 font-mono theme-blue">{short}</td>
-                <td class="py-2.5 px-3 text-muted-foreground">{desc}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="code-block rounded-xl overflow-hidden">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Scan all sessions for missed savings</span>
-<span class="theme-blue">ig</span> discover
-
-<span class="theme-orange"># Limit to sessions since March 2026</span>
-<span class="theme-blue">ig</span> discover --since 2026-03-01
-
-<span class="theme-orange"># Show top 20 missed opportunities</span>
-<span class="theme-blue">ig</span> discover --limit 20`}></code></pre>
-      </div>
-    </section>
-
-    <!-- ig gain --history / --json -->
-    <section class="mb-14 scroll-mt-20">
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-2 h-8 rounded-full section-bar-gold"></div>
-        <h2 class="text-2xl font-mono font-bold text-foreground">ig gain — new flags</h2>
-        <span class="text-xs font-mono px-2 py-1 rounded border border-border theme-orange sage-badge">New in v1.4</span>
-      </div>
-
-      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        Two new flags extend <code class="font-mono">ig gain</code> for richer history inspection and machine-readable output.
-        The existing dashboard behavior is unchanged.
-      </p>
-
-      <div class="code-block rounded-xl overflow-hidden mb-5">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> gain                 <span class="theme-comment"># cumulative savings dashboard</span>
-<span class="theme-blue">ig</span> gain <span class="theme-gold">--history</span>        <span class="theme-comment"># per-command history with individual savings</span>
-<span class="theme-blue">ig</span> gain <span class="theme-gold">--json</span>           <span class="theme-comment"># machine-readable JSON output</span>
-<span class="theme-blue">ig</span> gain <span class="theme-gold">--clear</span>          <span class="theme-comment"># reset history (existing)</span>`}></code></pre>
-      </div>
-
-      <div class="code-block rounded-xl overflow-hidden">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">--history output example</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange">❯</span> <span class="theme-blue">ig</span> gain --history
-
-<span class="theme-gold">command history (last 10)</span>
+    <div class="relative">
+      <div class="code-label">--history output example</div>
+      <Code code={`command history (last 10)
 ────────────────────────────────────────────
-<span class="theme-blue">2026-03-27 14:32</span>  git status    <span class="theme-green">-605B</span>   (-83%)
-<span class="theme-blue">2026-03-27 14:35</span>  git log -10   <span class="theme-green">-7,864B</span> (-89%)
-<span class="theme-blue">2026-03-27 14:41</span>  grep -r …     <span class="theme-green">-2,100B</span> (-94%)
-<span class="theme-blue">2026-03-27 14:50</span>  git diff      <span class="theme-green">-19,382B</span> (-74%)`}></code></pre>
-      </div>
-    </section>
+2026-03-27 14:32  git status    -605B   (-83%)
+2026-03-27 14:35  git log -10   -7,864B (-89%)
+2026-03-27 14:41  grep -r …     -2,100B (-94%)
+2026-03-27 14:50  git diff      -19,382B (-74%)`} lang="text" theme="github-dark" />
+    </div>
+  </section>
 
-    <!-- ig proxy -->
-    <section id="proxy" class="mb-14 scroll-mt-20">
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-2 h-8 rounded-full section-bar-blue"></div>
-        <h2 class="text-2xl font-mono font-bold text-foreground">ig proxy</h2>
-        <span class="text-xs font-mono px-2 py-1 rounded border border-border theme-orange sage-badge">New in v1.4</span>
-      </div>
+  <!-- ig setup -->
+  <section id="setup">
+    <h2>ig setup <span class="badge">New</span></h2>
 
-      <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        Debug passthrough mode — executes the raw command without any ig rewriting or RTK filtering.
-        Useful for verifying hook behavior, comparing compressed vs native output, or bypassing rewrites for a single call.
-      </p>
+    <p>Auto-configure AI CLI agents (Claude Code, Codex, Gemini CLI) to use ig for code search. Detects installed agents and injects configuration. Idempotent — safe to run multiple times.</p>
 
-      <div class="code-block rounded-xl overflow-hidden mb-5">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">syntax</div>
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-blue">ig</span> proxy <span class="theme-orange">&lt;COMMAND&gt;</span> <span class="theme-gold">[ARGS...]</span>   <span class="theme-comment"># execute raw without filtering</span>`}></code></pre>
-      </div>
+    <div class="relative">
+      <div class="code-label">syntax</div>
+      <Code code={`ig setup`} lang="bash" theme="github-dark" />
+    </div>
 
-      <div class="code-block rounded-xl overflow-hidden">
-        <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">examples</div>
-        <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Run git status without compression (debug)</span>
-<span class="theme-blue">ig</span> proxy git status
+    <div class="relative">
+      <div class="code-label">output example</div>
+      <Code code={`ig setup
 
-<span class="theme-orange"># Run grep without rewriting</span>
-<span class="theme-blue">ig</span> proxy grep -r <span class="theme-gold">"pattern"</span> src/
+✓ Claude Code
+  → Added Bash(ig *) permission to settings.json
+  → Added Search Tools section to CLAUDE.md
+✓ Codex CLI
+  → Added Search Tools section to AGENTS.md
+ℹ Gemini CLI (manual config needed)`} lang="text" theme="github-dark" />
+    </div>
+  </section>
 
-<span class="theme-orange"># Compare native vs compressed</span>
-<span class="theme-blue">ig</span> proxy git log -5
-<span class="theme-blue">ig</span> git log -5`}></code></pre>
-      </div>
-    </section>
+  <!-- ig git -->
+  <section id="git">
+    <h2>ig git <span class="badge">New in v1.4</span></h2>
 
-    <!-- JSON output format -->
-    <section class="mb-4 p-6 rounded-xl border border-border bg-secondary/30">
-      <h3 class="font-mono font-bold mb-3 theme-blue">JSON Output Format (--json)</h3>
-      <p class="text-xs text-muted-foreground mb-3">Used by AI agents — structured, parseable, minimal tokens. Supported by <code class="font-mono">search</code>, <code class="font-mono">query</code>, <code class="font-mono">files</code>, <code class="font-mono">symbols</code>, and <code class="font-mono">context</code>.</p>
-      <div class="code-block rounded-xl overflow-hidden">
-        <pre class="p-4 font-mono text-xs leading-relaxed overflow-x-auto"><code set:html={`{
-  <span class="theme-blue">"pattern"</span>: <span class="theme-gold">"async fn"</span>,
-  <span class="theme-blue">"matches"</span>: [
+    <p>Token-compressed git proxy. Routes git commands through RTK to strip verbose output, filter noise, and track token savings. Supports <code>status</code>, <code>log</code>, <code>diff</code>, <code>show</code>, and <code>branch</code>. Transparent — the output is still valid git output, just compressed.</p>
+
+    <div class="relative">
+      <div class="code-label">syntax</div>
+      <Code code={`ig git <SUBCOMMAND> [GIT OPTIONS]   # proxies to rtk git <subcommand>`} lang="bash" theme="github-dark" />
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Subcommand</th>
+          <th>Native size</th>
+          <th>After ig git</th>
+          <th>Savings</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><code>git status</code></td><td>732B</td><td>127B</td><td><strong>-83%</strong></td></tr>
+        <tr><td><code>git log -10</code></td><td>8,861B</td><td>997B</td><td><strong>-89%</strong></td></tr>
+        <tr><td><code>git show HEAD</code></td><td>11,920B</td><td>5,812B</td><td><strong>-51%</strong></td></tr>
+        <tr><td><code>git diff</code></td><td>26,288B</td><td>6,906B</td><td><strong>-74%</strong></td></tr>
+      </tbody>
+    </table>
+
+    <div class="relative">
+      <div class="code-label">examples</div>
+      <Code code={`# Compressed git status (127B instead of 732B)
+ig git status
+
+# Compact log — 10 entries, -89% token reduction
+ig git log -10
+
+# Diff with noise stripped
+ig git diff
+
+# Show last commit
+ig git show HEAD
+
+# Branch list
+ig git branch`} lang="bash" theme="github-dark" />
+    </div>
+  </section>
+
+  <!-- ig discover -->
+  <section id="discover">
+    <h2>ig discover <span class="badge">New in v1.4</span></h2>
+
+    <p>Scan Claude Code session history for missed token-saving opportunities. Analyzes past shell commands and reports which ones could have been rewritten to ig equivalents — helping you tune your hook coverage.</p>
+
+    <div class="relative">
+      <div class="code-label">syntax</div>
+      <Code code={`ig discover [OPTIONS]   # scan Claude Code session logs`} lang="bash" theme="github-dark" />
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Flag</th>
+          <th>Short</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><code class="flag">--since DATE</code></td><td></td><td>Scan sessions since a date (e.g. <code>--since 2026-03-01</code>)</td></tr>
+        <tr><td><code class="flag">--limit N</code></td><td></td><td>Cap results to top N missed opportunities</td></tr>
+      </tbody>
+    </table>
+
+    <div class="relative">
+      <div class="code-label">examples</div>
+      <Code code={`# Scan all sessions for missed savings
+ig discover
+
+# Limit to sessions since March 2026
+ig discover --since 2026-03-01
+
+# Show top 20 missed opportunities
+ig discover --limit 20`} lang="bash" theme="github-dark" />
+    </div>
+  </section>
+
+  <!-- ig proxy -->
+  <section id="proxy">
+    <h2>ig proxy <span class="badge">New in v1.4</span></h2>
+
+    <p>Debug passthrough mode — executes the raw command without any ig rewriting or RTK filtering. Useful for verifying hook behavior, comparing compressed vs native output, or bypassing rewrites for a single call.</p>
+
+    <div class="relative">
+      <div class="code-label">syntax</div>
+      <Code code={`ig proxy <COMMAND> [ARGS...]   # execute raw without filtering`} lang="bash" theme="github-dark" />
+    </div>
+
+    <div class="relative">
+      <div class="code-label">examples</div>
+      <Code code={`# Run git status without compression (debug)
+ig proxy git status
+
+# Run grep without rewriting
+ig proxy grep -r "pattern" src/
+
+# Compare native vs compressed
+ig proxy git log -5
+ig git log -5`} lang="bash" theme="github-dark" />
+    </div>
+  </section>
+
+  <!-- ig rewrite (hook-internal) -->
+  <section>
+    <h3>ig rewrite <span class="badge badge--muted">hook-internal</span></h3>
+
+    <p>Rewrites a shell command to its ig-optimized equivalent. Used internally by the Claude Code <code>PreToolUse</code> hook — not intended for direct invocation. <code>ig setup</code> installs the hook automatically.</p>
+
+    <div class="relative">
+      <div class="code-label">example rewrites performed by the hook</div>
+      <Code code={`grep -r "pattern" src/   →  ig "pattern" src/
+find . -name "*.rs"      →  ig files -t rs .
+git status               →  ig git status`} lang="text" theme="github-dark" />
+    </div>
+  </section>
+
+  <!-- JSON output format -->
+  <section>
+    <h3>JSON output format (<code>--json</code>)</h3>
+
+    <p>Structured, parseable, minimal tokens. Supported by <code>search</code>, <code>query</code>, <code>files</code>, <code>symbols</code>, and <code>context</code>.</p>
+
+    <div class="relative">
+      <div class="code-label">schema</div>
+      <Code code={`{
+  "pattern": "async fn",
+  "matches": [
     {
-      <span class="theme-blue">"file"</span>: <span class="theme-gold">"src/daemon.rs"</span>,
-      <span class="theme-blue">"line"</span>: <span class="theme-orange">23</span>,
-      <span class="theme-blue">"text"</span>: <span class="theme-gold">"pub async fn handle_connection(stream: UnixStream) {"</span>
+      "file": "src/daemon.rs",
+      "line": 23,
+      "text": "pub async fn handle_connection(stream: UnixStream) {"
     }
   ],
-  <span class="theme-blue">"stats"</span>: {
-    <span class="theme-blue">"duration_ms"</span>: <span class="theme-orange">0.9</span>,
-    <span class="theme-blue">"candidates"</span>: <span class="theme-orange">47</span>,
-    <span class="theme-blue">"matches"</span>: <span class="theme-orange">3</span>
+  "stats": {
+    "duration_ms": 0.9,
+    "candidates": 47,
+    "matches": 3
   }
-}`}></code></pre>
-      </div>
-    </section>
-  </div>
+}`} lang="json" theme="github-dark" />
+    </div>
+  </section>
+
 </DocsLayout>
 
+
 <style>
-  .gradient-text-gold {
-    background: linear-gradient(135deg, oklch(0.55 0.14 80) 0%, var(--primary) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+  /* ── Quick nav ──────────────────────────────────────────── */
+  .quick-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    margin: 1.5rem 0 2.5rem;
+  }
+  .quick-nav-link {
+    display: inline-block;
+    padding: 0.25rem 0.625rem;
+    border-radius: 0.375rem;
+    border: 1px solid oklch(0.3 0 0);
+    font-family: ui-monospace, "Cascadia Code", monospace;
+    font-size: 0.75rem;
+    color: oklch(0.65 0 0);
+    text-decoration: none;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .quick-nav-link:hover {
+    border-color: oklch(0.6 0 0);
+    color: oklch(0.85 0 0);
   }
 
-  .theme-orange { color: var(--primary); }
-  .theme-gold { color: oklch(0.55 0.14 80); }
-  .theme-blue { color: var(--accent); }
-  .theme-green { color: oklch(0.52 0.14 155); }
-  .theme-red { color: oklch(0.55 0.2 25); }
-  .theme-comment { color: var(--muted-foreground); opacity: 0.6; }
-
-  :global(.dark) .theme-orange { color: #FF9500; }
-  :global(.dark) .theme-gold { color: #FFD700; }
-  :global(.dark) .theme-blue { color: #00B4FF; }
-  :global(.dark) .theme-green { color: #34C759; }
-  :global(.dark) .theme-red { color: #FF6B5A; }
-  :global(.dark) .theme-comment { color: rgba(255,255,255,0.4); opacity: 1; }
-
-  .nav-pill {
-    background: color-mix(in oklch, var(--primary) 8%, transparent);
-  }
-  .nav-pill:hover {
-    background: color-mix(in oklch, var(--primary) 15%, transparent);
+  /* ── Section spacing ────────────────────────────────────── */
+  section {
+    margin-bottom: 3.5rem;
+    scroll-margin-top: 5rem;
   }
 
-  .tooltip-trigger {
-    background: color-mix(in oklch, var(--primary) 5%, transparent);
+  /* ── Code block label wrapper ───────────────────────────── */
+  .relative {
+    position: relative;
+    margin: 1rem 0;
+  }
+  .code-label {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.75rem;
+    font-family: ui-monospace, "Cascadia Code", monospace;
+    font-size: 0.65rem;
+    color: oklch(0.4 0 0);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    pointer-events: none;
+    z-index: 1;
   }
 
-  .sage-badge {
-    background: color-mix(in oklch, var(--primary) 5%, transparent);
+  /* ── Callout ────────────────────────────────────────────── */
+  .docs-callout {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.875rem 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid oklch(0.28 0 0);
+    background: oklch(0.14 0 0);
+    margin: 1rem 0;
+  }
+  .docs-callout p {
+    margin: 0;
+    font-size: 0.875rem;
+    color: oklch(0.65 0 0);
+    line-height: 1.6;
+  }
+  .docs-callout strong {
+    color: oklch(0.85 0 0);
+  }
+  .docs-callout code {
+    font-size: 0.8em;
   }
 
-  .section-bar-orange { background: linear-gradient(180deg, var(--primary), color-mix(in oklch, var(--primary) 70%, transparent)); }
-  .section-bar-blue { background: linear-gradient(180deg, var(--accent), color-mix(in oklch, var(--accent) 70%, transparent)); }
-  .section-bar-gold { background: linear-gradient(180deg, oklch(0.55 0.14 80), oklch(0.45 0.12 80 / 0.7)); }
-  .section-bar-green { background: linear-gradient(180deg, oklch(0.52 0.14 155), oklch(0.45 0.12 155 / 0.7)); }
-  .section-bar-red { background: linear-gradient(180deg, oklch(0.55 0.2 25), oklch(0.45 0.18 25 / 0.7)); }
+  /* ── Tables ─────────────────────────────────────────────── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+    margin: 1rem 0;
+  }
+  thead tr {
+    border-bottom: 1px solid oklch(0.25 0 0);
+  }
+  th {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    font-family: ui-monospace, "Cascadia Code", monospace;
+    font-size: 0.65rem;
+    font-weight: 400;
+    color: oklch(0.45 0 0);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  tbody tr {
+    border-bottom: 1px solid oklch(0.18 0 0);
+  }
+  tbody tr:last-child {
+    border-bottom: none;
+  }
+  td {
+    padding: 0.5rem 0.75rem;
+    color: oklch(0.6 0 0);
+    vertical-align: top;
+  }
+  td:first-child {
+    font-family: ui-monospace, "Cascadia Code", monospace;
+  }
+  td code {
+    font-size: 0.85em;
+  }
 
-  :global(.dark) .section-bar-orange { background: linear-gradient(180deg, #FF6B00, #FF9500); }
-  :global(.dark) .section-bar-blue { background: linear-gradient(180deg, #00B4FF, #0070FF); }
-  :global(.dark) .section-bar-gold { background: linear-gradient(180deg, #FFD700, #FF9500); }
-  :global(.dark) .section-bar-green { background: linear-gradient(180deg, #34C759, #00B4FF); }
-  :global(.dark) .section-bar-red { background: linear-gradient(180deg, #FF6B00, #FF0000); }
+  /* ── Badge ──────────────────────────────────────────────── */
+  .badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-family: ui-monospace, "Cascadia Code", monospace;
+    font-weight: 400;
+    padding: 0.15rem 0.5rem;
+    border-radius: 0.25rem;
+    border: 1px solid oklch(0.3 0 0);
+    color: oklch(0.6 0 0);
+    vertical-align: middle;
+    margin-left: 0.25rem;
+  }
+  .badge--muted {
+    border-color: oklch(0.25 0 0);
+    color: oklch(0.45 0 0);
+  }
+
+  /* Flag color in tables */
+  td .flag, code.flag {
+    color: oklch(0.65 0.15 55);
+  }
 </style>

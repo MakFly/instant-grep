@@ -2,6 +2,8 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
 
+use crate::index::filedata::FileData;
+
 pub struct BlockResult {
     pub file: String,
     pub start: usize,
@@ -46,6 +48,40 @@ pub fn extract_block(file: &Path, target_line: usize) -> Result<BlockResult> {
         start: block_start + 1,
         end: block_end + 1,
         lines,
+    })
+}
+
+/// Extract the enclosing code block using pre-computed symbol boundaries.
+pub fn extract_block_cached(file: &Path, target_line: usize, filedata: &FileData) -> Result<BlockResult> {
+    // Find the enclosing symbol: last symbol where sym.line <= target_line && target_line <= sym.block_end
+    let enclosing = filedata.symbols.iter().rev().find(|s| {
+        (s.line as usize) <= target_line && target_line <= (s.block_end as usize)
+    });
+
+    let (start, end) = match enclosing {
+        Some(sym) => (sym.line as usize, sym.block_end as usize),
+        None => {
+            // No enclosing symbol -- fall back to uncached
+            return extract_block(file, target_line);
+        }
+    };
+
+    // Read only the relevant lines
+    let content = std::fs::read_to_string(file)
+        .with_context(|| format!("reading {}", file.display()))?;
+    let lines: Vec<&str> = content.lines().collect();
+    let end = end.min(lines.len());
+    let start = start.max(1);
+
+    let block_lines: Vec<(usize, String)> = (start..=end)
+        .filter_map(|i| lines.get(i - 1).map(|l| (i, l.to_string())))
+        .collect();
+
+    Ok(BlockResult {
+        file: file.to_string_lossy().to_string(),
+        start,
+        end,
+        lines: block_lines,
     })
 }
 

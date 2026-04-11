@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use rayon::prelude::*;
 use regex::bytes::RegexBuilder;
 
+use crate::index::ngram::BigramDfTable;
 use crate::index::reader::IndexReader;
 use crate::query::extract::regex_to_query;
 use crate::search::fallback;
@@ -37,7 +38,13 @@ pub fn search_indexed(
     let reader = IndexReader::open(&ig).context("open index")?;
     let total_files = reader.total_file_count() as usize;
 
-    let query = regex_to_query(pattern, case_insensitive)?;
+    // Only use IDF weights if the index was built with them (avoids ngram mismatch)
+    let df_table = if reader.metadata.built_with_idf {
+        BigramDfTable::load(&ig)
+    } else {
+        None
+    };
+    let query = regex_to_query(pattern, case_insensitive, df_table.as_ref())?;
 
     if query.is_all() {
         let results = fallback::search_brute_force(
@@ -141,10 +148,12 @@ pub fn search_indexed(
     let filtered_count = candidate_paths.len();
 
     // Parallel candidate verification with rayon
+    // Clone regex per thread to avoid internal pool mutex contention (regex#934)
     let mut results: Vec<FileMatches> = candidate_paths
         .par_iter()
         .filter_map(|(_doc_id, rel_path)| {
-            matcher::match_file(root, rel_path, &regex, config)
+            let local_re = regex.clone();
+            matcher::match_file(root, rel_path, &local_re, config)
                 .ok()
                 .flatten()
         })

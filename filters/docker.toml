@@ -1,0 +1,36 @@
+[[filters]]
+name = "docker-ps"
+match = "^docker ps"
+strip_ansi = true
+truncate_at = 120
+max_lines = 30
+
+[[filters]]
+name = "docker-images"
+match = "^docker images"
+strip_ansi = true
+truncate_at = 120
+max_lines = 30
+
+[[filters]]
+name = "docker-logs"
+match = "^docker logs"
+strip_ansi = true
+replace = [
+  { find = "^\\d{4}-\\d{2}-\\d{2}T[\\d:.]+Z\\s*", with = "" },
+]
+tail = 50
+
+[[filters]]
+name = "docker-build"
+match = "^docker build"
+strip_ansi = true
+keep_lines = "(^(STEP|Step|ERROR|error|#\\d+))"
+max_lines = 60
+
+[[filters]]
+name = "docker-compose"
+match = "^docker compose"
+strip_ansi = true
+keep_lines = "(Creating|Created|Starting|Started|Stopping|Stopped|Removing|Removed|Running|done|Up|Exit)"
+max_lines = 40

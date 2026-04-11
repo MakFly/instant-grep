@@ -67,6 +67,26 @@ fn is_discoverable(cmd: &str) -> bool {
         "ls" => true,
         // wc -l (line counting) — ig can do this
         "wc" => true,
+        // Build/test/lint tools — ig run can filter their output
+        "cargo" | "pytest" | "ruff" | "mypy" | "pip"
+        | "eslint" | "tsc" | "vitest" | "prettier" | "biome"
+        | "rspec" | "rubocop" | "rake"
+        | "golangci-lint" => true,
+        // Package managers — ig run can filter their output
+        "npm" | "npx" | "pnpm" => true,
+        // Docker/k8s — ig run/docker handles these (only useful subcommands)
+        "docker" => parts.len() >= 2 && matches!(parts[1], "ps" | "images" | "logs" | "build"),
+        "kubectl" => parts.len() >= 2 && matches!(parts[1], "get" | "logs" | "describe"),
+        // Go build/test
+        "go" => parts.len() >= 2 && matches!(parts[1], "test" | "build"),
+        // .NET
+        "dotnet" => parts.len() >= 2 && matches!(parts[1], "build" | "test"),
+        // GitHub CLI
+        "gh" => parts.len() >= 2 && matches!(parts[1], "pr" | "issue" | "run"),
+        // HTTP clients
+        "curl" | "wget" => true,
+        // AWS CLI
+        "aws" => true,
         _ => false,
     }
 }
@@ -514,9 +534,10 @@ mod tests {
             discover_classify("docker exec -it app bash"),
             RewriteResult::Passthrough
         ));
+        // curl is now rewritten to ig run curl
         assert!(matches!(
             discover_classify("curl -s https://api.example.com"),
-            RewriteResult::Passthrough
+            RewriteResult::Rewrite(_)
         ));
         assert!(matches!(
             discover_classify("ssh -p 22 server"),

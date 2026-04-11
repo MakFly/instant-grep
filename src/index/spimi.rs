@@ -62,14 +62,14 @@ pub struct SegmentInfo {
     pub ngram_count: u32,
 }
 
-/// Flush the current postings map to a segment file.
+/// Flush the current postings map (with masks) to a segment file.
 pub fn flush_segment(
-    postings_map: &mut AHashMap<NgramKey, Vec<DocId>>,
+    postings_map: &mut AHashMap<NgramKey, (Vec<DocId>, u8, u8)>,
     segment_dir: &Path,
     segment_id: u32,
 ) -> Result<SegmentInfo> {
     // Sort entries by key for sequential merge later
-    let mut entries: Vec<(NgramKey, Vec<DocId>)> = postings_map.drain().collect();
+    let mut entries: Vec<(NgramKey, (Vec<DocId>, u8, u8))> = postings_map.drain().collect();
     entries.sort_unstable_by_key(|(k, _)| *k);
 
     let path = segment_dir.join(format!("seg_{:04}.bin", segment_id));
@@ -81,8 +81,8 @@ pub fn flush_segment(
     writer.write_all(&(entries.len() as u32).to_le_bytes())?;
     writer.write_all(&0u32.to_le_bytes())?; // reserved
 
-    // Write sorted entries
-    for (key, doc_ids) in &mut entries {
+    // Write sorted entries: key(u64) + byte_len(u32) + bloom(u8) + loc(u8) + posting_bytes
+    for (key, (doc_ids, bloom_mask, loc_mask)) in &mut entries {
         doc_ids.sort_unstable();
         doc_ids.dedup();
 
@@ -90,6 +90,7 @@ pub fn flush_segment(
 
         writer.write_all(&key.to_le_bytes())?;
         writer.write_all(&(encoded.len() as u32).to_le_bytes())?;
+        writer.write_all(&[*bloom_mask, *loc_mask])?;
         writer.write_all(&encoded)?;
     }
 
@@ -106,9 +107,11 @@ pub struct SegmentReader {
     remaining: u32,
 }
 
-/// A single entry from a segment: ngram key + VByte-encoded posting list bytes.
+/// A single entry from a segment: ngram key + masks + VByte-encoded posting list bytes.
 pub struct SegmentEntry {
     pub key: NgramKey,
+    pub bloom_mask: u8,
+    pub loc_mask: u8,
     pub posting_bytes: Vec<u8>,
 }
 
@@ -160,10 +163,19 @@ impl SegmentReader {
         ]) as usize;
         self.pos += 4;
 
+        let bloom_mask = self.data[self.pos];
+        let loc_mask = self.data[self.pos + 1];
+        self.pos += 2;
+
         let posting_bytes = self.data[self.pos..self.pos + byte_len].to_vec();
         self.pos += byte_len;
 
-        Some(SegmentEntry { key, posting_bytes })
+        Some(SegmentEntry {
+            key,
+            bloom_mask,
+            loc_mask,
+            posting_bytes,
+        })
     }
 }
 
@@ -177,14 +189,18 @@ pub fn build_segments(
     fs::create_dir_all(segment_dir).context("create segment directory")?;
 
     let mut budget = MemoryBudget::new(memory_budget);
-    let mut postings_map: AHashMap<NgramKey, Vec<DocId>> = AHashMap::new();
+    let mut postings_map: AHashMap<NgramKey, (Vec<DocId>, u8, u8)> = AHashMap::new();
     let mut segments: Vec<SegmentInfo> = Vec::new();
     let mut segment_id: u32 = 0;
 
     for (new_id, (_rel_path, _size, _mtime, ngrams)) in file_data.iter().enumerate() {
         for &key in ngrams {
             let is_new = !postings_map.contains_key(&key);
-            postings_map.entry(key).or_default().push(new_id as DocId);
+            postings_map
+                .entry(key)
+                .or_insert_with(|| (Vec::new(), 0u8, 0u8))
+                .0
+                .push(new_id as DocId);
             budget.track_posting(is_new);
         }
 

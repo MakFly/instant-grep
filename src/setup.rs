@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::hooks::copilot;
+
 const IG_SEARCH_TOOLS_SECTION: &str = "\n## Search Tools\n\
 - **Code search**: prefer `ig` (instant-grep) over `rg` or `grep` for searching code.\n\
 - Usage: `ig \"pattern\" [path]` or `ig search \"pattern\" [path]` — trigram-indexed regex search.\n\
@@ -515,6 +517,76 @@ fn configure_cursor(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
     }
 }
 
+// ─── Copilot ────────────────────────────────────────────────────────────────
+
+fn configure_copilot(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+    let config_path = home.join(".github/copilot-instructions.md");
+    let project_path = PathBuf::from(".github/copilot-instructions.md");
+
+    // Use project-local if .github/ exists, otherwise user-level
+    let target = if PathBuf::from(".github").is_dir() {
+        &project_path
+    } else {
+        &config_path
+    };
+
+    if target.exists() {
+        return vec![ConfigResult::AlreadyDone(format!(
+            "{} already exists",
+            target.display()
+        ))];
+    }
+
+    let content = copilot::copilot_instructions();
+    match write_if_not_dry(target, content.as_bytes(), dry_run) {
+        Ok(_) => vec![ConfigResult::Configured(format!(
+            "Created {}",
+            target.display()
+        ))],
+        Err(e) => vec![ConfigResult::Error(e)],
+    }
+}
+
+// ─── Windsurf ───────────────────────────────────────────────────────────────
+
+fn configure_windsurf(_home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+    let target = PathBuf::from(".windsurfrules");
+
+    if target.exists() {
+        return vec![ConfigResult::AlreadyDone(
+            ".windsurfrules already exists".to_string(),
+        )];
+    }
+
+    let content = copilot::windsurf_rules();
+    match write_if_not_dry(&target, content.as_bytes(), dry_run) {
+        Ok(_) => vec![ConfigResult::Configured(
+            "Created .windsurfrules".to_string(),
+        )],
+        Err(e) => vec![ConfigResult::Error(e)],
+    }
+}
+
+// ─── Cline ──────────────────────────────────────────────────────────────────
+
+fn configure_cline(_home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+    let target = PathBuf::from(".clinerules");
+
+    if target.exists() {
+        return vec![ConfigResult::AlreadyDone(
+            ".clinerules already exists".to_string(),
+        )];
+    }
+
+    let content = copilot::cline_rules();
+    match write_if_not_dry(&target, content.as_bytes(), dry_run) {
+        Ok(_) => vec![ConfigResult::Configured(
+            "Created .clinerules".to_string(),
+        )],
+        Err(e) => vec![ConfigResult::Error(e)],
+    }
+}
+
 /// Resolve the real user's home directory, even when running under sudo.
 pub(crate) fn resolve_real_home() -> Option<PathBuf> {
     // If SUDO_USER is set, we're running under sudo — use the real user's home
@@ -658,6 +730,60 @@ pub fn run_setup(dry_run: bool) {
         configured += 1;
     } else {
         eprintln!("\x1b[2m⊘ Cursor — not detected\x1b[0m");
+    }
+
+    // --- Copilot ---
+    let github_dir = home.join(".github");
+    let project_github = PathBuf::from(".github");
+    if github_dir.is_dir() || project_github.is_dir() {
+        let actions = configure_copilot(&home, dry_run);
+        eprintln!("\x1b[32m✓ GitHub Copilot\x1b[0m");
+        for action in &actions {
+            match action {
+                ConfigResult::Configured(msg) => eprintln!("  → {}", msg),
+                ConfigResult::AlreadyDone(msg) => eprintln!("  \x1b[2m→ {}\x1b[0m", msg),
+                ConfigResult::Error(msg) => eprintln!("  \x1b[31m✗ {}\x1b[0m", msg),
+            }
+        }
+        configured += 1;
+    } else {
+        eprintln!("\x1b[2m⊘ GitHub Copilot — not detected\x1b[0m");
+    }
+
+    // --- Windsurf ---
+    let windsurf_dir = home.join(".windsurf");
+    let project_windsurf = PathBuf::from(".windsurf");
+    if windsurf_dir.is_dir() || project_windsurf.is_dir() {
+        let actions = configure_windsurf(&home, dry_run);
+        eprintln!("\x1b[32m✓ Windsurf\x1b[0m");
+        for action in &actions {
+            match action {
+                ConfigResult::Configured(msg) => eprintln!("  → {}", msg),
+                ConfigResult::AlreadyDone(msg) => eprintln!("  \x1b[2m→ {}\x1b[0m", msg),
+                ConfigResult::Error(msg) => eprintln!("  \x1b[31m✗ {}\x1b[0m", msg),
+            }
+        }
+        configured += 1;
+    } else {
+        eprintln!("\x1b[2m⊘ Windsurf — not detected\x1b[0m");
+    }
+
+    // --- Cline ---
+    let cline_dir = home.join(".cline");
+    let project_cline = PathBuf::from(".cline");
+    if cline_dir.is_dir() || project_cline.is_dir() {
+        let actions = configure_cline(&home, dry_run);
+        eprintln!("\x1b[32m✓ Cline\x1b[0m");
+        for action in &actions {
+            match action {
+                ConfigResult::Configured(msg) => eprintln!("  → {}", msg),
+                ConfigResult::AlreadyDone(msg) => eprintln!("  \x1b[2m→ {}\x1b[0m", msg),
+                ConfigResult::Error(msg) => eprintln!("  \x1b[31m✗ {}\x1b[0m", msg),
+            }
+        }
+        configured += 1;
+    } else {
+        eprintln!("\x1b[2m⊘ Cline — not detected\x1b[0m");
     }
 
     // --- Gemini CLI ---

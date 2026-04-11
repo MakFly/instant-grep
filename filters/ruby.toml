@@ -1,0 +1,23 @@
+[[filters]]
+name = "rspec"
+match = "^(rspec|bundle exec rspec)"
+strip_ansi = true
+keep_lines = "(examples?,|failures?,|pending|FAILED|Failure/Error|#)"
+max_lines = 60
+on_empty = "All examples passed"
+
+[[filters]]
+name = "rubocop"
+match = "^(rubocop|bundle exec rubocop)"
+strip_ansi = true
+keep_lines = "(^[A-Z]:|:\\d+:\\d+:|offenses? detected|no offenses)"
+truncate_at = 200
+max_lines = 60
+
+[[filters]]
+name = "rake-test"
+match = "^(rake test|bundle exec rake test)"
+strip_ansi = true
+keep_lines = "(tests?,|assertions?,|failures?,|errors?,|Failure:|Error:)"
+max_lines = 60
+on_empty = "All tests passed"

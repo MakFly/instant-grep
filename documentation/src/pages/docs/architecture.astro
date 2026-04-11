@@ -2,36 +2,30 @@
 import DocsLayout from "@/layouts/docs.astro"
 ---
 
-<DocsLayout title="Architecture" description="How instant-grep works under the hood — the Rasengan Pipeline">
+<DocsLayout title="Architecture" description="How instant-grep works under the hood">
   <div class="max-w-none">
     <!-- Page header -->
     <div class="mb-10">
-      <div class="flex items-center gap-2 text-xs font-mono uppercase tracking-widest mb-3 theme-blue">
-        <span>🌀</span>
-        <span>Secret Technique Scroll</span>
-      </div>
-      <h1 class="text-4xl font-mono font-black mb-4 gradient-text-blue">
+      <h1 class="text-3xl font-semibold text-foreground mb-4">
         Architecture
       </h1>
       <p class="text-muted-foreground text-lg leading-relaxed">
         The inner workings of instant-grep — from regex to result in under a millisecond.
-        Every technique honed to perfection.
       </p>
     </div>
 
     <!-- Rasengan Pipeline diagram -->
     <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-2 flex items-center gap-3">
-        <span class="theme-orange">🌀</span>
-        Rasengan Pipeline
+      <h2 class="text-2xl font-semibold text-foreground mb-2 flex items-center gap-3">
+        Query Pipeline
       </h2>
       <p class="text-sm text-muted-foreground mb-6">
-        The complete query pipeline — six stages of pure concentrated energy.
+        The complete query pipeline — six stages from regex to results.
       </p>
 
-      <div class="code-block rounded-xl p-6 overflow-x-auto">
+      <div class="code-block rounded-lg p-6 overflow-x-auto">
         <pre class="font-mono text-xs sm:text-sm leading-relaxed"><code set:html={`<span class="theme-orange">╔══════════════════════════════════════════════════════════════════╗</span>
-<span class="theme-orange">║</span>          <span class="theme-gold" style="font-weight:bold">✦ RASENGAN PIPELINE — FORBIDDEN SCROLL OF SEARCH ✦</span>          <span class="theme-orange">║</span>
+<span class="theme-orange">║</span>          <span class="theme-gold" style="font-weight:bold">QUERY PIPELINE — SEARCH ARCHITECTURE</span>          <span class="theme-orange">║</span>
 <span class="theme-orange">╚══════════════════════════════════════════════════════════════════╝</span>
 
   User Input
@@ -50,7 +44,7 @@ import DocsLayout from "@/layouts/docs.astro"
                   │
                   ▼
 <span class="theme-blue">┌─────────────────────────────────────────┐</span>
-<span class="theme-blue">│  Stage 3 · Shadow Clone Selection       │</span>  <span class="pipeline-comment">index/ngram.rs</span>
+<span class="theme-blue">│  Stage 3 · Covering Set Selection       │</span>  <span class="pipeline-comment">index/ngram.rs</span>
 <span class="theme-blue">│  all n-grams → minimal covering set     │</span>  <span class="pipeline-comment">build_covering_ngrams()</span>
 <span class="theme-blue">└─────────────────┬───────────────────────┘</span>
                   │
@@ -79,8 +73,7 @@ import DocsLayout from "@/layouts/docs.astro"
 
     <!-- Module structure -->
     <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
-        <span class="theme-orange">📂</span>
+      <h2 class="text-2xl font-semibold text-foreground mb-4">
         Module Structure
       </h2>
 
@@ -145,7 +138,7 @@ import DocsLayout from "@/layouts/docs.astro"
           {
             file: "src/daemon.rs",
             cls: "theme-orange-bright",
-            title: "Sage Mode Daemon",
+            title: "Background Daemon",
             fns: ["start_daemon()", "stop_daemon()", "daemon_status()", "install_launchd()", "uninstall_launchd()"],
             desc: "Unix socket server with full lifecycle: start/stop/status/install/uninstall + launchd auto-restart",
           },
@@ -206,7 +199,7 @@ import DocsLayout from "@/layouts/docs.astro"
             desc: "Command dispatch via clap — routes to index, search, status, watch, daemon, query, ls, read, smart, pack, gain",
           },
         ].map((module) => (
-          <div class="energy-card rounded-xl p-5 bg-card/50">
+          <div class="rounded-lg border border p-5">
             <div class="flex items-start justify-between mb-3">
               <code class={`text-xs font-mono ${module.cls}`}>{module.file}</code>
             </div>
@@ -226,13 +219,12 @@ import DocsLayout from "@/layouts/docs.astro"
 
     <!-- SPIMI + Incremental -->
     <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
-        <span class="theme-gold">⚡</span>
+      <h2 class="text-2xl font-semibold text-foreground mb-4">
         v1.0.0 — SPIMI Build Pipeline &amp; Overlay Index
       </h2>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-6">
-        <div class="energy-card rounded-xl p-5 bg-card/50">
+        <div class="rounded-lg border border p-5">
           <div class="text-sm font-mono font-bold mb-3 theme-gold">SPIMI Index Build</div>
           <p class="text-xs text-muted-foreground leading-relaxed mb-3">
             v1.0.0 uses a Single-Pass In-Memory Indexing (SPIMI) pipeline with a 128MB RAM budget.
@@ -246,7 +238,7 @@ import DocsLayout from "@/layouts/docs.astro"
             <div class="text-muted-foreground/60 mt-2">1,552 files → 2 segments → 450ms</div>
           </div>
         </div>
-        <div class="energy-card rounded-xl p-5 bg-card/50">
+        <div class="rounded-lg border border p-5">
           <div class="text-sm font-mono font-bold mb-3 theme-orange-bright">Overlay Incremental Index</div>
           <p class="text-xs text-muted-foreground leading-relaxed mb-3">
             When fewer than 100 files have changed since the last build, ig builds a small overlay index
@@ -265,54 +257,59 @@ import DocsLayout from "@/layouts/docs.astro"
 
     <!-- On-disk format -->
     <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
-        <span class="theme-orange">💾</span>
-        On-disk Format (.ig/ directory) — INDEX_VERSION 7
+      <h2 class="text-2xl font-semibold text-foreground mb-4">
+        On-disk Format (.ig/ directory) — INDEX_VERSION 10
       </h2>
       <p class="text-sm text-muted-foreground mb-5">
-        Three binary files, all memory-mapped for zero-copy access.
+        Five binary files, all memory-mapped for zero-copy access.
         <code class="font-mono">INDEX_VERSION</code> must be bumped when the format changes.
-        v7: postings are VByte delta-encoded; <code class="font-mono">file_ngrams</code> removed from metadata (÷300 smaller).
+        v10: 18-byte lexicon entries with bloom mask + locMask; <code class="font-mono">bigram_df.bin</code> and <code class="font-mono">filedata.bin</code> added for IDF-weighted boundaries and pre-computed per-file metadata.
       </p>
 
-      <div class="code-block rounded-xl overflow-hidden">
-        <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="pipeline-comment">.ig/</span>
-<span class="theme-blue">├── lexicon.bin</span>    <span class="pipeline-comment">— Hash table: u64(n-gram hash) → u32(posting offset) + u32(count)</span>
-<span class="theme-orange-bright">├── postings.bin</span>   <span class="pipeline-comment">— VByte delta-encoded file ID lists per n-gram (~50–60% smaller vs v6)</span>
-<span class="theme-gold">├── metadata.bin</span>   <span class="pipeline-comment">— u32 version + u64[] mtime + []string file paths (no file_ngrams in v7)</span>
-<span class="theme-green">├── tree.txt</span>       <span class="pipeline-comment">— Compact directory tree snapshot (auto-generated by ig index)</span>
-<span class="theme-gold">└── context.md</span>     <span class="pipeline-comment">— Structured AI agent snapshot: tree, symbols, deps, routes, env (v1.3+)</span>`}></code></pre>
+      <div class="code-block rounded-lg overflow-hidden">
+        <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="pipeline-comment">.ig/                                                         Size (1,552 files)</span>
+<span class="theme-gold">├── metadata.bin</span>    <span class="pipeline-comment">— bincode: paths, mtimes, git SHA, IDF flag                 112 KB</span>
+<span class="theme-blue">├── lexicon.bin</span>     <span class="pipeline-comment">— Hash table: [key:u64, offset:u32, len:u32,                 35 MB</span>
+<span class="theme-blue">│                      bloom:u8, loc_mask:u8] (18 bytes/entry)</span>
+<span class="theme-orange-bright">├── postings.bin</span>    <span class="pipeline-comment">— Delta + VByte encoded, concatenated                        7.8 MB</span>
+<span class="theme-green">├── bigram_df.bin</span>   <span class="pipeline-comment">— bincode: corpus bigram document frequencies               95 KB</span>
+<span class="theme-orange">├── filedata.bin</span>    <span class="pipeline-comment">— bincode: line offsets, symbols, block boundaries          1.8 MB</span>
+<span class="theme-green">├── tree.txt</span>        <span class="pipeline-comment">— Compact directory tree snapshot (auto-generated)</span>
+<span class="theme-gold">└── context.md</span>      <span class="pipeline-comment">— Structured AI agent snapshot: tree, symbols, deps, routes, env</span>`}></code></pre>
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
         <div class="p-4 rounded-lg border border-border bg-secondary/30">
           <div class="text-xs font-mono font-bold mb-2 theme-blue">lexicon.bin</div>
-          <div class="text-xs text-muted-foreground">Open-addressing hash table. Each slot: 8B key (n-gram hash) + 8B value (offset + count). Load factor: 0.7.</div>
+          <div class="text-xs text-muted-foreground">Open-addressing hash table. Each slot is 18 bytes: 8B key (n-gram FNV-1a hash) + 4B posting offset + 4B posting length + 1B bloom mask + 1B locMask. Load factor: 0.7.</div>
         </div>
         <div class="p-4 rounded-lg border border-border bg-secondary/30">
           <div class="text-xs font-mono font-bold mb-2 theme-orange-bright">postings.bin</div>
-          <div class="text-xs text-muted-foreground">VByte delta-encoded sorted file ID lists. Reader decodes on the fly during intersection. ~50–60% smaller than raw u32[] in v6.</div>
+          <div class="text-xs text-muted-foreground">VByte delta-encoded sorted file ID lists. Reader decodes lazily during intersection via streaming PostingIterator. Zero heap allocation in the decode phase.</div>
         </div>
         <div class="p-4 rounded-lg border border-border bg-secondary/30">
           <div class="text-xs font-mono font-bold mb-2 theme-gold">metadata.bin</div>
-          <div class="text-xs text-muted-foreground">Maps file IDs to paths. Stores mtimes for incremental detection. First 4 bytes: INDEX_VERSION (7). No longer stores file_ngrams.</div>
+          <div class="text-xs text-muted-foreground">Maps file IDs to paths. Stores mtimes and git SHAs for incremental detection. First 4 bytes: INDEX_VERSION (10). IDF flag marks whether bigram weights are available.</div>
         </div>
         <div class="p-4 rounded-lg border border-border bg-secondary/30">
-          <div class="text-xs font-mono font-bold mb-2 theme-green">tree.txt</div>
-          <div class="text-xs text-muted-foreground">Plain-text directory tree generated by <code class="font-mono">ls.rs</code> on every index rebuild. Consumed by <code class="font-mono">pack.rs</code> for context.md.</div>
+          <div class="text-xs font-mono font-bold mb-2 theme-green">bigram_df.bin</div>
+          <div class="text-xs text-muted-foreground">Corpus bigram document frequencies collected during index build. Used at query time to weight n-gram boundary selection by inverse document frequency.</div>
         </div>
-        <div class="p-4 rounded-lg border border-border bg-secondary/30 sm:col-span-2">
+        <div class="p-4 rounded-lg border border-border bg-secondary/30">
+          <div class="text-xs font-mono font-bold mb-2 theme-orange">filedata.bin</div>
+          <div class="text-xs text-muted-foreground">Pre-computed per-file metadata: line byte offsets, symbol definitions with block boundaries, smart summaries. Enables O(1) lookup for <code class="font-mono">ig read -s</code> and <code class="font-mono">ig context</code>.</div>
+        </div>
+        <div class="p-4 rounded-lg border border-border bg-secondary/30">
           <div class="text-xs font-mono font-bold mb-2 theme-gold">context.md</div>
-          <div class="text-xs text-muted-foreground">Rich project snapshot written by <code class="font-mono">pack.rs</code>. Sections: directory tree, symbol definitions, Cargo.toml / package.json dependencies, Next.js API routes, .env.example keys. Replaces manual context-building for AI agents.</div>
+          <div class="text-xs text-muted-foreground">Rich project snapshot written by <code class="font-mono">pack.rs</code>. Sections: directory tree, symbol definitions, Cargo.toml / package.json dependencies, Next.js API routes, .env.example keys.</div>
         </div>
       </div>
     </section>
 
     <!-- Rasengan Algorithm -->
     <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-2 flex items-center gap-3">
-        <span>🌀</span>
-        Rasengan Algorithm — Sparse N-grams
+      <h2 class="text-2xl font-semibold text-foreground mb-2">
+        Sparse N-gram Algorithm
       </h2>
       <div class="flex items-center gap-2 text-xs font-mono mb-4 theme-orange">
         <span>Port of github.com/danlark1/sparse_ngrams (GitHub Blackbird)</span>
@@ -320,14 +317,14 @@ import DocsLayout from "@/layouts/docs.astro"
 
       <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
         Traditional trigram search uses every contiguous 3-character substring — expensive and produces many false positives.
-        The Rasengan Algorithm uses <strong class="text-foreground">variable-length n-grams</strong> that adapt to the string being indexed,
-        concentrating energy where it matters.
+        The sparse n-gram algorithm uses <strong class="text-foreground">variable-length n-grams</strong> that adapt to the string being indexed,
+        concentrating selectivity where it matters.
       </p>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-6">
-        <div class="energy-card rounded-xl p-5 bg-card/50">
+        <div class="rounded-lg border border p-5">
           <div class="text-xs font-mono font-bold mb-3 flex items-center gap-2 theme-red">
-            <span>✗</span> Naive Trigrams (weak jutsu)
+            <span>✗</span> Naive Trigrams
           </div>
           <div class="code-block rounded-lg p-3 text-xs font-mono">
             <div class="text-muted-foreground/60 mb-2">"async" → trigrams:</div>
@@ -338,9 +335,9 @@ import DocsLayout from "@/layouts/docs.astro"
             <div class="text-xs theme-red">• Large index size</div>
           </div>
         </div>
-        <div class="energy-card rounded-xl p-5 bg-card/50">
+        <div class="rounded-lg border border p-5">
           <div class="text-xs font-mono font-bold mb-3 flex items-center gap-2 theme-green">
-            <span>✓</span> Sparse N-grams (Rasengan)
+            <span>✓</span> Sparse N-grams
           </div>
           <div class="code-block rounded-lg p-3 text-xs font-mono">
             <div class="text-muted-foreground/60 mb-2">"async fn" → covering set:</div>
@@ -353,7 +350,7 @@ import DocsLayout from "@/layouts/docs.astro"
         </div>
       </div>
 
-      <div class="p-5 rounded-xl border border-border bg-secondary/30">
+      <div class="p-5 rounded-lg border border-border bg-secondary/30">
         <p class="text-xs font-mono font-bold mb-2 theme-orange-bright">How hash_bigram() works:</p>
         <p class="text-sm text-muted-foreground leading-relaxed">
           Each n-gram is hashed by combining its characters using a polynomial rolling hash with a prime base.
@@ -365,18 +362,17 @@ import DocsLayout from "@/layouts/docs.astro"
 
     <!-- Shadow Clone Selection -->
     <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-2 flex items-center gap-3">
-        <span>👥</span>
-        Shadow Clone Selection — Covering Algorithm
+      <h2 class="text-2xl font-semibold text-foreground mb-2">
+        Covering Algorithm
       </h2>
 
       <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
         From all possible n-grams for a query, we need only the <strong class="text-foreground">minimal covering set</strong> —
         the smallest collection of n-grams that together guarantee we find all matching files.
-        Like selecting the perfect shadow clones: enough to cover every angle, no redundancy.
+        Enough to cover every position, no redundancy.
       </p>
 
-      <div class="code-block rounded-xl p-5 text-xs font-mono leading-relaxed overflow-x-auto">
+      <div class="code-block rounded-lg p-5 text-xs font-mono leading-relaxed overflow-x-auto">
         <div class="text-muted-foreground/60 mb-3">build_covering_ngrams() pseudocode:</div>
         <pre><code set:html={`<span class="theme-blue">fn</span> build_covering_ngrams(ngrams: Vec&lt;Ngram&gt;) → Vec&lt;Ngram&gt; {
     <span class="theme-orange-bright">sort</span> ngrams by (position, length desc)
@@ -388,19 +384,18 @@ import DocsLayout from "@/layouts/docs.astro"
 
     <!-- Sage Mode -->
     <section class="mb-4">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-2 flex items-center gap-3">
-        <span>🐸</span>
-        Sage Mode — Daemon Architecture
+      <h2 class="text-2xl font-semibold text-foreground mb-2">
+        Daemon Architecture
       </h2>
 
       <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        In Sage Mode, the ninja draws power from nature without moving — the daemon keeps the index
-        mmap'd in process memory, eliminating OS page cache warmup on every query.
+        The daemon keeps the index mmap'd in process memory,
+        eliminating OS page cache warmup on every query.
       </p>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-        <div class="p-5 rounded-xl border border-border bg-secondary/30">
-          <div class="text-sm font-mono font-bold mb-2 theme-blue">Without Sage Mode</div>
+        <div class="p-5 rounded-lg border border-border bg-secondary/30">
+          <div class="text-sm font-mono font-bold mb-2 theme-blue">Without daemon</div>
           <ul class="text-xs text-muted-foreground space-y-1">
             <li>• Cold start: open files, read mmap headers</li>
             <li>• OS page faults on first access</li>
@@ -408,8 +403,8 @@ import DocsLayout from "@/layouts/docs.astro"
             <li>• ~0.9ms when OS cache is warm</li>
           </ul>
         </div>
-        <div class="p-5 rounded-xl border border-border bg-secondary/30">
-          <div class="text-sm font-mono font-bold mb-2 theme-orange-bright">With Sage Mode (daemon)</div>
+        <div class="p-5 rounded-lg border border-border bg-secondary/30">
+          <div class="text-sm font-mono font-bold mb-2 theme-orange-bright">With daemon</div>
           <ul class="text-xs text-muted-foreground space-y-1">
             <li>• Index already in process memory</li>
             <li>• Unix socket: no TCP overhead</li>
@@ -419,8 +414,8 @@ import DocsLayout from "@/layouts/docs.astro"
         </div>
       </div>
 
-      <div class="code-block rounded-xl overflow-hidden">
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-orange"># Start Sage Mode (background)</span>
+      <div class="code-block rounded-lg overflow-hidden">
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-orange"># Start daemon (background)</span>
 <span class="theme-blue">ig</span> daemon start .  <span class="pipeline-comment"># socket at .ig/daemon.sock</span>
 
 <span class="theme-orange"># Check status</span>
@@ -437,28 +432,249 @@ import DocsLayout from "@/layouts/docs.astro"
 <span class="theme-blue">ig</span> query <span class="theme-gold">"async fn"</span> .`}></code></pre>
       </div>
     </section>
+
+    <!-- Cursor Parity — 3.5-gram Architecture -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-semibold text-foreground mb-2">
+        Cursor Parity — The 3.5-gram Architecture
+      </h2>
+      <div class="flex items-center gap-2 text-xs font-mono mb-4 theme-orange">
+        <span>Three layers of selectivity, stacked for maximum false-positive elimination</span>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-5 leading-relaxed">
+        Standard trigram search gives 3.0 bits of selectivity per n-gram.
+        The v10 index extends this to <strong class="text-foreground">3.5 effective grams</strong> by layering two cheap
+        sub-byte filters directly into each 18-byte lexicon entry — no extra I/O, no extra mmap region.
+      </p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div class="rounded-lg border border p-5">
+          <div class="text-xs font-mono font-bold mb-2 theme-orange-bright">Layer 1 · Sparse N-grams (3.0)</div>
+          <p class="text-xs text-muted-foreground leading-relaxed">
+            Variable-length n-grams from the danlark1 covering algorithm.
+            Each n-gram covers a run of literal characters with maximal selectivity —
+            no wasted index entries on fixed 3-char windows.
+          </p>
+        </div>
+        <div class="rounded-lg border border p-5">
+          <div class="text-xs font-mono font-bold mb-2 theme-blue">Layer 2 · Bloom Mask (+0.25)</div>
+          <p class="text-xs text-muted-foreground leading-relaxed">
+            An 8-bit mask stored in the lexicon entry encodes the 4th character that follows
+            each trigram in the indexed text. At query time, the mask is checked before the
+            posting list is even touched — one bitwise AND eliminates false positives instantly.
+          </p>
+        </div>
+        <div class="rounded-lg border border p-5">
+          <div class="text-xs font-mono font-bold mb-2 theme-green">Layer 3 · locMask (+0.25)</div>
+          <p class="text-xs text-muted-foreground leading-relaxed">
+            An 8-bit mask encodes the position modulo 8 of each trigram occurrence.
+            Patterns with a known alignment (e.g. start-of-line tokens) can filter
+            candidates purely in the lexicon layer, before posting list decode.
+          </p>
+        </div>
+      </div>
+
+      <div class="code-block rounded-lg p-6 overflow-x-auto">
+        <div class="text-xs font-mono font-bold mb-4 theme-gold">Query Pipeline — v10 Detail</div>
+        <pre class="font-mono text-xs sm:text-sm leading-relaxed"><code set:html={`<span class="theme-orange-bright">regex pattern</span>
+    │
+    ▼
+<span class="theme-gold">regex-syntax::Extractor</span> → extract literal sequences
+    │
+    ▼
+<span class="theme-green">IDF-weighted covering ngrams</span> (corpus-tuned boundaries)
+    │
+    ▼
+<span class="theme-blue">FNV-1a hash</span> → NgramKey (u64) → lookup in mmap'd hash table
+    │
+    ▼
+<span class="theme-blue">Bloom mask check</span> → quick false-positive filter  <span class="pipeline-comment">(1 AND, no I/O)</span>
+    │
+    ▼
+<span class="theme-blue">locMask check</span>   → alignment filter              <span class="pipeline-comment">(1 AND, no I/O)</span>
+    │
+    ▼
+<span class="theme-orange-bright">Intersect posting lists</span> (streaming VByte, zero allocation)
+    │
+    ▼
+<span class="theme-orange">Parallel regex verification</span> (rayon, per-thread regex clone)
+    │
+    ▼
+<span class="theme-gold">✓ Results</span>  <span class="pipeline-comment">(colored / JSON / compact)</span>`}></code></pre>
+      </div>
+    </section>
+
+    <!-- IDF-Weighted Ngram Boundaries -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-semibold text-foreground mb-2">
+        IDF-Weighted Ngram Boundaries
+      </h2>
+      <div class="flex items-center gap-2 text-xs font-mono mb-4 theme-orange">
+        <span>Corpus-tuned selectivity — boundaries that learn from your codebase</span>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-5 leading-relaxed">
+        Not all bigrams are equal. In a Rust codebase, <code class="font-mono">fn</code> appears in almost every file —
+        it's a terrible n-gram boundary. The IDF system measures this automatically and steers
+        the covering algorithm away from common bigrams toward rare, selective ones.
+      </p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-6">
+        <div class="rounded-lg border border p-5">
+          <div class="text-sm font-mono font-bold mb-3 theme-gold">Build Phase — Collect Frequencies</div>
+          <ul class="text-xs text-muted-foreground space-y-2">
+            <li>• During <code class="font-mono">ig index</code>, bigram document frequencies are tallied across all files</li>
+            <li>• Stored compactly in <code class="font-mono">bigram_df.bin</code> (~95 KB for 1,552 files)</li>
+            <li>• First build uses heuristics; second build uses real IDF from the first</li>
+            <li>• Convergence in 2 passes — subsequent rebuilds are self-reinforcing</li>
+          </ul>
+        </div>
+        <div class="rounded-lg border border p-5">
+          <div class="text-sm font-mono font-bold mb-3 theme-orange-bright">Query Phase — Weighted Boundaries</div>
+          <ul class="text-xs text-muted-foreground space-y-2">
+            <li>• Common bigrams (&gt;50% of files): weight <strong class="text-foreground">0.25×</strong> → boundary pushed away</li>
+            <li>• Typical bigrams: weight <strong class="text-foreground">1.0×</strong> → unchanged</li>
+            <li>• Rare bigrams (&lt;5% of files): weight <strong class="text-foreground">2.0×</strong> → boundary attracted</li>
+            <li>• Result: more selective n-grams, fewer candidates to regex-verify</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="p-5 rounded-lg border border-border bg-secondary/30">
+        <p class="text-xs font-mono font-bold mb-2 theme-green">Example — "async fn handle_request"</p>
+        <div class="code-block rounded-lg p-3 text-xs font-mono space-y-1">
+          <div class="text-muted-foreground/60">Without IDF:  boundary at "fn" (appears in 98% of Rust files)</div>
+          <div class="theme-red">→ ngrams: "async fn", "handle" — "fn" boundary is near-useless</div>
+          <div class="text-muted-foreground/60 mt-2">With IDF:    "fn" weight=0.25, boundary slides to "handle_request"</div>
+          <div class="theme-green">→ ngrams: "async", "handle_request" — highly selective</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FileData Cache -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-semibold text-foreground mb-2">
+        FileData Cache — Pre-computed Metadata
+      </h2>
+      <div class="flex items-center gap-2 text-xs font-mono mb-4 theme-orange">
+        <span>filedata.bin — pay once at index time, earn forever at query time</span>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-5 leading-relaxed">
+        Every <code class="font-mono">ig index</code> run pre-computes per-file metadata and serializes it to
+        <code class="font-mono">filedata.bin</code>. Commands that previously required a full file read now
+        return instantly from the cache — with graceful fallback when the cache is absent.
+      </p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+        <div class="p-4 rounded-lg border border-border bg-secondary/30">
+          <div class="text-xs font-mono font-bold mb-2 theme-blue">Line byte offsets</div>
+          <div class="text-xs text-muted-foreground">
+            Every line's byte offset pre-indexed. <code class="font-mono">ig context</code> does an O(1) binary search
+            to find the enclosing block — no file read required.
+          </div>
+        </div>
+        <div class="p-4 rounded-lg border border-border bg-secondary/30">
+          <div class="text-xs font-mono font-bold mb-2 theme-orange-bright">Symbol definitions</div>
+          <div class="text-xs text-muted-foreground">
+            Function/struct/trait/impl definitions with block start and end lines.
+            <code class="font-mono">ig read -s</code> returns cached symbols in ~0.1ms
+            vs 5–10ms for a live regex scan.
+          </div>
+        </div>
+        <div class="p-4 rounded-lg border border-border bg-secondary/30">
+          <div class="text-xs font-mono font-bold mb-2 theme-green">Smart summaries</div>
+          <div class="text-xs text-muted-foreground">
+            2-line heuristic summaries pre-generated for every file.
+            <code class="font-mono">ig smart</code> renders the project map without opening a single file.
+          </div>
+        </div>
+      </div>
+
+      <div class="code-block rounded-lg p-4 text-xs font-mono space-y-1">
+        <div class="text-muted-foreground/60">Command latency with filedata.bin cache:</div>
+        <div class="theme-green">ig read -s src/index/reader.rs  →  ~0.1ms  (cached symbols)</div>
+        <div class="theme-green">ig context src/index/reader.rs 42  →  O(1) block lookup</div>
+        <div class="theme-green">ig smart .  →  instant (no file reads)</div>
+        <div class="text-muted-foreground/60 mt-2">Graceful fallback: if filedata.bin is missing, commands fall back to live regex scan.</div>
+      </div>
+    </section>
+
+    <!-- Streaming PostingIterator -->
+    <section class="mb-4">
+      <h2 class="text-2xl font-semibold text-foreground mb-2">
+        Streaming PostingIterator — Zero-Allocation Intersection
+      </h2>
+      <div class="flex items-center gap-2 text-xs font-mono mb-4 theme-orange">
+        <span>Posting lists decoded lazily — no heap allocation during intersection</span>
+      </div>
+
+      <p class="text-sm text-muted-foreground mb-5 leading-relaxed">
+        Rather than decoding entire posting lists into <code class="font-mono">Vec&lt;u32&gt;</code> before intersecting,
+        the v10 reader uses a streaming <code class="font-mono">PostingIterator</code> that decodes VByte deltas
+        one document ID at a time — directly from the mmap'd <code class="font-mono">postings.bin</code> slice.
+        The result: zero heap allocation during the intersection phase, and cache-friendly sequential access.
+      </p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-5">
+        <div class="rounded-lg border border p-5">
+          <div class="text-sm font-mono font-bold mb-3 theme-blue">Lazy VByte Decode</div>
+          <ul class="text-xs text-muted-foreground space-y-2">
+            <li>• Posting list slice is borrowed directly from mmap — no copy</li>
+            <li>• Each <code class="font-mono">next()</code> call decodes the next VByte delta in-place</li>
+            <li>• Iterator tracks cumulative delta sum for absolute doc IDs</li>
+            <li>• Branchless decode path for common 1-byte values</li>
+          </ul>
+        </div>
+        <div class="rounded-lg border border p-5">
+          <div class="text-sm font-mono font-bold mb-3 theme-orange-bright">Galloping Intersection</div>
+          <ul class="text-xs text-muted-foreground space-y-2">
+            <li>• <code class="font-mono">advance_to(target)</code> skips forward efficiently on compressed data</li>
+            <li>• Multi-way intersection chains iterators against a materialized candidate set</li>
+            <li>• Rarest posting list is consumed first — fewest bytes decoded overall</li>
+            <li>• Branchless merge loop for cache-friendly final intersection</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="code-block rounded-lg p-5 text-xs font-mono leading-relaxed overflow-x-auto">
+        <div class="text-muted-foreground/60 mb-3">PostingIterator — conceptual interface:</div>
+        <pre><code set:html={`<span class="theme-blue">struct</span> PostingIterator&lt;<span class="theme-green">'a</span>&gt; {
+    data:    <span class="theme-green">&'a [u8]</span>,   <span class="pipeline-comment">// borrowed mmap slice — zero copy</span>
+    cursor:  <span class="theme-blue">usize</span>,
+    current: <span class="theme-blue">u32</span>,       <span class="pipeline-comment">// running delta sum</span>
+}
+
+<span class="theme-blue">impl</span> PostingIterator<span class="theme-gold">&lt;'_&gt;</span> {
+    <span class="theme-blue">fn</span> <span class="theme-orange-bright">next</span>(&amp;mut self) → <span class="theme-blue">Option</span>&lt;<span class="theme-blue">u32</span>&gt;  <span class="pipeline-comment">{ /* decode 1 VByte delta */ }</span>
+    <span class="theme-blue">fn</span> <span class="theme-orange-bright">advance_to</span>(&amp;mut self, target: <span class="theme-blue">u32</span>)  <span class="pipeline-comment">{ /* gallop forward */ }</span>
+}`}></code></pre>
+      </div>
+    </section>
   </div>
 </DocsLayout>
 
+
 <style>
-  .theme-orange { color: var(--primary); }
-  .theme-orange-bright { color: var(--primary); }
-  .theme-gold { color: oklch(0.55 0.14 80); }
-  .theme-blue { color: var(--accent); }
-  .theme-green { color: oklch(0.52 0.14 155); }
-  .theme-red { color: oklch(0.55 0.2 25); }
-  .pipeline-comment { color: var(--muted-foreground); opacity: 0.6; }
-
-  :global(.dark) .theme-orange { color: #FF9500; }
-  :global(.dark) .theme-orange-bright { color: #FF9500; }
-  :global(.dark) .theme-gold { color: #FFD700; }
-  :global(.dark) .theme-blue { color: #00B4FF; }
-  :global(.dark) .theme-green { color: #34C759; }
-  :global(.dark) .theme-red { color: #FF6B5A; }
-  :global(.dark) .pipeline-comment { color: rgba(255,255,255,0.3); opacity: 1; }
-
+  .theme-orange { color: oklch(0.85 0 0); }
+  .theme-orange-bright { color: oklch(0.8 0 0); }
+  .theme-gold { color: oklch(0.75 0 0); }
+  .theme-blue { color: oklch(0.7 0 0); }
+  .theme-green { color: oklch(0.65 0 0); }
+  .theme-red { color: oklch(0.55 0 0); }
+  .theme-muted { color: oklch(0.556 0 0); }
+  .theme-comment { color: oklch(0.5 0 0); }
+  .theme-foreground { color: oklch(0.9 0 0); }
+  .pipeline-comment { color: oklch(0.5 0 0); }
   .module-badge {
-    background: color-mix(in oklch, currentColor 10%, transparent);
-    border: 1px solid color-mix(in oklch, currentColor 20%, transparent);
+    background: oklch(0.2 0 0);
+    border: 1px solid oklch(0.3 0 0);
+    color: oklch(0.7 0 0);
   }
+  .c-comment { color: oklch(0.6 0 0); }
+  .c-cmd { color: oklch(0.85 0 0); }
+  .c-flag { color: oklch(0.75 0 0); }
+  .c-ok { color: oklch(0.7 0 0); }
+  .c-muted { color: oklch(0.5 0 0); }
 </style>

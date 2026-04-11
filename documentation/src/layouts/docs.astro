@@ -2,57 +2,32 @@
 import "@/styles/global.css"
 import Topbar from "@/components/layout/topbar.astro"
 import Sidebar from "@/components/layout/sidebar.astro"
-import Footer from "@/components/layout/footer.astro"
 
 interface Props {
-  title?: string
+  title: string
   description?: string
-  currentPath?: string
 }
 
-const {
-  title = "Docs",
-  description = "instant-grep documentation",
-  currentPath = Astro.url.pathname,
-} = Astro.props
+const { title, description } = Astro.props
 ---
 
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>{title} — instant-grep docs</title>
-    <meta name="description" content={description} />
-    <!-- Anti-flash: apply theme before first paint -->
-    <script is:inline>
-      (function() {
-        var stored = localStorage.getItem('theme');
-        if (stored === 'light') {
-          document.documentElement.classList.remove('dark');
-        } else if (stored === 'dark') {
-          document.documentElement.classList.add('dark');
-        } else {
-          var prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
-          if (prefersLight) {
-            document.documentElement.classList.remove('dark');
-          } else {
-            document.documentElement.classList.add('dark');
-          }
-        }
-      })();
-    </script>
-  </head>
-  <body class="min-h-screen bg-background text-foreground antialiased">
-    <Topbar />
-    <div class="flex min-h-[calc(100vh-64px)]">
-      <Sidebar currentPath={currentPath} />
-      <main class="flex-1 min-w-0 px-6 py-10 lg:px-12">
-        <div class="max-w-4xl mx-auto">
-          <slot />
-        </div>
-      </main>
-    </div>
-    <Footer />
-  </body>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title} — ig docs</title>
+  {description && <meta name="description" content={description} />}
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+</head>
+<body class="min-h-screen bg-background text-foreground antialiased font-sans">
+  <Topbar />
+  <div class="mx-auto max-w-6xl flex">
+    <Sidebar currentPath={Astro.url.pathname} />
+    <main class="flex-1 min-w-0 py-10 px-6 sm:px-10 lg:px-16">
+      <article class="mx-auto max-w-[680px] docs-prose">
+        <slot />
+      </article>
+    </main>
+  </div>
+</body>
 </html>

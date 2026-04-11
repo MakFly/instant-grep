@@ -1,311 +1,176 @@
 ---
 import DocsLayout from "@/layouts/docs.astro"
+import { Code } from "astro:components"
 ---
 
 <DocsLayout title="Getting Started" description="Install and use instant-grep in minutes">
-  <div class="max-w-none">
-    <!-- Page header -->
-    <div class="mb-10">
-      <div class="flex items-center gap-2 text-xs font-mono uppercase tracking-widest mb-3 theme-orange">
-        <span>📜</span>
-        <span>Training Arc — Chapter 1</span>
-      </div>
-      <h1 class="text-4xl font-mono font-black gradient-text mb-4">Getting Started</h1>
-      <p class="text-muted-foreground text-lg leading-relaxed">
-        From zero to sub-millisecond search in under 5 minutes. No configuration files.
-        No daemons to set up manually. Just build and go.
-      </p>
+
+  <h1>Getting Started</h1>
+  <p>
+    From zero to sub-millisecond search in under 5 minutes. No configuration files.
+    No daemons to set up manually. Just build and go.
+  </p>
+
+  <h2>Prerequisites</h2>
+  <ul>
+    <li>Rust toolchain (stable) — <code>rustup toolchain install stable</code></li>
+    <li>Cargo (comes with Rust)</li>
+    <li>A terminal and a project to search through</li>
+  </ul>
+
+  <h2>Installation</h2>
+  <p>
+    The fastest way to install ig is via the one-line installer. It downloads the latest release binary and auto-configures your AI agents.
+  </p>
+
+  <Code
+    code={`# Install latest release + auto-configure AI agents
+curl -fsSL https://raw.githubusercontent.com/MakFly/instant-grep/main/install.sh | bash`}
+    lang="bash"
+    theme="github-dark"
+  />
+
+  <p>Or via Homebrew:</p>
+
+  <Code code="brew install MakFly/tap/ig" lang="bash" theme="github-dark" />
+
+  <p>Or build from source:</p>
+
+  <Code
+    code={`# Clone and build
+git clone https://github.com/MakFly/instant-grep
+cd instant-grep
+cargo build --release
+
+# Copy to PATH
+cp target/release/ig ~/.local/bin/ig
+
+# Verify
+ig --version`}
+    lang="bash"
+    theme="github-dark"
+  />
+
+  <div class="docs-callout">
+    <div>
+      <p><strong>Tip:</strong> Make sure <code>~/.local/bin</code> is in your <code>$PATH</code>.
+      Add <code>export PATH="$HOME/.local/bin:$PATH"</code> to your shell config if needed.</p>
     </div>
+  </div>
 
-    <!-- Prerequisites -->
-    <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
-        <span class="theme-orange">01</span>
-        Prerequisites
-      </h2>
-      <div class="energy-card rounded-xl p-5 bg-card/50">
-        <ul class="space-y-3 text-sm">
-          <li class="flex items-center gap-3">
-            <span class="font-mono theme-green">✓</span>
-            <span class="text-muted-foreground">Rust toolchain (stable) — <code class="font-mono">rustup toolchain install stable</code></span>
-          </li>
-          <li class="flex items-center gap-3">
-            <span class="font-mono theme-green">✓</span>
-            <span class="text-muted-foreground">Cargo (comes with Rust)</span>
-          </li>
-          <li class="flex items-center gap-3">
-            <span class="font-mono theme-green">✓</span>
-            <span class="text-muted-foreground">A terminal and a project to search through</span>
-          </li>
-        </ul>
-      </div>
-    </section>
+  <h3>Configure AI agents</h3>
+  <p>
+    If you used the one-line installer, agents are already configured. Otherwise run:
+  </p>
 
-    <!-- Installation -->
-    <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
-        <span class="theme-orange">02</span>
-        Installation
-      </h2>
-      <p class="text-muted-foreground mb-4 text-sm leading-relaxed">
-        Clone the repository and build the release binary. Then copy it to a location in your PATH.
-      </p>
+  <Code
+    code={`# Auto-configure Claude Code, Codex, Gemini CLI...
+ig setup
 
-      <div class="code-block rounded-xl overflow-hidden my-5">
-        <div class="flex items-center gap-2 px-4 py-2.5 bg-secondary/50 border-b border-border">
-          <div class="flex items-center gap-1.5">
-            <div class="w-2.5 h-2.5 rounded-full bg-[#FF3B30]"></div>
-            <div class="w-2.5 h-2.5 rounded-full bg-[#FFD700]"></div>
-            <div class="w-2.5 h-2.5 rounded-full bg-[#34C759]"></div>
-          </div>
-          <span class="text-xs text-muted-foreground/50 font-mono ml-2">one-line install (recommended)</span>
-        </div>
-        <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Install latest release + auto-configure AI agents</span>
-<span class="theme-blue">curl</span> -fsSL https://raw.githubusercontent.com/MakFly/instant-grep/main/install.sh | <span class="theme-blue">bash</span>`}></code></pre>
-      </div>
+# ig setup does the following:
+#  - Installs ig-rewrite.sh hook in ~/.claude/hooks/
+#  - Registers the hook in ~/.claude/settings.json
+#  - Adds Bash(ig *) permission for Claude Code
+#  - Adds search tools section to ~/.claude/CLAUDE.md`}
+    lang="bash"
+    theme="github-dark"
+  />
 
-      <div class="text-center text-xs text-muted-foreground my-3 font-mono">— or via Homebrew —</div>
+  <h2>Build your first index</h2>
+  <p>
+    Navigate to any project directory and run <code>ig index</code>.
+    This creates a <code>.ig/</code> directory with binary index files
+    and auto-generated project artifacts.
+  </p>
 
-      <div class="code-block rounded-xl overflow-hidden my-5">
-        <div class="flex items-center gap-2 px-4 py-2.5 bg-secondary/50 border-b border-border">
-          <div class="flex items-center gap-1.5">
-            <div class="w-2.5 h-2.5 rounded-full bg-[#FF3B30]"></div>
-            <div class="w-2.5 h-2.5 rounded-full bg-[#FFD700]"></div>
-            <div class="w-2.5 h-2.5 rounded-full bg-[#34C759]"></div>
-          </div>
-          <span class="text-xs text-muted-foreground/50 font-mono ml-2">homebrew</span>
-        </div>
-        <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-blue">brew</span> install MakFly/tap/ig`}></code></pre>
-      </div>
+  <Code
+    code={`$ ig index .
 
-      <div class="text-center text-xs text-muted-foreground my-3 font-mono">— or build from source —</div>
-
-      <div class="code-block rounded-xl overflow-hidden my-5">
-        <div class="flex items-center gap-2 px-4 py-2.5 bg-secondary/50 border-b border-border">
-          <div class="flex items-center gap-1.5">
-            <div class="w-2.5 h-2.5 rounded-full bg-[#FF3B30]"></div>
-            <div class="w-2.5 h-2.5 rounded-full bg-[#FFD700]"></div>
-            <div class="w-2.5 h-2.5 rounded-full bg-[#34C759]"></div>
-          </div>
-          <span class="text-xs text-muted-foreground/50 font-mono ml-2">installation</span>
-        </div>
-        <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Clone and build</span>
-<span class="theme-blue">git</span> clone https://github.com/MakFly/instant-grep
-<span class="theme-blue">cd</span> instant-grep
-<span class="theme-blue">cargo</span> build --release
-
-<span class="theme-orange"># Copy to PATH (adjust path as needed)</span>
-<span class="theme-blue">cp</span> target/release/ig ~/.local/bin/ig
-
-<span class="theme-orange"># Verify installation</span>
-<span class="theme-blue">ig</span> <span class="theme-gold">--version</span>`}></code></pre>
-      </div>
-
-      <div class="flex items-start gap-3 p-4 rounded-lg border border-border bg-secondary/30">
-        <span class="text-lg mt-0.5 theme-blue">ℹ</span>
-        <div class="text-sm text-muted-foreground">
-          <strong class="text-foreground">Tip:</strong> Make sure <code class="font-mono">~/.local/bin</code> is in your <code class="font-mono">$PATH</code>.
-          Add <code class="font-mono">export PATH="$HOME/.local/bin:$PATH"</code> to your shell config if needed.
-        </div>
-      </div>
-
-      <div class="code-block rounded-xl overflow-hidden my-5">
-        <div class="flex items-center gap-2 px-4 py-2.5 bg-secondary/50 border-b border-border">
-          <div class="flex items-center gap-1.5">
-            <div class="w-2.5 h-2.5 rounded-full bg-[#FF3B30]"></div>
-            <div class="w-2.5 h-2.5 rounded-full bg-[#FFD700]"></div>
-            <div class="w-2.5 h-2.5 rounded-full bg-[#34C759]"></div>
-          </div>
-          <span class="text-xs text-muted-foreground/50 font-mono ml-2">configure AI agents (automatic with install.sh)</span>
-        </div>
-        <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Auto-configure Claude Code, Codex, Gemini CLI...</span>
-<span class="theme-blue">ig</span> setup
-
-<span class="theme-comment"># ig setup does the following:</span>
-<span class="theme-comment">#  • Installs ig-rewrite.sh hook in ~/.claude/hooks/</span>
-<span class="theme-comment">#  • Registers the hook in ~/.claude/settings.json as a PreToolUse handler</span>
-<span class="theme-comment">#  • Adds Bash(ig *) permission so Claude Code can run ig without prompts</span>
-<span class="theme-comment">#  • Adds a Search Tools section to ~/.claude/CLAUDE.md pointing agents at ig</span>`}></code></pre>
-      </div>
-    </section>
-
-    <!-- First index -->
-    <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
-        <span class="theme-orange">03</span>
-        Build your first index
-      </h2>
-      <p class="text-muted-foreground mb-4 text-sm leading-relaxed">
-        Navigate to any project directory and run <code class="font-mono">ig index</code>.
-        This creates a <code class="font-mono">.ig/</code> directory with binary index files
-        and auto-generated project artifacts:
-        <code class="font-mono theme-blue">lexicon.bin</code>, <code class="font-mono theme-blue">postings.bin</code>,
-        <code class="font-mono theme-blue">metadata.bin</code>,
-        <code class="font-mono theme-gold">tree.txt</code> (compact directory tree), and
-        <code class="font-mono theme-gold">context.md</code> (structured project snapshot for AI agents —
-        includes dependencies, API routes, environment keys, and symbols).
-      </p>
-
-      <div class="code-block rounded-xl overflow-hidden my-5">
-        <div class="flex items-center gap-2 px-4 py-2.5 bg-secondary/50 border-b border-border">
-          <div class="flex items-center gap-1.5">
-            <div class="w-2.5 h-2.5 rounded-full bg-[#FF3B30]"></div>
-            <div class="w-2.5 h-2.5 rounded-full bg-[#FFD700]"></div>
-            <div class="w-2.5 h-2.5 rounded-full bg-[#34C759]"></div>
-          </div>
-          <span class="text-xs text-muted-foreground/50 font-mono ml-2">build index</span>
-        </div>
-        <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange">❯</span> <span class="theme-blue">ig</span> index .
-
-<span class="theme-blue">◆</span> Gathering chakra... scanning directory tree
-<span class="theme-gold">◆</span> Skipping 38 excluded directories (node_modules, target, .git, ...)
-<span class="theme-orange-bright">◆</span> Building sparse n-gram index: 1,552 files (SPIMI, 2 segments)
-<span class="theme-green">✓</span> Index built in 450ms
+* Scanning directory tree
+* Skipping 38 excluded directories (node_modules, target, .git, ...)
+* Building sparse n-gram index: 1,552 files (SPIMI, 2 segments)
++ Index built in 450ms
    lexicon:  31 MB   (.ig/lexicon.bin)
    postings: 7.1 MB  (.ig/postings.bin)
-   metadata: 111 KB  (.ig/metadata.bin)`}></code></pre>
-      </div>
+   metadata: 111 KB  (.ig/metadata.bin)`}
+    lang="bash"
+    theme="github-dark"
+  />
 
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 my-6">
-        <div class="p-4 rounded-lg energy-card bg-card/50 text-center">
-          <div class="font-mono text-xl font-bold mb-1 theme-orange">lexicon.bin</div>
-          <div class="text-xs text-muted-foreground">Hash table mapping n-grams to posting list offsets</div>
-        </div>
-        <div class="p-4 rounded-lg energy-card bg-card/50 text-center">
-          <div class="font-mono text-xl font-bold mb-1 theme-blue">postings.bin</div>
-          <div class="text-xs text-muted-foreground">VByte delta-encoded file ID lists per n-gram</div>
-        </div>
-        <div class="p-4 rounded-lg energy-card bg-card/50 text-center">
-          <div class="font-mono text-xl font-bold mb-1 theme-gold">metadata.bin</div>
-          <div class="text-xs text-muted-foreground">File paths, modification times, version info</div>
-        </div>
-        <div class="p-4 rounded-lg energy-card bg-card/50 text-center">
-          <div class="font-mono text-xl font-bold mb-1 theme-green">tree.txt</div>
-          <div class="text-xs text-muted-foreground">Compact directory tree snapshot, auto-regenerated on index rebuild</div>
-        </div>
-        <div class="p-4 rounded-lg energy-card bg-card/50 text-center sm:col-span-2">
-          <div class="font-mono text-xl font-bold mb-1 theme-gold">context.md</div>
-          <div class="text-xs text-muted-foreground">Structured AI agent snapshot: directory tree, symbols, dependencies (Cargo.toml / package.json), API routes, and environment variable keys</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- First search -->
-    <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
-        <span class="theme-orange">04</span>
-        Your first search
-      </h2>
-      <p class="text-muted-foreground mb-4 text-sm leading-relaxed">
-        Run <code class="font-mono">ig</code> with any regex pattern. If no index exists,
-        it will build one automatically — the auto-build jutsu.
-      </p>
-
-      <div class="flex items-start gap-3 p-4 rounded-lg border border-border bg-secondary/30 mb-5">
-        <span class="text-lg mt-0.5 theme-orange">⚡</span>
-        <div class="text-sm text-muted-foreground">
-          <strong class="text-foreground">Shortcut:</strong> <code class="font-mono">ig "pattern"</code> is equivalent to <code class="font-mono">ig search "pattern"</code>.
-          The <code class="font-mono">search</code> subcommand is optional — <code class="font-mono">ig</code> searches by default.
-        </div>
-      </div>
-
-      <div class="code-block rounded-xl overflow-hidden my-5">
-        <div class="flex items-center gap-2 px-4 py-2.5 bg-secondary/50 border-b border-border">
-          <div class="flex items-center gap-1.5">
-            <div class="w-2.5 h-2.5 rounded-full bg-[#FF3B30]"></div>
-            <div class="w-2.5 h-2.5 rounded-full bg-[#FFD700]"></div>
-            <div class="w-2.5 h-2.5 rounded-full bg-[#34C759]"></div>
-          </div>
-          <span class="text-xs text-muted-foreground/50 font-mono ml-2">first search</span>
-        </div>
-        <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Basic search</span>
-<span class="theme-blue">ig</span> <span class="theme-gold">"async fn"</span> src/
-<span class="theme-blue">src/daemon.rs</span>:23:    pub async fn handle_connection...
-<span class="theme-blue">src/query/mod.rs</span>:7:     pub async fn run(...)
-
-<span class="theme-orange"># Case-insensitive search</span>
-<span class="theme-blue">ig</span> -i <span class="theme-gold">"TODO"</span> .
-
-<span class="theme-orange"># With context lines</span>
-<span class="theme-blue">ig</span> -C 3 <span class="theme-gold">"Result&lt;T&gt;"</span> .
-
-<span class="theme-orange"># JSON output for AI agents</span>
-<span class="theme-blue">ig</span> --json <span class="theme-gold">"impl Trait"</span> .
-
-<span class="theme-orange"># Filter by file type</span>
-<span class="theme-blue">ig</span> --type rs <span class="theme-gold">"pub fn"</span> .`}></code></pre>
-      </div>
-    </section>
-
-    <!-- Auto-build -->
-    <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
-        <span class="theme-orange">05</span>
-        Auto-build explained
-      </h2>
-      <div class="energy-card rounded-xl p-6 bg-card/50">
-        <p class="text-sm text-muted-foreground leading-relaxed mb-4">
-          When you run <code class="font-mono">ig search</code>, it checks if a <code class="font-mono theme-blue">.ig/</code> index
-          exists in the target directory. If not, it automatically runs <code class="font-mono">ig index</code> first.
-          This means you can always just run search — no manual indexing required.
-        </p>
-        <div class="flex flex-col gap-3">
-          {[
-            { n: "1", text: "ig \"pattern\" . called (or ig search \"pattern\" .)", cls: "theme-orange" },
-            { n: "2", text: "Check for .ig/metadata.bin — if missing, build index first", cls: "theme-orange" },
-            { n: "3", text: "Extract n-grams from regex, query posting lists, verify matches", cls: "theme-orange" },
-            { n: "✓", text: "Results printed in ~0.9ms", cls: "theme-green" },
-          ].map((step) => (
-            <div class="flex items-center gap-3 text-sm">
-              <span class={`w-8 h-8 rounded-full flex items-center justify-center font-mono text-xs font-bold flex-shrink-0 step-badge ${step.cls}`}>{step.n}</span>
-              <span class="text-muted-foreground">{step.text}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-
-    <!-- Next steps -->
-    <section class="mb-4">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-6">Next steps</h2>
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <a href="/docs/cli" class="energy-card rounded-xl p-5 bg-card/50 flex flex-col gap-2 group">
-          <span class="text-2xl">⚡</span>
-          <h3 class="font-mono font-bold text-foreground group-hover:text-primary transition-colors">CLI Reference</h3>
-          <p class="text-xs text-muted-foreground">All commands with every flag documented</p>
-        </a>
-        <a href="/docs/architecture" class="energy-card rounded-xl p-5 bg-card/50 flex flex-col gap-2 group">
-          <span class="text-2xl">🌀</span>
-          <h3 class="font-mono font-bold text-foreground group-hover:text-primary transition-colors">Architecture</h3>
-          <p class="text-xs text-muted-foreground">Rasengan Pipeline and the Sage Mode daemon</p>
-        </a>
-        <a href="/docs/performance" class="energy-card rounded-xl p-5 bg-card/50 flex flex-col gap-2 group">
-          <span class="text-2xl">📊</span>
-          <h3 class="font-mono font-bold text-foreground group-hover:text-primary transition-colors">Performance</h3>
-          <p class="text-xs text-muted-foreground">Benchmarks and optimization history</p>
-        </a>
-      </div>
-    </section>
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 my-6">
+    <div class="p-4 rounded-lg border text-center">
+      <div class="font-mono text-sm font-semibold mb-1">lexicon.bin</div>
+      <div class="text-xs text-muted-foreground">Hash table mapping n-grams to posting list offsets</div>
+    </div>
+    <div class="p-4 rounded-lg border text-center">
+      <div class="font-mono text-sm font-semibold mb-1">postings.bin</div>
+      <div class="text-xs text-muted-foreground">VByte delta-encoded file ID lists per n-gram</div>
+    </div>
+    <div class="p-4 rounded-lg border text-center">
+      <div class="font-mono text-sm font-semibold mb-1">metadata.bin</div>
+      <div class="text-xs text-muted-foreground">File paths, modification times, version info</div>
+    </div>
   </div>
+
+  <h2>Your first search</h2>
+  <p>
+    Run <code>ig</code> with any regex pattern. If no index exists, it builds one automatically.
+  </p>
+
+  <div class="docs-callout">
+    <div>
+      <p><strong>Shortcut:</strong> <code>ig "pattern"</code> is equivalent to <code>ig search "pattern"</code>.
+      The <code>search</code> subcommand is optional.</p>
+    </div>
+  </div>
+
+  <Code
+    code={`# Basic search
+ig "async fn" src/
+
+# Case-insensitive search
+ig -i "TODO" .
+
+# With context lines
+ig -C 3 "Result<T>" .
+
+# JSON output for AI agents
+ig --json "impl Trait" .
+
+# Filter by file type
+ig --type rs "pub fn" .`}
+    lang="bash"
+    theme="github-dark"
+  />
+
+  <h2>How auto-build works</h2>
+  <p>
+    When you run <code>ig search</code>, it checks if a <code>.ig/</code> index
+    exists in the target directory. If not, it automatically runs <code>ig index</code> first.
+    You can always just run search — no manual indexing required.
+  </p>
+
+  <ol>
+    <li><code>ig "pattern" .</code> called</li>
+    <li>Check for <code>.ig/metadata.bin</code> — if missing, build index first</li>
+    <li>Extract n-grams from regex, query posting lists, verify matches</li>
+    <li>Results printed in ~0.9ms</li>
+  </ol>
+
+  <h2>Next steps</h2>
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 not-prose">
+    <a href="/docs/cli" class="rounded-lg border p-4 flex flex-col gap-1.5 group hover:border-foreground/20 transition-colors">
+      <h3 class="font-medium text-sm group-hover:text-foreground transition-colors">CLI Reference</h3>
+      <p class="text-xs text-muted-foreground">All commands with every flag documented</p>
+    </a>
+    <a href="/docs/architecture" class="rounded-lg border p-4 flex flex-col gap-1.5 group hover:border-foreground/20 transition-colors">
+      <h3 class="font-medium text-sm group-hover:text-foreground transition-colors">Architecture</h3>
+      <p class="text-xs text-muted-foreground">Query pipeline and the background daemon</p>
+    </a>
+    <a href="/docs/performance" class="rounded-lg border p-4 flex flex-col gap-1.5 group hover:border-foreground/20 transition-colors">
+      <h3 class="font-medium text-sm group-hover:text-foreground transition-colors">Performance</h3>
+      <p class="text-xs text-muted-foreground">Benchmarks and optimization history</p>
+    </a>
+  </div>
+
 </DocsLayout>
-
-<style>
-  .theme-orange { color: var(--primary); }
-  .theme-orange-bright { color: var(--primary); }
-  .theme-gold { color: oklch(0.55 0.14 80); }
-  .theme-blue { color: var(--accent); }
-  .theme-green { color: oklch(0.52 0.14 155); }
-  .theme-red { color: oklch(0.55 0.2 25); }
-
-  :global(.dark) .theme-orange { color: #FF9500; }
-  :global(.dark) .theme-orange-bright { color: #FF9500; }
-  :global(.dark) .theme-gold { color: #FFD700; }
-  :global(.dark) .theme-blue { color: #00B4FF; }
-  :global(.dark) .theme-green { color: #34C759; }
-  :global(.dark) .theme-red { color: #FF6B5A; }
-
-  .step-badge {
-    background: color-mix(in oklch, currentColor 10%, transparent);
-    border: 1px solid color-mix(in oklch, currentColor 30%, transparent);
-  }
-</style>

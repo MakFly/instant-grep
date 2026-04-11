@@ -1,6 +1,6 @@
 [package]
 name = "instant-grep"
-version = "1.6.23"
+version = "1.7.0"
 edition = "2024"
 description = "Trigram-indexed regex search CLI — sub-ms code search for AI agents"
 license = "MIT"
@@ -34,6 +34,10 @@ dirs = "5"
 ureq = { version = "3", features = ["json"] }
 clap_complete = "4"
 tempfile = "3"
+toml = "0.8"
+sha2 = "0.10"
+walkdir = "2"
+lru = "0.12"
 
 [dev-dependencies]
 

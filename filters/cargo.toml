@@ -1,0 +1,23 @@
+[[filters]]
+name = "cargo-build"
+match = "^cargo (build|check)"
+strip_ansi = true
+drop_lines = "^\\s*(Compiling|Downloading|Downloaded|Blocking|Updating|Finished|Locking)"
+truncate_at = 200
+on_empty = "Build succeeded, no errors"
+
+[[filters]]
+name = "cargo-test"
+match = "^cargo (test|nextest run)"
+strip_ansi = true
+keep_lines = "(test .+ \\.\\.\\. (ok|FAILED|ignored)|^test result:|^failures:|^----)"
+max_lines = 100
+on_empty = "All tests passed"
+
+[[filters]]
+name = "cargo-clippy"
+match = "^cargo clippy"
+strip_ansi = true
+drop_lines = "^\\s*(Checking|Compiling|Downloading|Downloaded|Finished|Locking)"
+truncate_at = 200
+max_lines = 80

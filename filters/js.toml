@@ -1,0 +1,68 @@
+[[filters]]
+name = "tsc"
+match = "^(tsc|npx tsc|bunx tsc)"
+strip_ansi = true
+keep_lines = "(TS\\d+|error TS)"
+truncate_at = 200
+max_lines = 80
+on_empty = "No type errors"
+
+[[filters]]
+name = "vitest"
+match = "^(vitest|npx vitest|bunx vitest)"
+strip_ansi = true
+keep_lines = "(✓|×|✗|FAIL|PASS|Tests\\s|Test Files|Duration)"
+max_lines = 60
+on_empty = "All tests passed"
+
+[[filters]]
+name = "eslint"
+match = "^(eslint|npx eslint|bunx eslint)"
+strip_ansi = true
+keep_lines = "(\\S+\\.(js|ts|jsx|tsx)|(error|warning)\\s)"
+truncate_at = 200
+max_lines = 60
+
+[[filters]]
+name = "biome"
+match = "^(biome|npx biome|bunx biome)"
+strip_ansi = true
+keep_lines = "(error|warning|✖|×)"
+truncate_at = 200
+max_lines = 60
+
+[[filters]]
+name = "prettier"
+match = "^(prettier|npx prettier|bunx prettier)"
+strip_ansi = true
+keep_lines = "\\S+\\.(js|ts|jsx|tsx|css|json|md)"
+max_lines = 40
+
+[[filters]]
+name = "next-build"
+match = "^(next build|npx next build|bunx next build)"
+strip_ansi = true
+keep_lines = "(Route|Size|First Load|error|Error|warn|○|●|ƒ|λ)"
+truncate_at = 200
+max_lines = 40
+
+[[filters]]
+name = "next-dev"
+match = "^(next dev|npx next dev|bunx next dev)"
+strip_ansi = true
+drop_lines = "^\\s*(ready|wait|event|info)"
+max_lines = 30
+
+[[filters]]
+name = "pnpm-list"
+match = "^pnpm (list|ls)"
+strip_ansi = true
+truncate_at = 120
+max_lines = 40
+
+[[filters]]
+name = "npm-run"
+match = "^npm run"
+strip_ansi = true
+drop_lines = "^>"
+max_lines = 60

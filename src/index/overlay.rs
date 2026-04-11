@@ -34,7 +34,7 @@ pub struct OverlayReader {
     tombstone_bits: Vec<u8>,
 }
 
-const LEXICON_ENTRY_SIZE: usize = 16;
+const LEXICON_ENTRY_SIZE: usize = 18;
 
 impl OverlayReader {
     /// Open an overlay index from .ig/ directory. Returns None if no overlay exists.
@@ -246,6 +246,8 @@ pub fn build_overlay(
             key: *key,
             byte_offset: current_offset,
             byte_length: byte_len,
+            bloom_mask: 0,
+            loc_mask: 0,
         });
         current_offset += byte_len;
     }

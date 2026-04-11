@@ -16,13 +16,35 @@ pub struct SymbolMatch {
 
 pub fn extract_symbols(
     root: &Path,
+    scope: Option<&Path>,
     use_default_excludes: bool,
     max_file_size: u64,
     type_filter: Option<&str>,
     glob_filter: Option<&str>,
 ) -> Result<Vec<SymbolMatch>> {
+    // If scope is a single file, extract symbols from just that file
+    if let Some(s) = scope {
+        if s.is_file() {
+            let content = std::fs::read(s)?;
+            if is_binary(&content) {
+                return Ok(Vec::new());
+            }
+            let text = std::str::from_utf8(&content)
+                .map_err(|e| anyhow::anyhow!("invalid UTF-8: {}", e))?;
+            let rel_path = s.strip_prefix(root).unwrap_or(s);
+            let rel_str = rel_path.to_string_lossy();
+            let ext = s.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let lang = Lang::from_ext(ext);
+            let mut symbols = Vec::new();
+            extract_from_text(&rel_str, text, lang, &mut symbols);
+            return Ok(symbols);
+        }
+    }
+
+    // Walk the scope directory (or root if no scope given)
+    let walk_dir = scope.filter(|s| s.is_dir()).unwrap_or(root);
     let files = walk::walk_files(
-        root,
+        walk_dir,
         use_default_excludes,
         max_file_size,
         type_filter,
@@ -171,6 +193,16 @@ fn classify_kind(matched: &str, lang: Lang) -> &'static str {
                 "trait"
             } else if m.contains("enum ") {
                 "enum"
+            } else if m.trim().starts_with("case ") {
+                "const"
+            } else if m.contains("const ") {
+                "const"
+            } else if m.contains("$") {
+                "property"
+            } else if m.trim().starts_with("#[") {
+                "attribute"
+            } else if m.contains("namespace ") {
+                "namespace"
             } else {
                 "symbol"
             }
@@ -233,7 +265,25 @@ impl Lang {
             Lang::Python => r"^\s*(async\s+)?(def|class)\s+",
             Lang::Go => r"^(func|type)\s+",
             Lang::Php => {
-                r"^\s*(abstract\s+|final\s+)*(public|protected|private|static)?\s*(function|class|interface|trait|enum)\s+"
+                concat!(
+                    // Methods & functions: (abstract|final|public|protected|private|static)* function name(
+                    r"^\s*(?:(?:abstract|final|public|protected|private|static)\s+)*function\s+\w+\s*\(",
+                    // Class/interface/trait/enum: (abstract|final|readonly)* class|interface|trait|enum Name
+                    r"|^\s*(?:(?:abstract|final|readonly)\s+)*(?:class|interface|trait|enum)\s+\w+",
+                    // Typed properties: (visibility) (readonly)? Type $var
+                    r"|^\s*(?:public|protected|private)\s+(?:readonly\s+)?(?:\?)?[\w\\|]+\s+\$\w+",
+                    // Class constants: (visibility)? const NAME =
+                    r"|^\s*(?:(?:public|protected|private)\s+)?const\s+[A-Za-z_]\w*\s*=",
+                    // Enum cases: case NAME
+                    r"|^\s*case\s+[A-Z_]\w*",
+                    // PHP 8 attributes: #[Attribute]
+                    r"|^\s*#\[[\w\\]+",
+                    // Anonymous classes: return new class
+                    r"|\breturn\s+new\s+class\b",
+                    // Namespace & declare
+                    r"|^\s*namespace\s+[\w\\]+;",
+                    r"|^\s*declare\s*\(",
+                )
             }
             Lang::Other => {
                 r"^\s*(export\s+)?(pub\s+)?(async\s+)?(function\*?\s+|class\s+|def\s+|fn\s+|struct\s+|type\s+|interface\s+|trait\s+|impl\s+)"
@@ -319,7 +369,7 @@ mod tests {
     #[test]
     fn test_symbols_empty_dir() {
         let dir = TempDir::new().unwrap();
-        let syms = extract_symbols(dir.path(), true, 1_048_576, None, None).unwrap();
+        let syms = extract_symbols(dir.path(), None, true, 1_048_576, None, None).unwrap();
         assert!(syms.is_empty());
     }
 }

@@ -1,18 +1,22 @@
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::num::NonZeroUsize;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
+use lru::LruCache;
 use notify::{Event, RecursiveMode, Watcher};
 use rayon::prelude::*;
 use regex::bytes::RegexBuilder;
 use serde::{Deserialize, Serialize};
 
+use crate::index::ngram::BigramDfTable;
 use crate::index::reader::IndexReader;
 use crate::index::writer;
 use crate::query::extract::regex_to_query;
+use crate::query::plan::NgramQuery;
 use crate::search::matcher::{self, SearchConfig};
 use crate::util::ig_dir;
 use crate::walk::DEFAULT_MAX_FILE_SIZE;
@@ -73,12 +77,15 @@ pub fn socket_path(root: &Path) -> PathBuf {
     PathBuf::from(format!("/tmp/ig-{:x}.sock", hash))
 }
 
-/// Shared state for the daemon — reader + last known mtime of metadata.bin.
+/// Shared state for the daemon — reader + last known mtime of metadata.bin + LRU caches.
 struct DaemonState {
     reader: IndexReader,
+    df_table: Option<BigramDfTable>,
     ig_dir: PathBuf,
     root: PathBuf,
     last_mtime: SystemTime,
+    regex_cache: LruCache<(String, bool), Arc<regex::bytes::Regex>>,
+    query_cache: LruCache<(String, bool), NgramQuery>,
 }
 
 impl DaemonState {
@@ -86,17 +93,26 @@ impl DaemonState {
         let root = root.to_path_buf();
         let ig = ig_dir(&root);
         let reader = IndexReader::open(&ig).context("open index")?;
+        let df_table = if reader.metadata.built_with_idf {
+            BigramDfTable::load(&ig)
+        } else {
+            None
+        };
         let last_mtime = metadata_mtime(&ig);
+        let cache_cap = NonZeroUsize::new(128).unwrap();
         Ok(Self {
             reader,
+            df_table,
             ig_dir: ig,
             root,
             last_mtime,
+            regex_cache: LruCache::new(cache_cap),
+            query_cache: LruCache::new(cache_cap),
         })
     }
 
     /// Check if the index has been rebuilt since we last loaded it.
-    /// If so, reload the reader. Returns true if reloaded.
+    /// If so, reload the reader and clear caches. Returns true if reloaded.
     fn reload_if_changed(&mut self) -> bool {
         let current_mtime = metadata_mtime(&self.ig_dir);
         if current_mtime != self.last_mtime {
@@ -104,8 +120,16 @@ impl DaemonState {
                 Ok(new_reader) => {
                     let old_count = self.reader.metadata.file_count;
                     let new_count = new_reader.metadata.file_count;
+                    let new_df_table = if new_reader.metadata.built_with_idf {
+                        BigramDfTable::load(&self.ig_dir)
+                    } else {
+                        None
+                    };
                     self.reader = new_reader;
+                    self.df_table = new_df_table;
                     self.last_mtime = current_mtime;
+                    self.regex_cache.clear();
+                    self.query_cache.clear();
                     eprintln!("Index reloaded: {} → {} files", old_count, new_count);
                     true
                 }
@@ -142,6 +166,14 @@ pub fn start_daemon(root: &Path) -> Result<()> {
             "Daemon started: {} files indexed, listening...",
             s.reader.metadata.file_count
         );
+    }
+
+    // Spawn background thread to warm the OS page cache
+    {
+        let warm_state = Arc::clone(&state);
+        std::thread::spawn(move || {
+            warm_page_cache(&warm_state);
+        });
     }
 
     let sock_path = socket_path(&root);
@@ -267,16 +299,11 @@ fn handle_client(stream: UnixStream, state: &Arc<RwLock<DaemonState>>) -> Result
             break;
         }
 
-        // Check for index reload before each query — acquire write lock briefly
-        let reloaded = {
-            let mut s = state.write().unwrap_or_else(|e| e.into_inner());
-            s.reload_if_changed()
-        };
-
-        // Process query with read lock
+        // Acquire write lock for reload check + cached query processing
         let response = {
-            let s = state.read().unwrap_or_else(|e| e.into_inner());
-            process_query(&line, &s.reader, &s.root, reloaded)
+            let mut s = state.write().unwrap_or_else(|e| e.into_inner());
+            let reloaded = s.reload_if_changed();
+            process_query_cached(&line, &mut s, reloaded)
         };
 
         let json = serde_json::to_string(&response)?;
@@ -287,6 +314,196 @@ fn handle_client(stream: UnixStream, state: &Arc<RwLock<DaemonState>>) -> Result
     Ok(())
 }
 
+/// Process a query using the LRU caches for compiled regexes and NgramQuery results.
+fn process_query_cached(line: &str, state: &mut DaemonState, reloaded: bool) -> QueryResponse {
+    let req: QueryRequest = match serde_json::from_str(line) {
+        Ok(r) => r,
+        Err(e) => {
+            return QueryResponse {
+                results: None,
+                error: Some(format!("invalid request: {}", e)),
+                candidates: 0,
+                total_files: 0,
+                search_ms: 0.0,
+                reloaded: false,
+            };
+        }
+    };
+
+    let start = Instant::now();
+    let total_files = state.reader.total_file_count() as usize;
+    let cache_key = (req.pattern.clone(), req.case_insensitive);
+
+    // NgramQuery: cache lookup or compute
+    let query = if let Some(cached) = state.query_cache.get(&cache_key) {
+        cached.clone()
+    } else {
+        match regex_to_query(&req.pattern, req.case_insensitive, state.df_table.as_ref()) {
+            Ok(q) => {
+                state.query_cache.put(cache_key.clone(), q.clone());
+                q
+            }
+            Err(e) => {
+                return QueryResponse {
+                    results: None,
+                    error: Some(format!("invalid regex: {}", e)),
+                    candidates: 0,
+                    total_files,
+                    search_ms: 0.0,
+                    reloaded,
+                };
+            }
+        }
+    };
+
+    let candidates = state.reader.resolve(&query);
+    let candidate_count = candidates.len();
+
+    // Compiled regex: cache lookup or compile
+    let regex = if let Some(cached) = state.regex_cache.get(&cache_key) {
+        Arc::clone(cached)
+    } else {
+        match RegexBuilder::new(&req.pattern)
+            .case_insensitive(req.case_insensitive)
+            .unicode(false)
+            .build()
+        {
+            Ok(r) => {
+                let arc = Arc::new(r);
+                state.regex_cache.put(cache_key, Arc::clone(&arc));
+                arc
+            }
+            Err(e) => {
+                return QueryResponse {
+                    results: None,
+                    error: Some(format!("regex build error: {}", e)),
+                    candidates: candidate_count,
+                    total_files,
+                    search_ms: start.elapsed().as_secs_f64() * 1000.0,
+                    reloaded,
+                };
+            }
+        }
+    };
+
+    let config = SearchConfig {
+        before_context: req.context,
+        after_context: req.context,
+        count_only: req.count_only,
+        files_only: req.files_only,
+    };
+
+    // Collect candidate paths, applying type filter
+    let candidate_paths: Vec<(u32, String)> = candidates
+        .iter()
+        .filter_map(|doc_id| {
+            let rel_path = state.reader.file_path(*doc_id).to_string();
+
+            if let Some(ref ft) = req.file_type {
+                let ext = rel_path.rsplit('.').next().unwrap_or("");
+                if ext != ft.as_str() {
+                    return None;
+                }
+            }
+
+            Some((*doc_id, rel_path))
+        })
+        .collect();
+
+    let root = &state.root;
+
+    // Parallel regex verification with rayon
+    let results: Vec<MatchResult> = candidate_paths
+        .par_iter()
+        .filter_map(|(_doc_id, rel_path)| {
+            match matcher::match_file(root, rel_path, &regex, &config) {
+                Ok(Some(file_matches)) => {
+                    if req.files_only {
+                        Some(vec![MatchResult {
+                            file: file_matches.path,
+                            line: None,
+                            text: None,
+                            count: None,
+                        }])
+                    } else if req.count_only {
+                        Some(vec![MatchResult {
+                            file: file_matches.path,
+                            line: None,
+                            text: None,
+                            count: Some(file_matches.match_count),
+                        }])
+                    } else {
+                        let matches: Vec<MatchResult> = file_matches
+                            .matches
+                            .iter()
+                            .filter(|m| !m.is_context)
+                            .map(|m| MatchResult {
+                                file: file_matches.path.clone(),
+                                line: Some(m.line_number),
+                                text: Some(String::from_utf8_lossy(&m.line).to_string()),
+                                count: None,
+                            })
+                            .collect();
+                        if matches.is_empty() {
+                            None
+                        } else {
+                            Some(matches)
+                        }
+                    }
+                }
+                _ => None,
+            }
+        })
+        .flatten()
+        .collect();
+
+    QueryResponse {
+        results: Some(results),
+        error: None,
+        candidates: candidate_count,
+        total_files,
+        search_ms: start.elapsed().as_secs_f64() * 1000.0,
+        reloaded,
+    }
+}
+
+/// Warm the OS page cache by pre-faulting postings mmap and reading file headers.
+fn warm_page_cache(state: &Arc<RwLock<DaemonState>>) {
+    let start = Instant::now();
+    let s = state.read().unwrap_or_else(|e| e.into_inner());
+
+    // Phase 1: pre-fault postings mmap
+    s.reader.warm_postings();
+    let postings_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    // Phase 2: read first 4KB of each source file (capped at 10,000 files)
+    let file_count = s.reader.metadata.files.len().min(10_000);
+    let root = s.root.clone();
+    let paths: Vec<String> = s.reader.metadata.files[..file_count]
+        .iter()
+        .map(|f| f.path.clone())
+        .collect();
+    drop(s); // release lock during I/O
+
+    let mut warmed = 0usize;
+    let mut buf = [0u8; 4096];
+    for path in &paths {
+        let full = root.join(path);
+        if let Ok(mut f) = std::fs::File::open(&full) {
+            let _ = f.read(&mut buf);
+            warmed += 1;
+        }
+    }
+
+    eprintln!(
+        "Page cache warmed: postings in {:.1}ms, {} files prefetched in {:.0}ms",
+        postings_ms,
+        warmed,
+        start.elapsed().as_secs_f64() * 1000.0,
+    );
+}
+
+#[cfg(test)]
 fn process_query(line: &str, reader: &IndexReader, root: &Path, reloaded: bool) -> QueryResponse {
     let req: QueryRequest = match serde_json::from_str(line) {
         Ok(r) => r,
@@ -305,7 +522,7 @@ fn process_query(line: &str, reader: &IndexReader, root: &Path, reloaded: bool) 
     let start = Instant::now();
     let total_files = reader.total_file_count() as usize;
 
-    let query = match regex_to_query(&req.pattern, req.case_insensitive) {
+    let query = match regex_to_query(&req.pattern, req.case_insensitive, None) {
         Ok(q) => q,
         Err(e) => {
             return QueryResponse {

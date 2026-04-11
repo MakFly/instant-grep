@@ -1,0 +1,31 @@
+[[filters]]
+name = "dotnet-build"
+match = "^dotnet build"
+strip_ansi = true
+keep_lines = "(error|warning|Build succeeded|failed)"
+truncate_at = 200
+max_lines = 60
+on_empty = "Build succeeded"
+
+[[filters]]
+name = "dotnet-test"
+match = "^dotnet test"
+strip_ansi = true
+keep_lines = "(Passed|Failed|Skipped|Total tests|Test Run)"
+max_lines = 60
+on_empty = "All tests passed"
+
+[[filters]]
+name = "dotnet-restore"
+match = "^dotnet restore"
+strip_ansi = true
+keep_lines = "(Restored|restore|Nothing to do)"
+max_lines = 20
+on_empty = "All packages restored"
+
+[[filters]]
+name = "dotnet-format"
+match = "^dotnet format"
+strip_ansi = true
+max_lines = 40
+on_empty = "No formatting issues"

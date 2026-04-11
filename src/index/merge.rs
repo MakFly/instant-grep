@@ -15,10 +15,12 @@ pub struct MergedEntry {
     pub key: NgramKey,
     pub byte_offset: u32,
     pub byte_length: u32,
+    pub bloom_mask: u8,
+    pub loc_mask: u8,
 }
 
-/// Size of a single entry in the temp file: u64 key + u32 offset + u32 length.
-const ENTRY_FILE_SIZE: usize = 16;
+/// Size of a single entry in the temp file: u64 key + u32 offset + u32 length + u8 bloom + u8 loc.
+const ENTRY_FILE_SIZE: usize = 18;
 
 /// Result of streaming merge: entries written to a temp file instead of a Vec.
 pub struct StreamingMergeResult {
@@ -128,8 +130,10 @@ pub fn merge_segments_streaming(
     while let Some(min_entry) = heap.pop() {
         let min_key = min_entry.key;
 
-        // Collect all posting bytes for this key across segments
+        // Collect all posting bytes for this key across segments, OR masks
         let mut all_doc_ids: Vec<u32> = Vec::new();
+        let mut merged_bloom: u8 = 0;
+        let mut merged_loc: u8 = 0;
 
         // Process the segment that was popped
         {
@@ -138,6 +142,8 @@ pub fn merge_segments_streaming(
                 let ids =
                     vbyte::decode_posting_list(&entry.posting_bytes, 0, entry.posting_bytes.len());
                 all_doc_ids.extend_from_slice(&ids);
+                merged_bloom |= entry.bloom_mask;
+                merged_loc |= entry.loc_mask;
             }
             let next = readers[idx].next_entry();
             if let Some(ref e) = next {
@@ -163,6 +169,8 @@ pub fn merge_segments_streaming(
                     seg_entry.posting_bytes.len(),
                 );
                 all_doc_ids.extend_from_slice(&ids);
+                merged_bloom |= seg_entry.bloom_mask;
+                merged_loc |= seg_entry.loc_mask;
             }
             let next = readers[idx].next_entry();
             if let Some(ref e) = next {
@@ -182,8 +190,15 @@ pub fn merge_segments_streaming(
         let byte_len = encoded.len() as u32;
         postings_writer.write_all(&encoded)?;
 
-        // Write entry to temp file: key(u64 LE) + offset(u32 LE) + length(u32 LE)
-        write_entry(&mut entries_writer, min_key, current_offset, byte_len)?;
+        // Write entry to temp file: key(u64) + offset(u32) + length(u32) + bloom(u8) + loc(u8)
+        write_entry(
+            &mut entries_writer,
+            min_key,
+            current_offset,
+            byte_len,
+            merged_bloom,
+            merged_loc,
+        )?;
         entry_count += 1;
         current_offset += byte_len;
     }
@@ -215,7 +230,14 @@ fn merge_single_segment_streaming(
         let byte_len = entry.posting_bytes.len() as u32;
         postings_writer.write_all(&entry.posting_bytes)?;
 
-        write_entry(&mut entries_writer, entry.key, current_offset, byte_len)?;
+        write_entry(
+            &mut entries_writer,
+            entry.key,
+            current_offset,
+            byte_len,
+            entry.bloom_mask,
+            entry.loc_mask,
+        )?;
         entry_count += 1;
         current_offset += byte_len;
     }
@@ -231,10 +253,18 @@ fn merge_single_segment_streaming(
 
 /// Write a single entry to the entries temp file.
 #[inline]
-fn write_entry(w: &mut BufWriter<File>, key: NgramKey, offset: u32, length: u32) -> Result<()> {
+fn write_entry(
+    w: &mut BufWriter<File>,
+    key: NgramKey,
+    offset: u32,
+    length: u32,
+    bloom_mask: u8,
+    loc_mask: u8,
+) -> Result<()> {
     w.write_all(&key.to_le_bytes())?;
     w.write_all(&offset.to_le_bytes())?;
     w.write_all(&length.to_le_bytes())?;
+    w.write_all(&[bloom_mask, loc_mask])?;
     Ok(())
 }
 
@@ -249,7 +279,7 @@ pub fn build_lexicon(entries: &[MergedEntry]) -> Vec<u8> {
     let min_size = entries.len() + 1;
     let table_size = next_prime(min_size.max((entries.len() as f64 * 1.3) as usize));
 
-    const ENTRY_SIZE: usize = 16; // u64 key + u32 offset + u32 length
+    const ENTRY_SIZE: usize = 18; // u64 key + u32 offset + u32 length + u8 bloom + u8 loc
     let mut table = vec![0u8; table_size * ENTRY_SIZE];
 
     for entry in entries {
@@ -271,6 +301,8 @@ pub fn build_lexicon(entries: &[MergedEntry]) -> Vec<u8> {
                 table[base..base + 8].copy_from_slice(&stored_key.to_le_bytes());
                 table[base + 8..base + 12].copy_from_slice(&entry.byte_offset.to_le_bytes());
                 table[base + 12..base + 16].copy_from_slice(&entry.byte_length.to_le_bytes());
+                table[base + 16] = entry.bloom_mask;
+                table[base + 17] = entry.loc_mask;
                 break;
             }
             slot = (slot + 1) % table_size;
@@ -295,7 +327,7 @@ pub fn build_lexicon_mmap_from_file(
     }
 
     let table_size = next_prime((entry_count as f64 * 1.3) as usize);
-    const ENTRY_SIZE: usize = 16;
+    const ENTRY_SIZE: usize = 18; // u64 key + u32 offset + u32 length + u8 bloom + u8 loc
     let byte_size = table_size * ENTRY_SIZE;
 
     // Mmap the entries file for reading
@@ -321,6 +353,8 @@ pub fn build_lexicon_mmap_from_file(
         let key = u64::from_le_bytes(entries_mmap[base..base + 8].try_into().unwrap());
         let byte_offset_bytes: [u8; 4] = entries_mmap[base + 8..base + 12].try_into().unwrap();
         let byte_length_bytes: [u8; 4] = entries_mmap[base + 12..base + 16].try_into().unwrap();
+        let bloom_mask = entries_mmap[base + 16];
+        let loc_mask = entries_mmap[base + 17];
 
         let stored_key = key + 1; // sentinel: 0 = empty
         let mut slot = (stored_key as usize) % table_size;
@@ -331,6 +365,8 @@ pub fn build_lexicon_mmap_from_file(
                 mmap[lex_base..lex_base + 8].copy_from_slice(&stored_key.to_le_bytes());
                 mmap[lex_base + 8..lex_base + 12].copy_from_slice(&byte_offset_bytes);
                 mmap[lex_base + 12..lex_base + 16].copy_from_slice(&byte_length_bytes);
+                mmap[lex_base + 16] = bloom_mask;
+                mmap[lex_base + 17] = loc_mask;
                 break;
             }
             slot = (slot + 1) % table_size;
@@ -398,29 +434,35 @@ mod tests {
                 key: 10,
                 byte_offset: 0,
                 byte_length: 5,
+                bloom_mask: 0b0000_0010,
+                loc_mask: 0b0000_0100,
             },
             MergedEntry {
                 key: 20,
                 byte_offset: 5,
                 byte_length: 8,
+                bloom_mask: 0b0001_0000,
+                loc_mask: 0b0010_0000,
             },
             MergedEntry {
                 key: 30,
                 byte_offset: 13,
                 byte_length: 3,
+                bloom_mask: 0,
+                loc_mask: 0,
             },
         ];
 
         let table = build_lexicon(&entries);
         assert!(!table.is_empty());
 
-        // Verify we can look up each key
-        let table_size = table.len() / 16;
+        // Verify we can look up each key including masks
+        let table_size = table.len() / 18;
         for entry in &entries {
             let stored_key = entry.key + 1;
             let mut slot = (stored_key as usize) % table_size;
             loop {
-                let base = slot * 16;
+                let base = slot * 18;
                 let found_key = u64::from_le_bytes([
                     table[base],
                     table[base + 1],
@@ -444,8 +486,12 @@ mod tests {
                         table[base + 14],
                         table[base + 15],
                     ]);
+                    let bloom = table[base + 16];
+                    let loc = table[base + 17];
                     assert_eq!(offset, entry.byte_offset);
                     assert_eq!(length, entry.byte_length);
+                    assert_eq!(bloom, entry.bloom_mask);
+                    assert_eq!(loc, entry.loc_mask);
                     break;
                 }
                 slot = (slot + 1) % table_size;

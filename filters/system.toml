@@ -1,0 +1,22 @@
+[[filters]]
+name = "wc"
+match = "^wc "
+strip_ansi = true
+replace = [
+  { find = "^\\s+", with = "" },
+]
+max_lines = 50
+
+[[filters]]
+name = "curl"
+match = "^curl "
+strip_ansi = true
+drop_lines = "^\\s*(% Total|\\s*\\d+\\s+\\d+.*--|  Dload|\\s*$)"
+max_lines = 80
+
+[[filters]]
+name = "wget"
+match = "^wget "
+strip_ansi = true
+keep_lines = "(saved|ERROR|failed|\\d{4}-)"
+max_lines = 20

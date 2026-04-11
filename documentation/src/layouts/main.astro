@@ -6,39 +6,18 @@ interface Props {
   description?: string
 }
 
-const { title = "instant-grep", description = "Trigram-indexed regex search CLI — faster than Instant Transmission" } = Astro.props
+const { title = "instant-grep", description = "Trigram-indexed search for AI agents" } = Astro.props
 ---
 
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>{title} — instant-grep</title>
-    <meta name="description" content={description} />
-    <meta property="og:title" content={title} />
-    <meta property="og:description" content={description} />
-    <!-- Anti-flash: apply theme before first paint -->
-    <script is:inline>
-      (function() {
-        var stored = localStorage.getItem('theme');
-        if (stored === 'light') {
-          document.documentElement.classList.remove('dark');
-        } else if (stored === 'dark') {
-          document.documentElement.classList.add('dark');
-        } else {
-          // Default: dark mode, unless system explicitly prefers light
-          var prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
-          if (prefersLight) {
-            document.documentElement.classList.remove('dark');
-          } else {
-            document.documentElement.classList.add('dark');
-          }
-        }
-      })();
-    </script>
-  </head>
-  <body class="min-h-screen bg-background text-foreground antialiased">
-    <slot />
-  </body>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title}</title>
+  <meta name="description" content={description} />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+</head>
+<body class="min-h-screen bg-background text-foreground antialiased font-sans">
+  <slot />
+</body>
 </html>

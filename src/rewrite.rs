@@ -158,6 +158,26 @@ fn try_rewrite(cmd: &str) -> Option<String> {
         "find" => rewrite_find(&parts),
         "ls" => rewrite_ls(&parts),
         "git" => rewrite_git(&parts),
+        // New: commands routed through `ig run` filter engine
+        "cargo" => rewrite_via_run(&parts),
+        "docker" => rewrite_docker(&parts),
+        "kubectl" => rewrite_via_run(&parts),
+        "pytest" | "ruff" | "mypy" => rewrite_via_run(&parts),
+        "eslint" | "biome" | "prettier" | "tsc" => rewrite_via_run(&parts),
+        "vitest" => rewrite_via_run(&parts),
+        "go" => rewrite_via_run(&parts),
+        "golangci-lint" => rewrite_via_run(&parts),
+        "dotnet" => rewrite_via_run(&parts),
+        "rspec" | "rubocop" | "rake" => rewrite_via_run(&parts),
+        "gh" => rewrite_via_run(&parts),
+        "aws" => rewrite_via_run(&parts),
+        "psql" => rewrite_via_run(&parts),
+        "pnpm" => rewrite_via_run(&parts),
+        "npm" => rewrite_npm(&parts),
+        "npx" => rewrite_npx(&parts),
+        "wc" => rewrite_via_run(&parts),
+        "curl" => rewrite_via_run(&parts),
+        "wget" => rewrite_via_run(&parts),
         _ => None,
     }
 }
@@ -393,6 +413,50 @@ fn rewrite_git(parts: &[String]) -> Option<String> {
         }
         _ => None, // Don't rewrite destructive/write commands
     }
+}
+
+/// Generic rewrite: command → ig run command (for TOML-filtered commands)
+fn rewrite_via_run(parts: &[String]) -> Option<String> {
+    let cmd = parts.join(" ");
+    Some(format!("ig run {}", cmd))
+}
+
+/// docker subcmd → ig docker subcmd (only for non-interactive commands)
+fn rewrite_docker(parts: &[String]) -> Option<String> {
+    if parts.len() < 2 {
+        return None;
+    }
+    // Don't rewrite interactive docker commands
+    match parts[1].as_str() {
+        "ps" | "images" | "logs" | "build" | "compose" | "inspect" | "stats" | "top" => {
+            let args = parts[1..].join(" ");
+            Some(format!("ig docker {}", args))
+        }
+        _ => None, // exec, run, etc. are interactive — passthrough
+    }
+}
+
+/// npm run/exec → ig run npm run/exec (skip npm install/ci)
+fn rewrite_npm(parts: &[String]) -> Option<String> {
+    if parts.len() < 2 {
+        return None;
+    }
+    match parts[1].as_str() {
+        "run" | "exec" | "test" => {
+            let cmd = parts.join(" ");
+            Some(format!("ig run {}", cmd))
+        }
+        _ => None, // Don't rewrite npm install, npm ci, etc.
+    }
+}
+
+/// npx tool → ig run npx tool (route through filter engine)
+fn rewrite_npx(parts: &[String]) -> Option<String> {
+    if parts.len() < 2 {
+        return None;
+    }
+    let cmd = parts.join(" ");
+    Some(format!("ig run {}", cmd))
 }
 
 /// Quote-aware shell tokenizer (Fix R1).
@@ -701,9 +765,10 @@ mod tests {
             classify_command("git checkout main"),
             RewriteResult::Passthrough
         ));
+        // cargo test is now rewritten to ig run cargo test
         assert!(matches!(
             classify_command("cargo test"),
-            RewriteResult::Passthrough
+            RewriteResult::Rewrite(_)
         ));
     }
 
@@ -742,6 +807,77 @@ mod tests {
         assert!(matches!(
             classify_command("rm -rf ~/"),
             RewriteResult::Deny(_)
+        ));
+    }
+
+    // --- New rewrite rules for TOML-filtered commands ---
+
+    #[test]
+    fn test_rewrite_cargo() {
+        assert!(matches!(
+            classify_command("cargo test"),
+            RewriteResult::Rewrite(s) if s == "ig run cargo test"
+        ));
+        assert!(matches!(
+            classify_command("cargo build --release"),
+            RewriteResult::Rewrite(s) if s == "ig run cargo build --release"
+        ));
+        assert!(matches!(
+            classify_command("cargo clippy"),
+            RewriteResult::Rewrite(s) if s == "ig run cargo clippy"
+        ));
+    }
+
+    #[test]
+    fn test_rewrite_docker() {
+        assert!(matches!(
+            classify_command("docker ps"),
+            RewriteResult::Rewrite(s) if s == "ig docker ps"
+        ));
+        assert!(matches!(
+            classify_command("docker logs -f app"),
+            RewriteResult::Rewrite(s) if s == "ig docker logs -f app"
+        ));
+    }
+
+    #[test]
+    fn test_rewrite_pytest() {
+        assert!(matches!(
+            classify_command("pytest -v tests/"),
+            RewriteResult::Rewrite(s) if s == "ig run pytest -v tests/"
+        ));
+    }
+
+    #[test]
+    fn test_rewrite_npm_selective() {
+        assert!(matches!(
+            classify_command("npm run build"),
+            RewriteResult::Rewrite(s) if s == "ig run npm run build"
+        ));
+        assert!(matches!(
+            classify_command("npm test"),
+            RewriteResult::Rewrite(s) if s == "ig run npm test"
+        ));
+        // npm install should NOT be rewritten
+        assert!(matches!(
+            classify_command("npm install"),
+            RewriteResult::Passthrough
+        ));
+    }
+
+    #[test]
+    fn test_rewrite_kubectl() {
+        assert!(matches!(
+            classify_command("kubectl get pods"),
+            RewriteResult::Rewrite(s) if s == "ig run kubectl get pods"
+        ));
+    }
+
+    #[test]
+    fn test_rewrite_gh() {
+        assert!(matches!(
+            classify_command("gh pr list"),
+            RewriteResult::Rewrite(s) if s == "ig run gh pr list"
         ));
     }
 }

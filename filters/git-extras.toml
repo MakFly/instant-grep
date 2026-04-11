@@ -1,0 +1,20 @@
+[[filters]]
+name = "git-fetch"
+match = "^git fetch"
+strip_ansi = true
+drop_lines = "^(remote: (Counting|Compressing|Total|Enumerating))"
+truncate_at = 120
+max_lines = 30
+
+[[filters]]
+name = "git-stash-list"
+match = "^git stash list"
+strip_ansi = true
+max_lines = 20
+
+[[filters]]
+name = "git-worktree-list"
+match = "^git worktree list"
+strip_ansi = true
+truncate_at = 100
+max_lines = 20

@@ -1,0 +1,37 @@
+[[filters]]
+name = "go-test"
+match = "^go test"
+strip_ansi = true
+keep_lines = "(^(PASS|FAIL|ok|---)|^\\s*(PASS|FAIL):)"
+max_lines = 80
+on_empty = "All tests passed"
+
+[[filters]]
+name = "go-build"
+match = "^go (build|run)"
+strip_ansi = true
+drop_lines = "^#\\s"
+truncate_at = 200
+on_empty = "Build succeeded"
+
+[[filters]]
+name = "go-vet"
+match = "^go vet"
+strip_ansi = true
+truncate_at = 200
+max_lines = 60
+
+[[filters]]
+name = "go-mod"
+match = "^go mod"
+strip_ansi = true
+drop_lines = "^go: (downloading|finding)"
+max_lines = 40
+
+[[filters]]
+name = "golangci-lint"
+match = "^golangci-lint"
+strip_ansi = true
+keep_lines = "\\S+\\.go:\\d+:\\d+:"
+truncate_at = 200
+max_lines = 80

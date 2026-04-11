@@ -1,0 +1,34 @@
+[[filters]]
+name = "gh-pr-list"
+match = "^gh pr list"
+strip_ansi = true
+truncate_at = 120
+max_lines = 20
+
+[[filters]]
+name = "gh-issue-list"
+match = "^gh issue list"
+strip_ansi = true
+truncate_at = 120
+max_lines = 20
+
+[[filters]]
+name = "gh-run-list"
+match = "^gh run list"
+strip_ansi = true
+truncate_at = 120
+max_lines = 15
+
+[[filters]]
+name = "gh-pr-view"
+match = "^gh pr view"
+strip_ansi = true
+truncate_at = 200
+max_lines = 40
+
+[[filters]]
+name = "gh-release"
+match = "^gh release"
+strip_ansi = true
+truncate_at = 120
+max_lines = 20

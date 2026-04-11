@@ -1,0 +1,31 @@
+[[filters]]
+name = "pytest"
+match = "^(pytest|python -m pytest)"
+strip_ansi = true
+keep_lines = "(PASSED|FAILED|ERROR|warnings summary|short test summary|=====)"
+max_lines = 80
+on_empty = "All tests passed"
+
+[[filters]]
+name = "ruff"
+match = "^ruff"
+strip_ansi = true
+keep_lines = "\\S+\\.py:\\d+:"
+truncate_at = 200
+max_lines = 60
+
+[[filters]]
+name = "mypy"
+match = "^(mypy|python -m mypy)"
+strip_ansi = true
+keep_lines = "(error:|note:|Found \\d+)"
+truncate_at = 200
+max_lines = 60
+on_empty = "No type errors"
+
+[[filters]]
+name = "pip-install"
+match = "^pip install"
+strip_ansi = true
+keep_lines = "(Successfully installed|already satisfied|ERROR|error)"
+max_lines = 30

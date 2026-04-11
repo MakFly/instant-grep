@@ -70,6 +70,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub json: bool,
 
+    /// Compact output: summary header + truncated matches (token-optimized for AI agents)
+    #[arg(long, global = true)]
+    pub compact: bool,
+
     /// Disable default directory exclusions
     #[arg(long, global = true)]
     pub no_default_excludes: bool,
@@ -122,6 +126,10 @@ pub enum Commands {
     Files {
         /// Directory to list (default: current dir)
         path: Option<String>,
+
+        /// Tree-compressed output (group files by directory)
+        #[arg(long)]
+        compact: bool,
     },
 
     /// Extract symbol definitions (functions, classes, structs...)
@@ -146,6 +154,22 @@ pub enum Commands {
         /// Show only imports and symbol signatures
         #[arg(short = 's', long)]
         signatures: bool,
+
+        /// Aggressive compression (strip comments, function bodies, string literals)
+        #[arg(short = 'a', long)]
+        aggressive: bool,
+
+        /// Max output tokens (1 token ≈ 4 chars). Implies -a. Uses entropy scoring to keep the most informative lines.
+        #[arg(short = 'b', long)]
+        budget: Option<usize>,
+
+        /// Boost relevance of lines matching this pattern (use with -b for best results)
+        #[arg(short = 'r', long)]
+        relevant: Option<String>,
+
+        /// Show only git-changed lines with enclosing context
+        #[arg(short = 'd', long)]
+        delta: bool,
     },
 
     /// Show 2-line smart summary for each file
@@ -193,6 +217,42 @@ pub enum Commands {
         /// Output as JSON (for scripting)
         #[arg(long)]
         json: bool,
+
+        /// Filter to current project only
+        #[arg(short = 'p', long)]
+        project: bool,
+
+        /// Show ASCII graph of daily savings (last 14 days)
+        #[arg(long)]
+        graph: bool,
+
+        /// Show monthly quota savings estimate
+        #[arg(short = 'q', long)]
+        quota: bool,
+
+        /// Subscription tier for quota calc: pro, 5x, 20x
+        #[arg(long, default_value = "20x")]
+        tier: String,
+
+        /// Show daily breakdown
+        #[arg(short = 'd', long)]
+        daily: bool,
+
+        /// Show weekly breakdown
+        #[arg(long)]
+        weekly: bool,
+
+        /// Show monthly breakdown
+        #[arg(short = 'm', long)]
+        monthly: bool,
+
+        /// Discover missed savings from Claude Code sessions
+        #[arg(long)]
+        discover: bool,
+
+        /// Days to scan for --discover (default: 30)
+        #[arg(long, default_value = "30")]
+        since: u32,
     },
 
     /// Execute a command without ig filtering (debug/passthrough mode)
@@ -203,7 +263,8 @@ pub enum Commands {
         command: Vec<String>,
     },
 
-    /// Discover missed token-saving opportunities in Claude Code sessions
+    /// Discover missed token-saving opportunities (use `ig gain --discover` instead)
+    #[command(hide = true)]
     Discover {
         /// Only scan sessions from the last N days (default: 30)
         #[arg(long, default_value = "30")]
@@ -249,5 +310,104 @@ pub enum Commands {
 
         /// Directory the daemon is serving (default: current dir)
         path: Option<String>,
+    },
+
+    /// Run a command with token-optimized output filtering
+    Run {
+        /// Command and arguments to run
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Run a command and show only errors/warnings
+    Err {
+        /// Command and arguments to run
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Auto-detect test framework and run tests with compact output
+    Test {
+        /// Extra arguments passed to the test runner
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Show JSON file (compact or schema-only)
+    Json {
+        /// JSON file to read
+        file: String,
+
+        /// Show schema instead of values (types + array counts)
+        #[arg(long)]
+        schema: bool,
+    },
+
+    /// Summarize project dependencies (Cargo.toml, package.json, go.mod...)
+    Deps,
+
+    /// Docker commands with compact output
+    Docker {
+        /// Docker subcommand and arguments
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Show environment variables (sensitive values masked)
+    Env {
+        /// Filter by variable name pattern
+        pattern: Option<String>,
+    },
+
+    /// Ultra-condensed diff between two files
+    Diff {
+        /// First file
+        file1: String,
+        /// Second file
+        file2: String,
+    },
+
+    /// Trust a project-local filter file
+    Trust {
+        /// Path to .ig/filters/*.toml file to trust
+        file: Option<String>,
+
+        /// List all trusted filter files
+        #[arg(long)]
+        list: bool,
+    },
+
+    /// Revoke trust for a project-local filter file
+    Untrust {
+        /// Path to filter file to untrust
+        file: String,
+    },
+
+    /// Verify TOML filter inline tests
+    Verify,
+
+    /// Detect CLI correction patterns from Claude Code sessions
+    Learn {
+        /// Only scan sessions from the last N days (default: 30)
+        #[arg(long, default_value = "30")]
+        since: u32,
+
+        /// Maximum entries to show (default: 15)
+        #[arg(long, default_value = "15")]
+        limit: usize,
+    },
+
+    /// Show ig adoption across Claude Code sessions
+    Session {
+        /// Only scan sessions from the last N days (default: 30)
+        #[arg(long, default_value = "30")]
+        since: u32,
+    },
+
+    /// Show token savings translated to API cost savings
+    Economics {
+        /// Only analyze the last N days (default: 30)
+        #[arg(long, default_value = "30")]
+        since: u32,
     },
 }

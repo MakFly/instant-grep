@@ -72,6 +72,88 @@ pub fn decode_posting_list(data: &[u8], offset: usize, byte_len: usize) -> Vec<D
     result
 }
 
+// ---------------------------------------------------------------------------
+// Lazy PostingIterator — streaming decode without allocation
+// ---------------------------------------------------------------------------
+
+/// Lazy iterator over a delta+VByte encoded posting list.
+/// Reads directly from a byte slice (typically mmap'd) without heap allocation.
+pub struct PostingIterator<'a> {
+    data: &'a [u8],
+    pos: usize,
+    end: usize,
+    remaining: u32,
+    count: u32,
+    prev: DocId,
+    val: Option<DocId>,
+}
+
+impl<'a> PostingIterator<'a> {
+    /// Create a new iterator over a VByte-encoded posting list at `data[offset..offset+byte_len]`.
+    pub fn new(data: &'a [u8], offset: usize, byte_len: usize) -> Self {
+        let end = offset + byte_len;
+        let mut pos = offset;
+        let count = if byte_len > 0 && pos < end {
+            decode_u32(data, &mut pos)
+        } else {
+            0
+        };
+        let mut iter = Self {
+            data,
+            pos,
+            end,
+            remaining: count,
+            count,
+            prev: 0,
+            val: None,
+        };
+        iter.read_next(); // pre-load first value
+        iter
+    }
+
+    #[inline]
+    fn read_next(&mut self) {
+        if self.remaining == 0 || self.pos >= self.end {
+            self.val = None;
+            return;
+        }
+        self.remaining -= 1;
+        let delta = decode_u32(self.data, &mut self.pos);
+        self.prev += delta;
+        self.val = Some(self.prev);
+    }
+
+    /// Peek at the current value without advancing.
+    #[inline]
+    pub fn current(&self) -> Option<DocId> {
+        self.val
+    }
+
+    /// Advance to the next value.
+    #[inline]
+    pub fn advance(&mut self) {
+        self.read_next();
+    }
+
+    /// Advance until `current() >= target`. Returns the new current value.
+    #[inline]
+    pub fn advance_to(&mut self, target: DocId) -> Option<DocId> {
+        while let Some(v) = self.val {
+            if v >= target {
+                return Some(v);
+            }
+            self.read_next();
+        }
+        None
+    }
+
+    /// Total number of entries in this posting list (for sorting by size).
+    #[inline]
+    pub fn doc_count(&self) -> u32 {
+        self.count
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,5 +262,66 @@ mod tests {
         let decoded2 = decode_posting_list(&combined, offset2, enc2.len());
         assert_eq!(decoded1, ids1);
         assert_eq!(decoded2, ids2);
+    }
+
+    // -- PostingIterator tests --
+
+    #[test]
+    fn test_posting_iter_basic() {
+        let ids: Vec<DocId> = vec![3, 7, 15, 42, 100];
+        let encoded = encode_posting_list(&ids);
+        let mut iter = PostingIterator::new(&encoded, 0, encoded.len());
+        assert_eq!(iter.doc_count(), 5);
+        let mut result = Vec::new();
+        while let Some(v) = iter.current() {
+            result.push(v);
+            iter.advance();
+        }
+        assert_eq!(result, ids);
+    }
+
+    #[test]
+    fn test_posting_iter_advance_to() {
+        let ids: Vec<DocId> = vec![3, 7, 15, 42, 100, 200, 500];
+        let encoded = encode_posting_list(&ids);
+        let mut iter = PostingIterator::new(&encoded, 0, encoded.len());
+
+        assert_eq!(iter.advance_to(10), Some(15));
+        assert_eq!(iter.current(), Some(15));
+        assert_eq!(iter.advance_to(42), Some(42));
+        assert_eq!(iter.advance_to(150), Some(200));
+        assert_eq!(iter.advance_to(1000), None);
+    }
+
+    #[test]
+    fn test_posting_iter_advance_to_exact() {
+        let ids: Vec<DocId> = vec![5, 10, 15, 20];
+        let encoded = encode_posting_list(&ids);
+        let mut iter = PostingIterator::new(&encoded, 0, encoded.len());
+
+        assert_eq!(iter.advance_to(5), Some(5)); // exact match at start
+        assert_eq!(iter.advance_to(5), Some(5)); // already there
+        iter.advance();
+        assert_eq!(iter.advance_to(10), Some(10));
+    }
+
+    #[test]
+    fn test_posting_iter_empty() {
+        let ids: Vec<DocId> = vec![];
+        let encoded = encode_posting_list(&ids);
+        let iter = PostingIterator::new(&encoded, 0, encoded.len());
+        assert_eq!(iter.doc_count(), 0);
+        assert_eq!(iter.current(), None);
+    }
+
+    #[test]
+    fn test_posting_iter_single() {
+        let ids: Vec<DocId> = vec![42];
+        let encoded = encode_posting_list(&ids);
+        let mut iter = PostingIterator::new(&encoded, 0, encoded.len());
+        assert_eq!(iter.doc_count(), 1);
+        assert_eq!(iter.current(), Some(42));
+        iter.advance();
+        assert_eq!(iter.current(), None);
     }
 }

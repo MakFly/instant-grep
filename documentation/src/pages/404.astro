@@ -1,111 +1,30 @@
 ---
 import MainLayout from "@/layouts/main.astro"
 import Topbar from "@/components/layout/topbar.astro"
-import Footer from "@/components/layout/footer.astro"
 ---
 
-<MainLayout title="404 — Tsukuyomi Dimension">
+<MainLayout title="404 — Page not found">
   <Topbar />
 
-  <div class="min-h-[80vh] flex flex-col items-center justify-center px-6 text-center relative overflow-hidden">
-    <!-- Sharingan background effect -->
-    <div class="absolute inset-0 flex items-center justify-center opacity-5">
-      <div class="w-[600px] h-[600px] rounded-full border-4 sharingan-border animate-[spin_20s_linear_infinite]"></div>
-      <div class="absolute w-[400px] h-[400px] rounded-full border-2 sharingan-border animate-[spin_15s_linear_reverse_infinite]"></div>
-      <div class="absolute w-[200px] h-[200px] rounded-full border sharingan-border"></div>
-    </div>
-
-    <!-- Red glow -->
-    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] rounded-full sharingan-glow"></div>
-
-    <div class="relative z-10 max-w-2xl">
-      <!-- 404 number -->
-      <div class="font-mono font-black text-[120px] sm:text-[180px] leading-none mb-6 error-404">
-        404
-      </div>
-
-      <!-- Sharingan eye symbol -->
-      <div class="text-6xl mb-6 sharingan-emoji">
-        🔴
-      </div>
-
-      <h1 class="text-2xl sm:text-3xl font-mono font-bold text-foreground mb-4">
-        You've been caught in Tsukuyomi...
-      </h1>
-
-      <p class="text-muted-foreground text-lg mb-3 leading-relaxed">
-        This page doesn't exist in this dimension.
+  <div class="min-h-[80vh] flex flex-col items-center justify-center px-6 text-center">
+    <div class="max-w-md">
+      <div class="font-mono text-7xl font-semibold text-muted-foreground/30 mb-6">404</div>
+      <h1 class="text-xl font-semibold mb-3">Page not found</h1>
+      <p class="text-sm text-muted-foreground mb-8">
+        The page you're looking for doesn't exist or has been moved.
       </p>
-
-      <p class="text-sm text-muted-foreground/60 font-mono mb-10">
-        The Uchiha have trapped you in an infinite illusion.<br />
-        Break free with the path below.
-      </p>
-
-      <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
-        <a
-          href="/"
-          class="cta-primary inline-flex items-center gap-2 px-8 py-3.5 rounded-xl font-mono font-bold text-black transition-all hover:scale-105"
-        >
-          ← Escape to reality
+      <div class="flex items-center justify-center gap-3">
+        <a href="/" class="inline-flex items-center h-9 px-4 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
+          Back to home
         </a>
-        <a
-          href="/docs/getting-started"
-          class="cta-secondary inline-flex items-center gap-2 px-8 py-3.5 rounded-xl font-mono font-bold transition-all"
-        >
+        <a href="/docs/getting-started" class="inline-flex items-center h-9 px-4 rounded-md border text-sm font-medium hover:bg-accent transition-colors">
           Read the docs
         </a>
       </div>
-
-      <p class="mt-12 text-xs text-muted-foreground/30 font-mono">
-        Error: FILE_NOT_FOUND · dimension: genjutsu-realm · exit: genjutsu-kai
-      </p>
     </div>
   </div>
 
-  <Footer />
+  <footer class="border-t py-6 text-center text-xs text-muted-foreground">
+    Built by <a href="https://github.com/MakFly" class="underline hover:text-foreground">MakFly</a> · MIT License
+  </footer>
 </MainLayout>
-
-<style>
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-  @keyframes reverse {
-    from { transform: rotate(360deg); }
-    to { transform: rotate(0deg); }
-  }
-
-  .sharingan-border { border-color: oklch(0.55 0.2 25); }
-  .sharingan-glow { background: radial-gradient(circle, oklch(0.55 0.2 25 / 0.08) 0%, transparent 70%); }
-  .error-404 { color: oklch(0.55 0.2 25); text-shadow: 0 0 60px oklch(0.55 0.2 25 / 0.5), 0 0 120px oklch(0.55 0.2 25 / 0.2); }
-  .sharingan-emoji { filter: drop-shadow(0 0 20px oklch(0.55 0.2 25 / 0.6)); }
-
-  .cta-primary {
-    background: linear-gradient(135deg, var(--primary), color-mix(in oklch, var(--primary) 80%, oklch(0.7 0.15 60)));
-    box-shadow: 0 0 30px color-mix(in oklch, var(--primary) 40%, transparent);
-  }
-  .cta-secondary {
-    color: var(--accent);
-    border: 1px solid color-mix(in oklch, var(--accent) 30%, transparent);
-  }
-  .cta-secondary:hover {
-    background: color-mix(in oklch, var(--accent) 5%, transparent);
-  }
-
-  :global(.dark) .sharingan-border { border-color: #FF0000; }
-  :global(.dark) .sharingan-glow { background: radial-gradient(circle, rgba(255,0,0,0.08) 0%, transparent 70%); }
-  :global(.dark) .error-404 { color: #FF0000; text-shadow: 0 0 60px rgba(255,0,0,0.5), 0 0 120px rgba(255,0,0,0.2); }
-  :global(.dark) .sharingan-emoji { filter: drop-shadow(0 0 20px rgba(255,0,0,0.6)); }
-  :global(.dark) .cta-primary {
-    background: linear-gradient(135deg, #FF6B00, #FF9500);
-    box-shadow: 0 0 30px rgba(255,107,0,0.4);
-  }
-  :global(.dark) .cta-secondary {
-    color: #00B4FF;
-    border-color: rgba(0,180,255,0.3);
-  }
-  :global(.dark) .cta-secondary:hover {
-    background: rgba(0,180,255,0.05);
-  }
-</style>

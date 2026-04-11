@@ -1,3 +1,4 @@
+pub mod filedata;
 pub mod merge;
 pub mod metadata;
 pub mod ngram;

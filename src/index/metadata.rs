@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-pub const INDEX_VERSION: u32 = 8;
+pub const INDEX_VERSION: u32 = 10;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexMetadata {
@@ -17,6 +17,12 @@ pub struct IndexMetadata {
     pub files: Vec<IndexedFile>,
     #[serde(default)]
     pub git_commit: Option<String>,
+    #[serde(default)]
+    pub bigram_df_path: Option<String>,
+    /// Whether this index was built using IDF-weighted ngram boundaries.
+    /// Query must use the same weighting to produce matching ngrams.
+    #[serde(default)]
+    pub built_with_idf: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -35,7 +35,8 @@ Index: yes
 
 | What | Result |
 |------|--------|
-| **Token savings** | **76% average** across 800+ commands |
+| **Token savings** | **93.5% average** across 100 benchmarked commands |
+| **ig files --compact** | 269K → 896B (**-99.7%**) |
 | **git status** | 422 bytes → 25 bytes (**-94%**) |
 | **git log** | 2,499 bytes → 484 bytes (**-81%**) |
 | **Search speed** | **23ms** on 1,609 files, **0.2ms** via daemon |
@@ -43,6 +44,7 @@ Index: yes
 | **Symbols extracted** | **4,834** from a Laravel project, **7,702** from a monorepo |
 | **Context reduction** | 12,841 bytes → 3,828 bytes per turn (**-70%**) |
 | **Agent setup** | 4 agents configured in **one command** |
+| **Rust tests** | **285 tests** |
 | **Integration tests** | **63/65 pass** (2 voluntary skips, 0 failures) |
 
 > Every number on this page is measured with `wc -c` on real commands, on real projects (1,609-file Laravel app, 3,084-file monorepo). See the [interactive benchmark dashboard](benchmarks/index.html) for charts.
@@ -80,7 +82,7 @@ brew install MakFly/tap/ig
 
 ### Download binary
 
-Grab the latest from [Releases](https://github.com/MakFly/instant-grep/releases/tag/v1.4.0):
+Grab the latest from [Releases](https://github.com/MakFly/instant-grep/releases/tag/v1.6.23):
 
 | Platform                | Binary             |
 | ----------------------- | ------------------ |
@@ -174,12 +176,17 @@ ig "Result<T>" . --stats          # show performance stats
 ```bash
 ig read src/main.rs               # numbered lines
 ig read src/main.rs -s            # signatures only (imports + function names, -87%)
+ig read src/main.rs -a            # aggressive mode (strip comments, elide bodies)
+ig read src/main.rs -b 500        # budget mode (500 tokens max, entropy-scored)
+ig read src/main.rs -r "payment"  # relevance boost (keep payment-related code)
+ig read src/main.rs -d            # delta mode (git-changed lines only)
 ig smart .                        # 2-line summary per file
 ig symbols .                      # all function/class definitions
 ig context src/main.rs 42         # enclosing code block at line 42
 ig ls                             # compact directory listing (-65%)
 ig pack                           # generate .ig/context.md (full project map)
 ig files .                        # list all files (respects .gitignore)
+ig files --compact                # tree-compressed listing (÷300 vs raw)
 ```
 
 ### Git proxy
@@ -248,7 +255,7 @@ ig setup --dry-run                # preview without writing
 - **LLMs already know CLIs** — trained on millions of man pages
 - **Composable** — pipe to `jq`, `head`, `wc`
 
-Since v1.4.0, ig is a **complete standalone solution** for AI agent token optimization. No additional tools needed.
+Since v1.6.23, ig is a **complete standalone solution** for AI agent token optimization. No additional tools needed.
 
 ## Benchmarks
 
@@ -260,6 +267,19 @@ Since v1.4.0, ig is a **complete standalone solution** for AI agent token optimi
 | **Monorepo** | 3,084 | 483ms | 50ms | **-51%** | 7,702 |
 | **Rust CLI** | 87 | 95ms | 9ms | **-84%** | 541 |
 | **TypeScript CLI** | 35 | 30ms | 6ms | **-83%** | 150 |
+
+### ig v1.6.23 Benchmark (100 commands)
+
+| Category | Raw | ig | Savings |
+|----------|-----|-----|---------|
+| Search --compact (19 patterns) | 2.3 MB | 108K | **-95%** |
+| Files --compact (14 listings) | 597K | 2.2K | **-99.6%** |
+| Read -s (10 files) | 259K | 28K | **-89%** |
+| Read -a (10 files) | 259K | 39K | **-85%** |
+| Read -b500 (10 files) | 259K | 32K | **-88%** |
+| Git (13 commands) | 60K | 32K | **-47%** |
+| ls (5 listings) | 4.3K | 758B | **-83%** |
+| **Total (100 commands)** | **3.7 MB** | **241K** | **-93.5%** |
 
 ### ig v1.4.0 vs ripgrep
 
@@ -377,6 +397,8 @@ ig
 ├── tracking.rs     — JSONL history
 ├── discover.rs     — Session scanner for missed savings
 ├── setup.rs        — Universal AI agent configuration
+├── scoring.rs      — Layered Semantic Compression (entropy × weight × relevance)
+├── delta.rs        — Git-aware delta reads (changed lines + enclosing context)
 ├── read.rs         — Smart file reading (full + signatures)
 ├── smart.rs        — 2-line file summaries
 ├── symbols.rs      — Symbol definition extraction

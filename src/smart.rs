@@ -2,6 +2,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
+use crate::index::filedata::FileData;
 use crate::symbols::{self, Lang};
 use crate::util::{is_binary, is_preamble_line};
 use crate::walk;
@@ -92,6 +93,15 @@ pub fn smart_summarize_file(file: &Path, root: &Path) -> Result<SmartSummary> {
         role,
         public_api,
     })
+}
+
+/// Smart summary using pre-computed FileData.
+pub fn smart_summary_cached(rel_path: &str, filedata: &FileData) -> SmartSummary {
+    SmartSummary {
+        file: rel_path.to_string(),
+        role: filedata.role.clone(),
+        public_api: filedata.public_api.clone(),
+    }
 }
 
 /// L1: Extract the role/description of the file.

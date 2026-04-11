@@ -6,35 +6,30 @@ import DocsLayout from "@/layouts/docs.astro"
   <div class="max-w-none">
     <!-- Page header -->
     <div class="mb-10">
-      <div class="flex items-center gap-2 text-xs font-mono uppercase tracking-widest mb-3 theme-blue">
-        <span>🤖</span>
-        <span>AI Shinobi Techniques</span>
-      </div>
-      <h1 class="text-4xl font-mono font-black mb-4 gradient-text-blue">
+      <h1 class="text-3xl font-semibold text-foreground mb-4">
         Agent Integration
       </h1>
       <p class="text-muted-foreground text-lg leading-relaxed">
-        How to give your AI agent the speed of a jonin. Sub-millisecond codebase search,
+        Sub-millisecond codebase search for AI agents,
         structured JSON output, 35x fewer tokens than reading files.
       </p>
     </div>
 
     <!-- Why CLI over MCP -->
     <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
-        <span class="theme-orange">⚡</span>
+      <h2 class="text-2xl font-semibold text-foreground mb-4">
         Why CLI beats MCP
       </h2>
 
-      <div class="p-5 rounded-xl border border-border bg-secondary/30 mb-6">
+      <div class="p-5 rounded-lg border border mb-6">
         <div class="text-center">
-          <div class="font-mono text-5xl font-black gradient-text mb-2">35x</div>
+          <div class="font-mono text-5xl font-semibold text-foreground mb-2">35x</div>
           <div class="text-sm text-muted-foreground">fewer tokens than reading file contents via MCP</div>
         </div>
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
-        <div class="p-5 rounded-xl energy-card bg-card/50">
+        <div class="p-5 rounded-lg border border">
           <div class="text-xs font-mono font-bold mb-3 flex items-center gap-2 theme-red">
             <span>✗</span> MCP file read approach
           </div>
@@ -46,7 +41,7 @@ import DocsLayout from "@/layouts/docs.astro"
             <li class="flex items-start gap-2"><span class="mt-1 theme-red">•</span>Context window fills quickly</li>
           </ul>
         </div>
-        <div class="p-5 rounded-xl energy-card bg-card/50">
+        <div class="p-5 rounded-lg border border">
           <div class="text-xs font-mono font-bold mb-3 flex items-center gap-2 theme-green">
             <span>✓</span> ig CLI approach
           </div>
@@ -63,8 +58,7 @@ import DocsLayout from "@/layouts/docs.astro"
 
     <!-- Claude Code integration -->
     <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
-        <span>🤖</span>
+      <h2 class="text-2xl font-semibold text-foreground mb-4">
         Claude Code Integration
       </h2>
 
@@ -73,7 +67,7 @@ import DocsLayout from "@/layouts/docs.astro"
         It falls back to ripgrep otherwise. The JSON output lets Claude parse results without regex.
       </p>
 
-      <div class="code-block rounded-xl overflow-hidden mb-4">
+      <div class="code-block rounded-lg overflow-hidden mb-4">
         <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">Claude Code uses ig like this</div>
         <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Claude exploring a new codebase</span>
 <span class="theme-blue">ig</span> files --json -t rust .                   <span class="theme-comment"># list all Rust files</span>
@@ -108,8 +102,7 @@ import DocsLayout from "@/layouts/docs.astro"
 
     <!-- ig setup -->
     <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
-        <span class="theme-green">✦</span>
+      <h2 class="text-2xl font-semibold text-foreground mb-4">
         ig setup — Zero-Config Agent Setup
       </h2>
 
@@ -118,7 +111,7 @@ import DocsLayout from "@/layouts/docs.astro"
         It writes the right permissions and tool hints into each agent's config file so you never have to do it manually.
       </p>
 
-      <div class="code-block rounded-xl overflow-hidden mb-4">
+      <div class="code-block rounded-lg overflow-hidden mb-4">
         <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">ig setup output</div>
         <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`$ <span class="theme-blue">ig</span> setup
 
@@ -141,8 +134,7 @@ import DocsLayout from "@/layouts/docs.astro"
 
     <!-- Agent-Optimized Commands -->
     <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
-        <span class="theme-orange">⚡</span>
+      <h2 class="text-2xl font-semibold text-foreground mb-4">
         Agent-Optimized Commands
       </h2>
 
@@ -152,7 +144,7 @@ import DocsLayout from "@/layouts/docs.astro"
       </p>
 
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <div class="p-5 rounded-xl energy-card bg-card/50 flex flex-col gap-3">
+        <div class="p-5 rounded-lg border border flex flex-col gap-3">
           <div class="text-xs font-mono font-bold theme-orange">ig files --json</div>
           <div class="text-xs text-muted-foreground leading-relaxed">
             List all project files. Replaces <code class="font-mono">find</code>, <code class="font-mono">ls -R</code>, and <code class="font-mono">tree</code>.
@@ -164,7 +156,7 @@ import DocsLayout from "@/layouts/docs.astro"
           </div>
         </div>
 
-        <div class="p-5 rounded-xl energy-card bg-card/50 flex flex-col gap-3">
+        <div class="p-5 rounded-lg border border flex flex-col gap-3">
           <div class="text-xs font-mono font-bold theme-blue">ig symbols --json</div>
           <div class="text-xs text-muted-foreground leading-relaxed">
             Extract all symbol definitions — functions, structs, classes, enums.
@@ -176,7 +168,7 @@ import DocsLayout from "@/layouts/docs.astro"
           </div>
         </div>
 
-        <div class="p-5 rounded-xl energy-card bg-card/50 flex flex-col gap-3">
+        <div class="p-5 rounded-lg border border flex flex-col gap-3">
           <div class="text-xs font-mono font-bold theme-gold">ig context FILE LINE</div>
           <div class="text-xs text-muted-foreground leading-relaxed">
             Show the full code block surrounding a line — the complete function or struct body.
@@ -189,7 +181,7 @@ import DocsLayout from "@/layouts/docs.astro"
         </div>
       </div>
 
-      <div class="code-block rounded-xl overflow-hidden">
+      <div class="code-block rounded-lg overflow-hidden">
         <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">agent-optimized workflow example</div>
         <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Step 1 — get a map of the project</span>
 <span class="theme-blue">ig</span> files --json -t rust .
@@ -207,8 +199,7 @@ import DocsLayout from "@/layouts/docs.astro"
 
     <!-- Codex / other agents -->
     <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
-        <span>🧑‍💻</span>
+      <h2 class="text-2xl font-semibold text-foreground mb-4">
         Codex and Other Agent Integration
       </h2>
 
@@ -216,7 +207,7 @@ import DocsLayout from "@/layouts/docs.astro"
         Any agent with shell access can use ig. Build the index once, then query from any agent or script.
       </p>
 
-      <div class="code-block rounded-xl overflow-hidden mb-4">
+      <div class="code-block rounded-lg overflow-hidden mb-4">
         <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">agent setup script</div>
         <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-comment">#!/bin/bash</span>
 <span class="theme-orange"># Set up ig for agent use</span>
@@ -235,7 +226,7 @@ RESULT=$(<span class="theme-blue">ig</span> query --json <span class="theme-gold
 <span class="theme-blue">echo</span> <span class="theme-gold">"$RESULT"</span> | <span class="theme-blue">jq</span> <span class="theme-gold">'.matches[] | .file + ":" + (.line|tostring)'</span>`}></code></pre>
       </div>
 
-      <div class="code-block rounded-xl overflow-hidden">
+      <div class="code-block rounded-lg overflow-hidden">
         <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">Python agent integration</div>
         <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange-bright">import</span> subprocess, json
 
@@ -258,8 +249,7 @@ matches = search_codebase(<span class="theme-gold">"async fn"</span>, <span clas
 
     <!-- JSON output format detail -->
     <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
-        <span class="theme-gold">📦</span>
+      <h2 class="text-2xl font-semibold text-foreground mb-4">
         JSON Output Format
       </h2>
 
@@ -268,7 +258,7 @@ matches = search_codebase(<span class="theme-gold">"async fn"</span>, <span clas
         Always valid JSON — even with zero matches. Easy to pipe to <code class="font-mono theme-blue">jq</code>.
       </p>
 
-      <div class="code-block rounded-xl overflow-hidden mb-4">
+      <div class="code-block rounded-lg overflow-hidden mb-4">
         <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">full JSON schema</div>
         <pre class="p-4 font-mono text-xs leading-relaxed overflow-x-auto"><code set:html={`{
   <span class="theme-blue">"pattern"</span>: <span class="theme-gold">"&lt;regex string&gt;"</span>,
@@ -323,18 +313,17 @@ matches = search_codebase(<span class="theme-gold">"async fn"</span>, <span clas
 
     <!-- Daemon mode for agents -->
     <section class="mb-4">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
-        <span>🔄</span>
+      <h2 class="text-2xl font-semibold text-foreground mb-4">
         Daemon Mode for High-Frequency Agents
       </h2>
 
       <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
         Agents often search the same codebase dozens of times per session.
-        The Sage Mode daemon eliminates repeated index loading overhead.
+        The daemon eliminates repeated index loading overhead.
       </p>
 
       <div class="space-y-4">
-        <div class="code-block rounded-xl overflow-hidden">
+        <div class="code-block rounded-lg overflow-hidden">
           <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">recommended agent session setup</div>
           <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># 1. At session start: build + start daemon</span>
 <span class="theme-blue">ig</span> index . && <span class="theme-blue">ig</span> daemon . &
@@ -354,7 +343,7 @@ matches = search_codebase(<span class="theme-gold">"async fn"</span>, <span clas
             { label: "Warm queries", value: "0.9ms", sub: "ig search", cls: "theme-blue" },
             { label: "Daemon queries", value: "0.3ms", sub: "ig query", cls: "theme-orange" },
           ].map((item) => (
-            <div class="p-4 rounded-xl energy-card bg-card/50">
+            <div class="p-4 rounded-lg border border">
               <div class={`font-mono text-xl font-black mb-1 ${item.cls}`}>{item.value}</div>
               <div class="text-xs text-foreground/70 font-mono mb-0.5">{item.label}</div>
               <div class="text-xs text-muted-foreground/50">{item.sub}</div>
@@ -366,8 +355,7 @@ matches = search_codebase(<span class="theme-gold">"async fn"</span>, <span clas
 
     <!-- Token optimization -->
     <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
-        <span class="theme-green">📦</span>
+      <h2 class="text-2xl font-semibold text-foreground mb-4">
         Token Optimization
       </h2>
 
@@ -375,7 +363,7 @@ matches = search_codebase(<span class="theme-gold">"async fn"</span>, <span clas
         Beyond fast search, ig reduces token consumption through smart file reading, compact listings, and pre-generated project context.
       </p>
 
-      <div class="code-block rounded-xl overflow-hidden mb-6">
+      <div class="code-block rounded-lg overflow-hidden mb-6">
         <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">new commands (v1.2.0)</div>
         <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="theme-orange"># Compact directory listing (81% fewer tokens vs ls -la)</span>
 <span class="theme-blue">ig</span> ls src/
@@ -436,7 +424,7 @@ matches = search_codebase(<span class="theme-gold">"async fn"</span>, <span clas
         </table>
       </div>
 
-      <div class="p-5 rounded-xl border border-border bg-secondary/30">
+      <div class="p-5 rounded-lg border border-border bg-secondary/30">
         <div class="text-xs font-mono font-bold mb-3 theme-gold">Benchmark: project exploration (1,285-file Next.js app)</div>
         <div class="grid grid-cols-3 gap-4 text-center">
           {[
@@ -444,7 +432,7 @@ matches = search_codebase(<span class="theme-gold">"async fn"</span>, <span clas
             { label: "RTK", value: "19s", sub: "4 turns · $0.15", cls: "theme-muted" },
             { label: "Baseline", value: "45s", sub: "2 turns · $0.30", cls: "theme-red" },
           ].map((item) => (
-            <div class="p-4 rounded-xl energy-card bg-card/50">
+            <div class="p-4 rounded-lg border border">
               <div class={`font-mono text-xl font-black mb-1 ${item.cls}`}>{item.value}</div>
               <div class="text-xs text-foreground/70 font-mono mb-0.5">{item.label}</div>
               <div class="text-xs text-muted-foreground/50">{item.sub}</div>
@@ -456,8 +444,7 @@ matches = search_codebase(<span class="theme-gold">"async fn"</span>, <span clas
 
     <!-- v1.4 Universal Setup -->
     <section class="mb-12">
-      <h2 class="text-2xl font-mono font-bold text-foreground mb-4 flex items-center gap-2">
-        <span class="theme-orange">⚡</span>
+      <h2 class="text-2xl font-semibold text-foreground mb-4">
         v1.4 — Universal Setup
       </h2>
       <p class="text-sm text-muted-foreground mb-5 leading-relaxed">
@@ -466,12 +453,11 @@ matches = search_codebase(<span class="theme-gold">"async fn"</span>, <span clas
       </p>
 
       <!-- Supported agents -->
-      <h3 class="text-base font-mono font-bold text-foreground mb-3 flex items-center gap-2">
-        <span class="theme-blue">🤖</span>
+      <h3 class="text-base font-semibold text-foreground mb-3">
         Supported Agents
       </h3>
 
-      <div class="overflow-x-auto rounded-xl border border-border mb-8">
+      <div class="overflow-x-auto rounded-lg border border-border mb-8">
         <table class="w-full text-sm border-collapse">
           <thead>
             <tr class="border-b border-border bg-secondary/50">
@@ -509,8 +495,7 @@ matches = search_codebase(<span class="theme-gold">"async fn"</span>, <span clas
       </div>
 
       <!-- Hook scripts -->
-      <h3 class="text-base font-mono font-bold text-foreground mb-3 flex items-center gap-2">
-        <span class="theme-gold">🪝</span>
+      <h3 class="text-base font-semibold text-foreground mb-3">
         Hook Scripts Installed for Claude Code
       </h3>
       <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
@@ -518,7 +503,7 @@ matches = search_codebase(<span class="theme-gold">"async fn"</span>, <span clas
       </p>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-        <div class="p-5 rounded-xl energy-card bg-card/50">
+        <div class="p-5 rounded-lg border border">
           <div class="text-xs font-mono font-bold mb-3 theme-orange">Hook scripts</div>
           <ul class="space-y-2 text-xs text-muted-foreground font-mono">
             {[
@@ -537,7 +522,7 @@ matches = search_codebase(<span class="theme-gold">"async fn"</span>, <span clas
             ))}
           </ul>
         </div>
-        <div class="p-5 rounded-xl energy-card bg-card/50">
+        <div class="p-5 rounded-lg border border">
           <div class="text-xs font-mono font-bold mb-3 theme-blue">Hook registrations (9 total)</div>
           <ul class="space-y-2 text-xs text-muted-foreground font-mono">
             {[
@@ -558,7 +543,7 @@ matches = search_codebase(<span class="theme-gold">"async fn"</span>, <span clas
         </div>
       </div>
 
-      <div class="code-block rounded-xl overflow-hidden">
+      <div class="code-block rounded-lg overflow-hidden">
         <div class="px-4 py-2.5 bg-secondary/50 border-b border-border text-xs font-mono text-muted-foreground/50">ig setup output (v1.4)</div>
         <pre class="p-4 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`$ <span class="theme-blue">ig</span> setup
 
@@ -582,21 +567,26 @@ matches = search_codebase(<span class="theme-gold">"async fn"</span>, <span clas
   </div>
 </DocsLayout>
 
-<style>
-  .theme-orange { color: var(--primary); }
-  .theme-orange-bright { color: var(--primary); }
-  .theme-gold { color: oklch(0.55 0.14 80); }
-  .theme-blue { color: var(--accent); }
-  .theme-green { color: oklch(0.52 0.14 155); }
-  .theme-red { color: oklch(0.55 0.2 25); }
-  .theme-muted { color: var(--muted-foreground); }
-  .theme-comment { color: var(--muted-foreground); opacity: 0.6; }
 
-  :global(.dark) .theme-orange { color: #FF9500; }
-  :global(.dark) .theme-orange-bright { color: #FF9500; }
-  :global(.dark) .theme-gold { color: #FFD700; }
-  :global(.dark) .theme-blue { color: #00B4FF; }
-  :global(.dark) .theme-green { color: #34C759; }
-  :global(.dark) .theme-red { color: #FF6B5A; }
-  :global(.dark) .theme-comment { color: rgba(255,255,255,0.4); opacity: 1; }
+<style>
+  .theme-orange { color: oklch(0.85 0 0); }
+  .theme-orange-bright { color: oklch(0.8 0 0); }
+  .theme-gold { color: oklch(0.75 0 0); }
+  .theme-blue { color: oklch(0.7 0 0); }
+  .theme-green { color: oklch(0.65 0 0); }
+  .theme-red { color: oklch(0.55 0 0); }
+  .theme-muted { color: oklch(0.556 0 0); }
+  .theme-comment { color: oklch(0.5 0 0); }
+  .theme-foreground { color: oklch(0.9 0 0); }
+  .pipeline-comment { color: oklch(0.5 0 0); }
+  .module-badge {
+    background: oklch(0.2 0 0);
+    border: 1px solid oklch(0.3 0 0);
+    color: oklch(0.7 0 0);
+  }
+  .c-comment { color: oklch(0.6 0 0); }
+  .c-cmd { color: oklch(0.85 0 0); }
+  .c-flag { color: oklch(0.75 0 0); }
+  .c-ok { color: oklch(0.7 0 0); }
+  .c-muted { color: oklch(0.5 0 0); }
 </style>

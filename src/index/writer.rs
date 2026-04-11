@@ -4,13 +4,14 @@ use std::path::Path;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use ahash::AHashMap;
+use ahash::{AHashMap, AHashSet};
 use anyhow::{Context, Result};
 use rayon::prelude::*;
 
+use crate::index::filedata::{self, FileData, FileDataIndex};
 use crate::index::merge;
 use crate::index::metadata::{INDEX_VERSION, IndexMetadata, IndexedFile};
-use crate::index::ngram::{NgramKey, extract_sparse_ngrams};
+use crate::index::ngram::{self, BigramDfTable, NgramKey, extract_sparse_ngrams, extract_sparse_ngrams_with_masks};
 use crate::index::overlay::{self, OverlayReader};
 use crate::index::postings::DocId;
 use crate::index::spimi;
@@ -232,11 +233,16 @@ fn full_rebuild(
     fs::create_dir_all(&segment_dir).context("create segment directory")?;
 
     let mut budget = spimi::MemoryBudget::new(spimi::DEFAULT_MEMORY_BUDGET);
-    let mut postings_map: AHashMap<NgramKey, Vec<DocId>> = AHashMap::new();
+    let mut postings_map: AHashMap<NgramKey, (Vec<DocId>, u8, u8)> = AHashMap::new();
     let mut files: Vec<IndexedFile> = Vec::with_capacity(paths.len());
     let mut segments: Vec<spimi::SegmentInfo> = Vec::new();
     let mut segment_id: u32 = 0;
     let mut doc_id: u32 = 0;
+    let mut bigram_df: AHashMap<u32, u32> = AHashMap::new();
+    let mut filedata_entries: Vec<(String, FileData)> = Vec::with_capacity(paths.len());
+
+    // Load previous DF table if available (bootstraps IDF weighting on rebuild)
+    let prev_df_table = BigramDfTable::load(&ig);
 
     // Process files in batches — only BATCH_SIZE files' ngrams in memory at once
     for batch in paths.chunks(BATCH_SIZE) {
@@ -247,7 +253,13 @@ fn full_rebuild(
                 if is_binary(&bytes) {
                     return None;
                 }
-                let ngrams = extract_sparse_ngrams(&bytes);
+                let ngrams_with_masks = extract_sparse_ngrams_with_masks(&bytes, prev_df_table.as_ref());
+                // Collect unique bigram hashes for this file (DF collection)
+                let mut file_bigrams: AHashSet<u32> = AHashSet::with_capacity(bytes.len());
+                for window in bytes.windows(2) {
+                    file_bigrams.insert(ngram::hash_bigram(window[0], window[1]));
+                }
+                let bigram_hashes: Vec<u32> = file_bigrams.into_iter().collect();
                 let mtime = fs::metadata(path)
                     .and_then(|m| m.modified())
                     .ok()?
@@ -255,25 +267,59 @@ fn full_rebuild(
                     .ok()?
                     .as_secs();
                 let rel_path = path.strip_prefix(root).ok()?.to_string_lossy().to_string();
-                Some((rel_path, bytes.len() as u64, mtime, ngrams))
+
+                // Extract pre-computed filedata (line offsets, symbols, summaries)
+                let ext = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("");
+                let line_offsets = filedata::compute_line_offsets(&bytes);
+                let text = std::str::from_utf8(&bytes).ok();
+                let symbols = text
+                    .map(|t| filedata::extract_symbols_with_boundaries(t, ext))
+                    .unwrap_or_default();
+                let role = text
+                    .map(|t| filedata::extract_simple_role(t, ext))
+                    .unwrap_or_default();
+                let public_api = text
+                    .map(|t| filedata::extract_simple_api(t, ext))
+                    .unwrap_or_default();
+                let fd = FileData {
+                    line_offsets,
+                    symbols,
+                    role,
+                    public_api,
+                };
+
+                Some((rel_path, bytes.len() as u64, mtime, ngrams_with_masks, bigram_hashes, fd))
             })
             .collect();
 
         // Feed batch into SPIMI accumulator, then drop batch (ngrams freed)
-        for (rel_path, size, mtime, ngrams) in batch_data {
+        for (rel_path, size, mtime, ngrams_with_masks, bigram_hashes, fd) in batch_data {
+            filedata_entries.push((rel_path.clone(), fd));
             files.push(IndexedFile {
                 path: rel_path,
                 mtime,
                 size,
             });
 
-            for &key in &ngrams {
+            for &(key, bloom, loc) in &ngrams_with_masks {
                 let is_new = !postings_map.contains_key(&key);
-                postings_map.entry(key).or_default().push(doc_id);
+                let entry = postings_map
+                    .entry(key)
+                    .or_insert_with(|| (Vec::new(), 0u8, 0u8));
+                entry.0.push(doc_id);
+                entry.1 |= bloom;
+                entry.2 |= loc;
                 budget.track_posting(is_new);
             }
+            // Accumulate bigram document frequencies
+            for h in bigram_hashes {
+                *bigram_df.entry(h).or_default() += 1;
+            }
             doc_id += 1;
-            // ngrams Vec dropped here — not stored
+            // ngrams_with_masks Vec dropped here — not stored
 
             if budget.should_flush() && !postings_map.is_empty() {
                 let info = spimi::flush_segment(&mut postings_map, &segment_dir, segment_id)?;
@@ -321,6 +367,27 @@ fn full_rebuild(
     // Cleanup segments
     merge::cleanup_segments(&segments);
 
+    // Serialize bigram document frequencies to .ig/bigram_df.bin
+    let bigram_df_path_rel = {
+        let mut df_pairs: Vec<(u32, u32)> = bigram_df.into_iter().collect();
+        df_pairs.sort_unstable_by_key(|&(h, _)| h);
+        let df_bytes = bincode::serialize(&df_pairs).context("serialize bigram_df")?;
+        let df_path = ig.join("bigram_df.bin");
+        fs::write(&df_path, &df_bytes).context("write bigram_df.bin")?;
+        eprintln!("Wrote bigram_df.bin ({} entries, {} bytes)", df_pairs.len(), df_bytes.len());
+        Some("bigram_df.bin".to_string())
+    };
+
+    // Build and save pre-computed filedata index
+    filedata_entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let filedata_index = FileDataIndex {
+        version: 1,
+        entries: filedata_entries,
+    };
+    let fd_count = filedata_index.entries.len();
+    filedata_index.save(&ig).context("write filedata.bin")?;
+    eprintln!("Wrote filedata.bin ({} files)", fd_count);
+
     // Write metadata
     let metadata = IndexMetadata {
         version: INDEX_VERSION,
@@ -333,6 +400,8 @@ fn full_rebuild(
         ngram_count,
         files,
         git_commit: git_commit.clone(),
+        bigram_df_path: bigram_df_path_rel,
+        built_with_idf: prev_df_table.is_some(),
     };
 
     metadata.write_to(&ig).context("write metadata")?;
@@ -473,6 +542,8 @@ fn incremental_overlay(
     let mut changed_file_data: Vec<(String, u64, u64, Vec<u64>)> = Vec::new();
     let mut deleted_paths: Vec<String> = Vec::new();
 
+    let df_table = BigramDfTable::load(&ig);
+
     for rel_path in changed_paths {
         let full_path = root.join(rel_path);
         if full_path.exists() {
@@ -481,7 +552,7 @@ fn incremental_overlay(
                     if is_binary(&bytes) {
                         continue;
                     }
-                    let ngrams = extract_sparse_ngrams(&bytes);
+                    let ngrams = extract_sparse_ngrams(&bytes, df_table.as_ref());
                     let mtime = fs::metadata(&full_path)
                         .and_then(|m| m.modified())
                         .ok()
@@ -517,4 +588,67 @@ fn incremental_overlay(
 
     // Return base metadata (overlay is transparent at query time)
     Ok(base_meta.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn test_bigram_df_bin_generated() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        // Create a few source files with known content
+        let src = root.join("src");
+        fs::create_dir_all(&src).unwrap();
+
+        let mut f1 = fs::File::create(src.join("a.rs")).unwrap();
+        writeln!(f1, "fn main() {{ println!(\"hello\"); }}").unwrap();
+
+        let mut f2 = fs::File::create(src.join("b.rs")).unwrap();
+        writeln!(f2, "fn helper() {{ let x = 42; }}").unwrap();
+
+        let mut f3 = fs::File::create(root.join("readme.txt")).unwrap();
+        writeln!(f3, "This is a readme file with some text.").unwrap();
+
+        // Build index
+        let meta = build_index(root, false, 10_000_000).unwrap();
+
+        // Verify bigram_df.bin exists
+        let ig = root.join(".ig");
+        let df_path = ig.join("bigram_df.bin");
+        assert!(df_path.exists(), "bigram_df.bin should be created");
+
+        // Verify metadata records the path
+        assert_eq!(meta.bigram_df_path.as_deref(), Some("bigram_df.bin"));
+
+        // Deserialize and check contents
+        let data = fs::read(&df_path).unwrap();
+        let pairs: Vec<(u32, u32)> = bincode::deserialize(&data).unwrap();
+
+        // Should have entries (3 text files with bigrams)
+        assert!(!pairs.is_empty(), "bigram_df should have entries");
+
+        // All doc frequencies should be between 1 and file_count
+        for &(hash, df) in &pairs {
+            assert!(df >= 1, "df must be >= 1 for hash {}", hash);
+            assert!(
+                df <= meta.file_count,
+                "df must be <= file_count for hash {}",
+                hash
+            );
+        }
+
+        // Pairs should be sorted by hash
+        for w in pairs.windows(2) {
+            assert!(
+                w[0].0 < w[1].0,
+                "pairs must be sorted by hash: {} >= {}",
+                w[0].0,
+                w[1].0
+            );
+        }
+    }
 }

@@ -2,14 +2,18 @@ use anyhow::{Context, Result};
 use regex_syntax::Parser;
 use regex_syntax::hir::literal::{ExtractKind, Extractor};
 
-use crate::index::ngram::{DEFAULT_MAX_NGRAM_LEN, extract_covering_ngrams, hash_ngram};
+use crate::index::ngram::{BigramDfTable, DEFAULT_MAX_NGRAM_LEN, extract_covering_ngrams, hash_ngram};
 use crate::query::plan::NgramQuery;
 
 /// Convert a regex pattern into an NgramQuery using sparse n-grams.
 ///
 /// Uses regex-syntax's Extractor to pull prefix/suffix literals from the pattern,
 /// then applies the covering algorithm to extract sparse n-gram keys.
-pub fn regex_to_query(pattern: &str, case_insensitive: bool) -> Result<NgramQuery> {
+pub fn regex_to_query(
+    pattern: &str,
+    case_insensitive: bool,
+    df_table: Option<&BigramDfTable>,
+) -> Result<NgramQuery> {
     let hir = Parser::new()
         .parse(pattern)
         .context("invalid regex pattern")?;
@@ -71,7 +75,7 @@ pub fn regex_to_query(pattern: &str, case_insensitive: bool) -> Result<NgramQuer
         }
 
         // Use covering algorithm for sparse n-grams
-        let ngram_keys = extract_covering_ngrams(&working_bytes, DEFAULT_MAX_NGRAM_LEN);
+        let ngram_keys = extract_covering_ngrams(&working_bytes, DEFAULT_MAX_NGRAM_LEN, df_table);
 
         if ngram_keys.is_empty() {
             return Ok(NgramQuery::All);
@@ -103,7 +107,7 @@ mod tests {
 
     #[test]
     fn test_literal_pattern() {
-        let query = regex_to_query("foo_bar", false).unwrap();
+        let query = regex_to_query("foo_bar", false, None).unwrap();
         match query {
             NgramQuery::And(children) => {
                 assert!(!children.is_empty());
@@ -114,7 +118,7 @@ mod tests {
 
     #[test]
     fn test_alternation_pattern() {
-        let query = regex_to_query("foo|bar", false).unwrap();
+        let query = regex_to_query("foo|bar", false, None).unwrap();
         match query {
             NgramQuery::Or(branches) => {
                 assert_eq!(branches.len(), 2);
@@ -125,13 +129,13 @@ mod tests {
 
     #[test]
     fn test_wildcard_is_all() {
-        let query = regex_to_query(".*", false).unwrap();
+        let query = regex_to_query(".*", false, None).unwrap();
         assert!(query.is_all());
     }
 
     #[test]
     fn test_bigram_uses_index() {
-        let query = regex_to_query("ab", false).unwrap();
+        let query = regex_to_query("ab", false, None).unwrap();
         // 2-char patterns should use bigram index lookup, not brute-force
         match query {
             NgramQuery::Ngram(_) => {}
@@ -141,20 +145,20 @@ mod tests {
 
     #[test]
     fn test_single_char_is_all() {
-        let query = regex_to_query("a", false).unwrap();
+        let query = regex_to_query("a", false, None).unwrap();
         assert!(query.is_all());
     }
 
     #[test]
     fn test_case_insensitive_extracts_ngrams() {
-        let query = regex_to_query("FooBar", true).unwrap();
+        let query = regex_to_query("FooBar", true, None).unwrap();
         assert!(!query.is_all());
     }
 
     #[test]
     fn test_covering_produces_fewer_keys() {
         // A long literal should produce fewer covering n-grams than trigrams
-        let query = regex_to_query("fetchSellerListingsAction", false).unwrap();
+        let query = regex_to_query("fetchSellerListingsAction", false, None).unwrap();
         match query {
             NgramQuery::And(children) => {
                 // Covering should produce ~3-6 n-grams instead of ~23 trigrams
