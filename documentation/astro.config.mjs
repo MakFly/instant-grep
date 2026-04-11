@@ -7,8 +7,7 @@ import sitemap from "@astrojs/sitemap"
 
 // https://astro.build/config
 export default defineConfig({
-  site: "https://makfly.github.io",
-  base: "/instant-grep",
+  site: "https://instant-grep.pulseview.app",
   vite: {
     plugins: [tailwindcss()],
   },

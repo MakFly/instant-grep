@@ -483,7 +483,7 @@ fn install_explorer_agent(claude_dir: &Path, dry_run: bool) -> ConfigResult {
                 Ok(_) => {
                     return ConfigResult::Configured(
                         "Updated explorer.md: removed Grep tool (blocked by hook)".to_string(),
-                    )
+                    );
                 }
                 Err(e) => return ConfigResult::Error(e),
             }
