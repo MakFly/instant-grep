@@ -194,9 +194,7 @@ pub fn extract_simple_role(content: &str, ext: &str) -> String {
         for line in content.lines().take(20) {
             let trimmed = line.trim();
             if !in_docstring && (trimmed.starts_with("\"\"\"") || trimmed.starts_with("'''")) {
-                if trimmed.len() > 3
-                    && (trimmed.ends_with("\"\"\"") || trimmed.ends_with("'''"))
-                {
+                if trimmed.len() > 3 && (trimmed.ends_with("\"\"\"") || trimmed.ends_with("'''")) {
                     let text = &trimmed[3..trimmed.len() - 3];
                     if !text.is_empty() {
                         return truncate_str(text, 120);
@@ -270,11 +268,7 @@ pub fn extract_simple_api(content: &str, ext: &str) -> String {
                     .find('{')
                     .map(|i| trimmed[..i].trim())
                     .unwrap_or(trimmed);
-                let sig = if sig.len() > 80 {
-                    &sig[..77]
-                } else {
-                    sig
-                };
+                let sig = if sig.len() > 80 { &sig[..77] } else { sig };
                 api_parts.push(sig.to_string());
                 if api_parts.len() >= max_items {
                     break;
@@ -352,7 +346,8 @@ mod tests {
 
     #[test]
     fn test_extract_symbols_with_boundaries_rust() {
-        let content = "pub fn hello() {\n    println!(\"hi\");\n}\n\nstruct Foo {\n    x: i32,\n}\n";
+        let content =
+            "pub fn hello() {\n    println!(\"hi\");\n}\n\nstruct Foo {\n    x: i32,\n}\n";
         let syms = extract_symbols_with_boundaries(content, "rs");
         assert_eq!(syms.len(), 2);
         assert_eq!(syms[0].line, 1);

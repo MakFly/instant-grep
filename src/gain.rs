@@ -306,10 +306,7 @@ fn show_quota(entries: &[&tracking::HistoryEntry], tier: &str) {
         "20x" | _ => ("Max 20x", "Max 20x ($200/mo)"),
     };
 
-    eprintln!(
-        "\x1b[1mMonthly Quota Estimate ({} tier)\x1b[0m",
-        tier_label
-    );
+    eprintln!("\x1b[1mMonthly Quota Estimate ({} tier)\x1b[0m", tier_label);
     eprintln!("──────────────────────────────────────");
     eprintln!(
         "Monthly savings projection:  {:.1}M tokens",
@@ -442,11 +439,7 @@ fn week_from_ts(ts: u64) -> String {
     let jan1_days = days_from_civil(y, 1, 1);
     let week_num = ((thursday - jan1_days as i64) / 7) + 1;
     // ISO year might differ at year boundaries
-    let iso_year = if m == 1 && week_num > 50 {
-        y - 1
-    } else {
-        y
-    };
+    let iso_year = if m == 1 && week_num > 50 { y - 1 } else { y };
     format!("{:04}-W{:02}", iso_year, week_num)
 }
 

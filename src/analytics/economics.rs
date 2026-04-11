@@ -15,10 +15,7 @@ pub fn run_economics(since_days: u32) {
         .unwrap_or(0);
     let cutoff = now_secs.saturating_sub(u64::from(since_days) * 86400);
 
-    let recent: Vec<_> = entries
-        .iter()
-        .filter(|e| e.timestamp >= cutoff)
-        .collect();
+    let recent: Vec<_> = entries.iter().filter(|e| e.timestamp >= cutoff).collect();
 
     if recent.is_empty() {
         println!("ig Economics (last {} days)", since_days);
@@ -53,7 +50,11 @@ pub fn run_economics(since_days: u32) {
     println!("Commands tracked:  {}", recent.len());
     println!("Original output:   {}", format_bytes(total_original_bytes));
     println!("Compressed output: {}", format_bytes(total_output_bytes));
-    println!("Bytes saved:       {} ({:.0}%)", format_bytes(total_saved_bytes), savings_pct);
+    println!(
+        "Bytes saved:       {} ({:.0}%)",
+        format_bytes(total_saved_bytes),
+        savings_pct
+    );
     println!();
     println!("Tokens saved:      ~{}", format_number(tokens_saved));
     println!("Tokens original:   ~{}", format_number(tokens_original));

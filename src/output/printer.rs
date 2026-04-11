@@ -388,9 +388,7 @@ impl Printer {
             .collect();
 
         let _ = writeln!(self.stdout);
-        let _ = self
-            .stdout
-            .set_color(ColorSpec::new().set_dimmed(true));
+        let _ = self.stdout.set_color(ColorSpec::new().set_dimmed(true));
         let _ = writeln!(
             self.stdout,
             "Summary: {} files, {} dirs ({})",
@@ -414,19 +412,14 @@ impl Printer {
         if print_header {
             // Count all files recursively under this dir
             let total = count_files_recursive(tree, dir);
-            let dir_name = dir
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy();
+            let dir_name = dir.file_name().unwrap_or_default().to_string_lossy();
 
             let _ = self
                 .stdout
                 .set_color(ColorSpec::new().set_fg(Some(Color::Cyan)).set_bold(true));
             let _ = write!(self.stdout, "{}{}/", prefix, dir_name);
             let _ = self.stdout.reset();
-            let _ = self
-                .stdout
-                .set_color(ColorSpec::new().set_dimmed(true));
+            let _ = self.stdout.set_color(ColorSpec::new().set_dimmed(true));
             let _ = writeln!(self.stdout, " ({})", total);
             let _ = self.stdout.reset();
         }
@@ -491,7 +484,11 @@ impl Printer {
                 files_json.join(",")
             );
         }
-        let _ = write!(self.stdout, "}},\"summary\":{{\"files\":{},\"dirs\":{},\"extensions\":{{", total_files, total_dirs);
+        let _ = write!(
+            self.stdout,
+            "}},\"summary\":{{\"files\":{},\"dirs\":{},\"extensions\":{{",
+            total_files, total_dirs
+        );
         let mut first_ext = true;
         for (ext, count) in ext_counts {
             if !first_ext {
@@ -539,9 +536,7 @@ fn count_files_recursive(tree: &BTreeMap<PathBuf, Vec<String>>, dir: &PathBuf) -
     let own = tree.get(dir).map(|v| v.len()).unwrap_or(0);
     let children: usize = tree
         .keys()
-        .filter(|k| {
-            !k.as_os_str().is_empty() && *k != dir && k.starts_with(dir)
-        })
+        .filter(|k| !k.as_os_str().is_empty() && *k != dir && k.starts_with(dir))
         .map(|k| tree.get(k).map(|v| v.len()).unwrap_or(0))
         .sum();
     own + children
@@ -573,8 +568,14 @@ mod tests {
     #[test]
     fn test_count_files_recursive() {
         let mut tree: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
-        tree.insert(PathBuf::from(""), vec!["Cargo.toml".into(), "README.md".into()]);
-        tree.insert(PathBuf::from("src"), vec!["main.rs".into(), "cli.rs".into()]);
+        tree.insert(
+            PathBuf::from(""),
+            vec!["Cargo.toml".into(), "README.md".into()],
+        );
+        tree.insert(
+            PathBuf::from("src"),
+            vec!["main.rs".into(), "cli.rs".into()],
+        );
         tree.insert(
             PathBuf::from("src/index"),
             vec!["ngram.rs".into(), "reader.rs".into(), "writer.rs".into()],
@@ -608,10 +609,7 @@ mod tests {
     #[test]
     fn test_file_tree_json_output() {
         let root = PathBuf::from("/tmp/test_project");
-        let files = vec![
-            root.join("Cargo.toml"),
-            root.join("src/main.rs"),
-        ];
+        let files = vec![root.join("Cargo.toml"), root.join("src/main.rs")];
 
         // JSON mode should not panic
         let mut printer = Printer::new(false, true);

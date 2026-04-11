@@ -3,8 +3,8 @@
 //! Detects the project's test framework from marker files in the current
 //! directory, builds the appropriate command, and delegates to `ig run`.
 
-use std::path::Path;
 use anyhow::Result;
+use std::path::Path;
 
 /// Auto-detect the test framework and run tests with filtering.
 ///
@@ -158,7 +158,8 @@ mod tests {
         let cmd = detect_test_command(
             dir.path(),
             &["--release".into(), "--".into(), "my_test".into()],
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(cmd, vec!["cargo", "test", "--release", "--", "my_test"]);
     }
 }

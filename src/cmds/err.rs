@@ -3,9 +3,9 @@
 //! Runs the given command, merges stdout and stderr, then filters output
 //! to keep only lines containing error indicators (error, warning, fail, etc.).
 
-use std::process::Command;
-use anyhow::Result;
 use crate::tracking;
+use anyhow::Result;
+use std::process::Command;
 
 /// Run a command and display only error/warning lines.
 pub fn run(args: &[String]) -> Result<i32> {
@@ -13,23 +13,17 @@ pub fn run(args: &[String]) -> Result<i32> {
         anyhow::bail!("Usage: ig err <command...>");
     }
 
-    let output = Command::new(&args[0])
-        .args(&args[1..])
-        .output()?;
+    let output = Command::new(&args[0]).args(&args[1..]).output()?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let raw = format!("{}{}", stdout, stderr);
     let exit_code = output.status.code().unwrap_or(1);
 
-    let error_re = regex::Regex::new(
-        r"(?i)(error|warning|fail|panic|exception|fatal|critical)"
-    ).unwrap();
+    let error_re =
+        regex::Regex::new(r"(?i)(error|warning|fail|panic|exception|fatal|critical)").unwrap();
 
-    let filtered: Vec<&str> = raw
-        .lines()
-        .filter(|l| error_re.is_match(l))
-        .collect();
+    let filtered: Vec<&str> = raw.lines().filter(|l| error_re.is_match(l)).collect();
 
     let output_text = if filtered.is_empty() {
         println!("[ok] No errors");

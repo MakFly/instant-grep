@@ -8,8 +8,15 @@ use anyhow::Result;
 
 /// Keywords that indicate a sensitive environment variable.
 const SENSITIVE_KEYWORDS: &[&str] = &[
-    "KEY", "SECRET", "TOKEN", "PASSWORD", "PASS",
-    "API_KEY", "PRIVATE", "CREDENTIAL", "AUTH",
+    "KEY",
+    "SECRET",
+    "TOKEN",
+    "PASSWORD",
+    "PASS",
+    "API_KEY",
+    "PRIVATE",
+    "CREDENTIAL",
+    "AUTH",
 ];
 
 /// Run the env command.

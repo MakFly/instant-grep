@@ -307,9 +307,7 @@ mod tests {
             name: "test".to_string(),
             match_regex: Regex::new(r"^cargo test").unwrap(),
             strip_ansi: true,
-            replace_rules: vec![
-                (Regex::new(r"^\s+Compiling .+$").unwrap(), String::new()),
-            ],
+            replace_rules: vec![(Regex::new(r"^\s+Compiling .+$").unwrap(), String::new())],
             keep_lines: Some(Regex::new(r"^(test |error)").unwrap()),
             drop_lines: None,
             truncate_at: None,

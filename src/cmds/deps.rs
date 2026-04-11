@@ -3,8 +3,8 @@
 //! Supports: Cargo.toml, package.json, go.mod, requirements.txt,
 //! pyproject.toml, Gemfile, composer.json.
 
-use std::path::Path;
 use anyhow::Result;
+use std::path::Path;
 
 /// Run the deps command — scan CWD for dependency manifests and display them.
 pub fn run(_args: &[String]) -> Result<i32> {
@@ -60,7 +60,11 @@ fn print_cargo_deps(path: &Path) -> Result<()> {
     }
     if !dev_deps.is_empty() {
         let formatted: Vec<String> = dev_deps.iter().map(|(k, v)| format!("{k} ({v})")).collect();
-        println!("  Dev Dependencies ({}): {}", dev_deps.len(), formatted.join(", "));
+        println!(
+            "  Dev Dependencies ({}): {}",
+            dev_deps.len(),
+            formatted.join(", ")
+        );
     }
     println!();
     Ok(())
@@ -126,7 +130,11 @@ fn print_node_deps(path: &Path) -> Result<()> {
             .iter()
             .map(|(k, v)| format!("{k} ({})", v.as_str().unwrap_or("*")))
             .collect();
-        println!("  Dev Dependencies ({}): {}", deps.len(), formatted.join(", "));
+        println!(
+            "  Dev Dependencies ({}): {}",
+            deps.len(),
+            formatted.join(", ")
+        );
     }
     println!();
     Ok(())
@@ -213,7 +221,11 @@ fn print_pyproject_deps(path: &Path) -> Result<()> {
                 in_deps = false;
                 continue;
             }
-            let dep = trimmed.trim_matches('"').trim_matches(',').trim().to_string();
+            let dep = trimmed
+                .trim_matches('"')
+                .trim_matches(',')
+                .trim()
+                .to_string();
             if !dep.is_empty() {
                 deps.push(dep);
             }
@@ -231,7 +243,8 @@ fn print_gemfile_deps(path: &Path) -> Result<()> {
     let content = std::fs::read_to_string(path)?;
     println!("Ruby (Gemfile):");
 
-    let gem_re = regex::Regex::new(r#"^\s*gem\s+['"]([^'"]+)['"](?:,\s*['"]([^'"]+)['"])?"#).unwrap();
+    let gem_re =
+        regex::Regex::new(r#"^\s*gem\s+['"]([^'"]+)['"](?:,\s*['"]([^'"]+)['"])?"#).unwrap();
     let deps: Vec<String> = content
         .lines()
         .filter_map(|line| {
@@ -270,7 +283,11 @@ fn print_composer_deps(path: &Path) -> Result<()> {
             .iter()
             .map(|(k, v)| format!("{k} ({})", v.as_str().unwrap_or("*")))
             .collect();
-        println!("  Dev Dependencies ({}): {}", deps.len(), formatted.join(", "));
+        println!(
+            "  Dev Dependencies ({}): {}",
+            deps.len(),
+            formatted.join(", ")
+        );
     }
     println!();
     Ok(())

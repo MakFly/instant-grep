@@ -4,8 +4,8 @@
 //! Schema mode (`--schema`): replaces all values with type placeholders and
 //! collapses arrays to show element type + count.
 
-use std::path::Path;
 use anyhow::Result;
+use std::path::Path;
 
 /// Run the json command.
 pub fn run(args: &[String]) -> Result<i32> {
@@ -71,10 +71,7 @@ fn to_schema(value: &serde_json::Value) -> serde_json::Value {
             } else {
                 let first_schema = to_schema(&arr[0]);
                 let count = arr.len();
-                Value::Array(vec![
-                    first_schema,
-                    Value::String(format!("({count})")),
-                ])
+                Value::Array(vec![first_schema, Value::String(format!("({count})"))])
             }
         }
         Value::Object(map) => {

@@ -105,8 +105,8 @@ fn read_signatures(text: &str, file: &Path, file_str: String) -> Result<ReadResu
 /// Signatures mode using pre-computed FileData (O(1) lookup).
 /// Falls back to regex-based extraction if filedata is unavailable.
 pub fn read_signatures_cached(file: &Path, filedata: &FileData) -> Result<ReadResult> {
-    let content = std::fs::read_to_string(file)
-        .with_context(|| format!("reading {}", file.display()))?;
+    let content =
+        std::fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?;
     let lines: Vec<&str> = content.lines().collect();
     let file_str = file.to_string_lossy().to_string();
 
@@ -507,9 +507,21 @@ fn is_php_structural_line(trimmed: &str) -> bool {
         || trimmed.starts_with("private $")
     {
         let config_props = [
-            "$table", "$fillable", "$hidden", "$guarded", "$casts", "$appends",
-            "$with", "$connection", "$primaryKey", "$timestamps", "$perPage",
-            "$incrementing", "$signature", "$description", "$dates",
+            "$table",
+            "$fillable",
+            "$hidden",
+            "$guarded",
+            "$casts",
+            "$appends",
+            "$with",
+            "$connection",
+            "$primaryKey",
+            "$timestamps",
+            "$perPage",
+            "$incrementing",
+            "$signature",
+            "$description",
+            "$dates",
         ];
         if config_props.iter().any(|p| trimmed.contains(p)) {
             return true;
@@ -518,9 +530,16 @@ fn is_php_structural_line(trimmed: &str) -> bool {
     // Eloquent relations: return $this->hasMany(...), belongsTo(...), etc.
     if trimmed.starts_with("return $this->") {
         let relations = [
-            "hasMany(", "hasOne(", "belongsTo(", "belongsToMany(",
-            "hasManyThrough(", "hasOneThrough(",
-            "morphTo(", "morphMany(", "morphOne(", "morphToMany(",
+            "hasMany(",
+            "hasOne(",
+            "belongsTo(",
+            "belongsToMany(",
+            "hasManyThrough(",
+            "hasOneThrough(",
+            "morphTo(",
+            "morphMany(",
+            "morphOne(",
+            "morphToMany(",
         ];
         if relations.iter().any(|r| trimmed.contains(r)) {
             return true;
@@ -543,7 +562,9 @@ fn is_function_def(trimmed: &str, lang: Lang) -> bool {
         Lang::Rust => {
             // fn or async fn, but not struct/enum/trait/impl/type/mod/const/static
             let words: Vec<&str> = trimmed.split_whitespace().collect();
-            words.iter().any(|w| *w == "fn" || w.starts_with("fn(") || w.starts_with("fn<"))
+            words
+                .iter()
+                .any(|w| *w == "fn" || w.starts_with("fn(") || w.starts_with("fn<"))
                 && !words.iter().any(|w| {
                     *w == "struct"
                         || *w == "enum"
@@ -553,12 +574,8 @@ fn is_function_def(trimmed: &str, lang: Lang) -> bool {
                         || *w == "mod"
                 })
         }
-        Lang::Python => {
-            trimmed.contains("def ") && !trimmed.contains("class ")
-        }
-        Lang::Go => {
-            trimmed.starts_with("func ")
-        }
+        Lang::Python => trimmed.contains("def ") && !trimmed.contains("class "),
+        Lang::Go => trimmed.starts_with("func "),
         Lang::TypeScript | Lang::JavaScript => {
             (trimmed.contains("function ") || trimmed.contains("function*("))
                 && !trimmed.contains("class ")
@@ -583,7 +600,9 @@ fn is_function_def(trimmed: &str, lang: Lang) -> bool {
         Lang::Other => {
             trimmed.contains("function ")
                 || trimmed.contains("def ")
-                || (trimmed.contains("fn ") && !trimmed.contains("struct ") && !trimmed.contains("class "))
+                || (trimmed.contains("fn ")
+                    && !trimmed.contains("struct ")
+                    && !trimmed.contains("class "))
         }
     }
 }
@@ -813,7 +832,12 @@ mod tests {
         writeln!(f, "}}").unwrap();
 
         let result = read_file_filtered(f.path(), FilterLevel::Aggressive).unwrap();
-        let text: String = result.lines.iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>().join("\n");
+        let text: String = result
+            .lines
+            .iter()
+            .map(|(_, l)| l.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
         assert!(!text.contains("This is a comment"));
         assert!(!text.contains("Block comment"));
         assert!(!text.contains("inner comment"));
@@ -834,7 +858,12 @@ mod tests {
         writeln!(f, "}}").unwrap();
 
         let result = read_file_filtered(f.path(), FilterLevel::Aggressive).unwrap();
-        let text: String = result.lines.iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>().join("\n");
+        let text: String = result
+            .lines
+            .iter()
+            .map(|(_, l)| l.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
         assert!(text.contains("pub fn compute(x: i32) -> i32 {"));
         assert!(text.contains("// ..."));
         assert!(!text.contains("let a = x * 2"));
@@ -850,7 +879,12 @@ mod tests {
         writeln!(f, "}}").unwrap();
 
         let result = read_file_filtered(f.path(), FilterLevel::Aggressive).unwrap();
-        let text: String = result.lines.iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>().join("\n");
+        let text: String = result
+            .lines
+            .iter()
+            .map(|(_, l)| l.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
         assert!(text.contains("pub struct Config {"));
         assert!(text.contains("pub name: String"));
         assert!(text.contains("pub value: i32"));
@@ -867,10 +901,22 @@ mod tests {
 
         let result = read_file_filtered(f.path(), FilterLevel::Aggressive).unwrap();
         // Multiple blanks should collapse to at most one
-        let blank_count = result.lines.iter().filter(|(_, l)| l.trim().is_empty()).count();
-        assert!(blank_count <= 1, "expected at most 1 blank line, got {}", blank_count);
+        let blank_count = result
+            .lines
+            .iter()
+            .filter(|(_, l)| l.trim().is_empty())
+            .count();
+        assert!(
+            blank_count <= 1,
+            "expected at most 1 blank line, got {}",
+            blank_count
+        );
         // Should have imports and at most one blank between them
-        assert!(result.lines.len() <= 5, "expected compact output, got {} lines", result.lines.len());
+        assert!(
+            result.lines.len() <= 5,
+            "expected compact output, got {} lines",
+            result.lines.len()
+        );
     }
 
     #[test]
@@ -878,7 +924,11 @@ mod tests {
         let long_str = "a".repeat(50);
         let line = format!("    let x = \"{}\";", long_str);
         let stripped = strip_long_strings(&line);
-        assert!(stripped.contains("\"...\""), "long string should be replaced, got: {}", stripped);
+        assert!(
+            stripped.contains("\"...\""),
+            "long string should be replaced, got: {}",
+            stripped
+        );
     }
 
     #[test]
@@ -894,7 +944,12 @@ mod tests {
         writeln!(f, "    print('hello')").unwrap();
 
         let result = read_file_filtered(f.path(), FilterLevel::Aggressive).unwrap();
-        let text: String = result.lines.iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>().join("\n");
+        let text: String = result
+            .lines
+            .iter()
+            .map(|(_, l)| l.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
         assert!(text.contains("import os"));
         assert!(!text.contains("A comment"));
         assert!(!text.contains("docstring"));
@@ -929,7 +984,11 @@ mod tests {
         writeln!(f, "class ClientController {{").unwrap();
         writeln!(f, "    public function index() {{").unwrap();
         writeln!(f, "        $clients = Client::all();").unwrap();
-        writeln!(f, "        return view('clients.index', compact('clients'));").unwrap();
+        writeln!(
+            f,
+            "        return view('clients.index', compact('clients'));"
+        )
+        .unwrap();
         writeln!(f, "    }}").unwrap();
         writeln!(f, "").unwrap();
         writeln!(f, "    public function show($id) {{").unwrap();
@@ -939,16 +998,36 @@ mod tests {
         writeln!(f, "}}").unwrap();
 
         let result = read_file_filtered(f.path(), FilterLevel::Aggressive).unwrap();
-        let text: String = result.lines.iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>().join("\n");
+        let text: String = result
+            .lines
+            .iter()
+            .map(|(_, l)| l.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
 
         // Should keep class declaration and method signatures
-        assert!(text.contains("class ClientController"), "class declaration missing");
-        assert!(text.contains("public function index()"), "method signature missing");
-        assert!(text.contains("public function show($id)"), "method signature missing");
+        assert!(
+            text.contains("class ClientController"),
+            "class declaration missing"
+        );
+        assert!(
+            text.contains("public function index()"),
+            "method signature missing"
+        );
+        assert!(
+            text.contains("public function show($id)"),
+            "method signature missing"
+        );
 
         // Should elide method bodies
-        assert!(!text.contains("Client::all()"), "method body should be elided");
-        assert!(!text.contains("Client::findOrFail"), "method body should be elided");
+        assert!(
+            !text.contains("Client::all()"),
+            "method body should be elided"
+        );
+        assert!(
+            !text.contains("Client::findOrFail"),
+            "method body should be elided"
+        );
         assert!(text.contains("// ..."), "should have elision marker");
     }
 
@@ -972,12 +1051,26 @@ mod tests {
         writeln!(f, "}}").unwrap();
 
         let result = read_file_filtered(f.path(), FilterLevel::Aggressive).unwrap();
-        let text: String = result.lines.iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>().join("\n");
+        let text: String = result
+            .lines
+            .iter()
+            .map(|(_, l)| l.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
 
-        assert!(text.contains("class UserService"), "class declaration missing");
-        assert!(text.contains("private users: User[]"), "field should be kept");
+        assert!(
+            text.contains("class UserService"),
+            "class declaration missing"
+        );
+        assert!(
+            text.contains("private users: User[]"),
+            "field should be kept"
+        );
         assert!(text.contains("function findAll()"), "method sig missing");
-        assert!(text.contains("function findById(id: string)"), "method sig missing");
+        assert!(
+            text.contains("function findById(id: string)"),
+            "method sig missing"
+        );
         assert!(!text.contains("this.users.filter"), "body should be elided");
         assert!(!text.contains("this.users.find"), "body should be elided");
     }

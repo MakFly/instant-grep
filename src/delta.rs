@@ -27,7 +27,12 @@ pub fn read_delta(file: &Path) -> Result<ReadResult> {
         // Also check staged changes
         let staged = Command::new("git")
             .args([
-                "diff", "--cached", "--unified=0", "--no-color", "--", &file_str,
+                "diff",
+                "--cached",
+                "--unified=0",
+                "--no-color",
+                "--",
+                &file_str,
             ])
             .output()?;
         let staged_output = String::from_utf8_lossy(&staged.stdout);
@@ -123,11 +128,7 @@ fn parse_delta(file: &Path, diff: &str) -> Result<ReadResult> {
 
             // Mark changed lines with a prefix
             let line_text = all_lines[i - 1];
-            let marker = if changed_set.contains(&i) {
-                ">"
-            } else {
-                " "
-            };
+            let marker = if changed_set.contains(&i) { ">" } else { " " };
             result_lines.push((i, format!("{} {}", marker, line_text)));
             last_included = Some(i);
         }

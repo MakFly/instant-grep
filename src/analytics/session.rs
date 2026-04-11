@@ -72,7 +72,10 @@ pub fn run_session(since_days: u32) {
             0.0
         }
     );
-    println!("Adoption rate:        {:.0}% of eligible commands", adoption_rate);
+    println!(
+        "Adoption rate:        {:.0}% of eligible commands",
+        adoption_rate
+    );
 
     if !missed.is_empty() {
         println!();
@@ -99,7 +102,10 @@ fn detect_missed(cmd: &str) -> Option<&'static str> {
         "grep" | "rg" => Some("grep/rg → ig search"),
         "find" => Some("find → ig files / ig search"),
         "tree" => Some("tree → ig ls"),
-        "ls" if parts.iter().any(|p| *p == "-la" || *p == "-lah" || *p == "-al") => {
+        "ls" if parts
+            .iter()
+            .any(|p| *p == "-la" || *p == "-lah" || *p == "-al") =>
+        {
             Some("ls -la → ig ls")
         }
         "wc" => Some("wc → ig read (line count in header)"),

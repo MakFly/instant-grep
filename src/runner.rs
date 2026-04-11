@@ -2,7 +2,7 @@ use std::process::Command;
 
 use anyhow::Result;
 
-use crate::filter::{apply_filter, CompiledFilter};
+use crate::filter::{CompiledFilter, apply_filter};
 use crate::tracking;
 
 /// Run a command with an optional filter applied to its output.

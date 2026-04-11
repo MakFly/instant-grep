@@ -106,14 +106,8 @@ fn load_from_dir_trusted(dir: &PathBuf, filters: &mut Vec<CompiledFilter>) {
         let path = entry.path();
         if path.extension().is_some_and(|ext| ext == "toml") {
             if !matches!(trust::check_trust(&path), trust::TrustStatus::Trusted) {
-                eprintln!(
-                    "ig: warn: untrusted filter skipped: {}",
-                    path.display()
-                );
-                eprintln!(
-                    "  Run `ig trust {}` to trust it",
-                    path.display()
-                );
+                eprintln!("ig: warn: untrusted filter skipped: {}", path.display());
+                eprintln!("  Run `ig trust {}` to trust it", path.display());
                 continue;
             }
             match std::fs::read_to_string(&path) {
@@ -161,8 +155,8 @@ fn compile_filter(def: FilterDef) -> Result<CompiledFilter, String> {
 
     let mut replace_rules = Vec::new();
     for r in &def.replace {
-        let re = Regex::new(&r.find)
-            .map_err(|e| format!("bad replace regex '{}': {}", r.find, e))?;
+        let re =
+            Regex::new(&r.find).map_err(|e| format!("bad replace regex '{}': {}", r.find, e))?;
         replace_rules.push((re, r.with.clone()));
     }
 
@@ -230,10 +224,7 @@ on_empty = "All tests passed"
         assert!(filters[0].keep_lines.is_some());
         assert!(filters[0].drop_lines.is_none());
         assert_eq!(filters[0].head, Some(50));
-        assert_eq!(
-            filters[0].on_empty.as_deref(),
-            Some("All tests passed")
-        );
+        assert_eq!(filters[0].on_empty.as_deref(), Some("All tests passed"));
     }
 
     #[test]

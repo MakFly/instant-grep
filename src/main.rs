@@ -26,9 +26,9 @@ mod symbols;
 mod tracking;
 mod trust;
 mod uninstall;
-mod verify;
 mod update;
 mod util;
+mod verify;
 mod walk;
 mod watch;
 
@@ -199,7 +199,10 @@ fn main() -> Result<()> {
             }
         }
 
-        Some(Commands::Files { path, compact: files_compact }) => {
+        Some(Commands::Files {
+            path,
+            compact: files_compact,
+        }) => {
             let root = resolve_root(path.as_deref());
             let max_size = max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
             let use_excludes = !no_default_excludes;
@@ -247,11 +250,15 @@ fn main() -> Result<()> {
         Some(Commands::Context { file, line }) => {
             let path = std::path::Path::new(&file);
             let block = {
-                let root = find_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+                let root =
+                    find_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
                 let ig = ig_dir(&root);
                 let fdi = index::filedata::FileDataIndex::load(&ig);
-                let rel = path.canonicalize().ok()
-                    .and_then(|abs| abs.strip_prefix(root.canonicalize().unwrap_or(root.clone())).ok().map(|r| r.to_string_lossy().to_string()));
+                let rel = path.canonicalize().ok().and_then(|abs| {
+                    abs.strip_prefix(root.canonicalize().unwrap_or(root.clone()))
+                        .ok()
+                        .map(|r| r.to_string_lossy().to_string())
+                });
                 if let Some(ref fdi) = fdi
                     && let Some(ref rel) = rel
                     && let Some(fd) = fdi.get(rel)
@@ -266,7 +273,14 @@ fn main() -> Result<()> {
             printer.print_context(&block);
         }
 
-        Some(Commands::Read { file, signatures, aggressive, budget, relevant, delta }) => {
+        Some(Commands::Read {
+            file,
+            signatures,
+            aggressive,
+            budget,
+            relevant,
+            delta,
+        }) => {
             let path = std::path::Path::new(&file);
             let original_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
 
@@ -295,65 +309,69 @@ fn main() -> Result<()> {
             };
 
             if !delta_done {
-            let use_lsc = budget.is_some() || aggressive;
-            let level = if delta {
-                // Delta with no changes falls back to signatures
-                read::FilterLevel::Signatures
-            } else if use_lsc {
-                read::FilterLevel::Aggressive
-            } else if signatures {
-                read::FilterLevel::Signatures
-            } else {
-                read::FilterLevel::Full
-            };
+                let use_lsc = budget.is_some() || aggressive;
+                let level = if delta {
+                    // Delta with no changes falls back to signatures
+                    read::FilterLevel::Signatures
+                } else if use_lsc {
+                    read::FilterLevel::Aggressive
+                } else if signatures {
+                    read::FilterLevel::Signatures
+                } else {
+                    read::FilterLevel::Full
+                };
 
-            // Try cached signatures when in Signatures mode
-            let mut result = if level == read::FilterLevel::Signatures {
-                let root = find_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-                let ig = ig_dir(&root);
-                let fdi = index::filedata::FileDataIndex::load(&ig);
-                let rel = path.canonicalize().ok()
-                    .and_then(|abs| abs.strip_prefix(root.canonicalize().unwrap_or(root.clone())).ok().map(|r| r.to_string_lossy().to_string()));
-                if let Some(ref fdi) = fdi
-                    && let Some(ref rel) = rel
-                    && let Some(fd) = fdi.get(rel)
-                {
-                    read::read_signatures_cached(path, fd)?
+                // Try cached signatures when in Signatures mode
+                let mut result = if level == read::FilterLevel::Signatures {
+                    let root =
+                        find_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+                    let ig = ig_dir(&root);
+                    let fdi = index::filedata::FileDataIndex::load(&ig);
+                    let rel = path.canonicalize().ok().and_then(|abs| {
+                        abs.strip_prefix(root.canonicalize().unwrap_or(root.clone()))
+                            .ok()
+                            .map(|r| r.to_string_lossy().to_string())
+                    });
+                    if let Some(ref fdi) = fdi
+                        && let Some(ref rel) = rel
+                        && let Some(fd) = fdi.get(rel)
+                    {
+                        read::read_signatures_cached(path, fd)?
+                    } else {
+                        read::read_file_filtered(path, level)?
+                    }
                 } else {
                     read::read_file_filtered(path, level)?
+                };
+
+                // Apply Layered Semantic Compression (Phases 2-5) on aggressive output
+                if use_lsc {
+                    result.lines = scoring::compress_lsc(result.lines, budget, relevant.as_deref());
                 }
-            } else {
-                read::read_file_filtered(path, level)?
-            };
 
-            // Apply Layered Semantic Compression (Phases 2-5) on aggressive output
-            if use_lsc {
-                result.lines = scoring::compress_lsc(result.lines, budget, relevant.as_deref());
-            }
+                let use_color = util::use_color(json);
+                let mut printer = Printer::new(use_color, json);
+                printer.print_read(&result);
 
-            let use_color = util::use_color(json);
-            let mut printer = Printer::new(use_color, json);
-            printer.print_read(&result);
-
-            // Track savings
-            let output_bytes: u64 = result.lines.iter().map(|(_, l)| l.len() as u64 + 7).sum();
-            let flag = if budget.is_some() {
-                format!(" -b {}", budget.unwrap())
-            } else if aggressive {
-                " -a".to_string()
-            } else if signatures {
-                " -s".to_string()
-            } else {
-                String::new()
-            };
-            tracking::log_savings(&tracking::TrackEntry {
-                command: format!("ig read{} {}", flag, file),
-                original_bytes: original_size,
-                output_bytes,
-                project: std::env::current_dir()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_default(),
-            });
+                // Track savings
+                let output_bytes: u64 = result.lines.iter().map(|(_, l)| l.len() as u64 + 7).sum();
+                let flag = if budget.is_some() {
+                    format!(" -b {}", budget.unwrap())
+                } else if aggressive {
+                    " -a".to_string()
+                } else if signatures {
+                    " -s".to_string()
+                } else {
+                    String::new()
+                };
+                tracking::log_savings(&tracking::TrackEntry {
+                    command: format!("ig read{} {}", flag, file),
+                    original_bytes: original_size,
+                    output_bytes,
+                    project: std::env::current_dir()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_default(),
+                });
             } // if !delta_done
         }
 
@@ -374,8 +392,11 @@ fn main() -> Result<()> {
                 && p.is_file()
             {
                 // Single file -- try cached first
-                let rel = p.canonicalize().ok()
-                    .and_then(|abs| abs.strip_prefix(root.canonicalize().unwrap_or(root.clone())).ok().map(|r| r.to_string_lossy().to_string()));
+                let rel = p.canonicalize().ok().and_then(|abs| {
+                    abs.strip_prefix(root.canonicalize().unwrap_or(root.clone()))
+                        .ok()
+                        .map(|r| r.to_string_lossy().to_string())
+                });
                 let s = if let Some(ref fdi) = fdi
                     && let Some(ref rel) = rel
                     && let Some(fd) = fdi.get(rel)
@@ -825,14 +846,26 @@ fn print_compact(results: &[search::matcher::FileMatches]) {
         if i >= MAX_FILES {
             let remaining_files = total_files - MAX_FILES;
             let remaining_matches: usize = sorted[MAX_FILES..].iter().map(|f| f.match_count).sum();
-            println!("... +{} files ({} matches)", remaining_files, remaining_matches);
+            println!(
+                "... +{} files ({} matches)",
+                remaining_files, remaining_matches
+            );
             break;
         }
 
         // Shorten path if too long
         let path = &file_matches.path;
         let display_path = if path.len() > 50 {
-            format!(".../{}", path.rsplit('/').take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("/"))
+            format!(
+                ".../{}",
+                path.rsplit('/')
+                    .take(3)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect::<Vec<_>>()
+                    .join("/")
+            )
         } else {
             path.clone()
         };
@@ -846,7 +879,9 @@ fn print_compact(results: &[search::matcher::FileMatches]) {
                 continue;
             }
             if shown >= MAX_MATCHES_PER_FILE {
-                let remaining = file_matches.match_count.saturating_sub(MAX_MATCHES_PER_FILE);
+                let remaining = file_matches
+                    .match_count
+                    .saturating_sub(MAX_MATCHES_PER_FILE);
                 println!("  +{}", remaining);
                 break;
             }

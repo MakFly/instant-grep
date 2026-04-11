@@ -580,9 +580,7 @@ fn configure_cline(_home: &Path, dry_run: bool) -> Vec<ConfigResult> {
 
     let content = copilot::cline_rules();
     match write_if_not_dry(&target, content.as_bytes(), dry_run) {
-        Ok(_) => vec![ConfigResult::Configured(
-            "Created .clinerules".to_string(),
-        )],
+        Ok(_) => vec![ConfigResult::Configured("Created .clinerules".to_string())],
         Err(e) => vec![ConfigResult::Error(e)],
     }
 }

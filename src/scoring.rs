@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::index::ngram::{hash_ngram, NgramKey};
+use crate::index::ngram::{NgramKey, hash_ngram};
 use crate::index::reader::IndexReader;
 use crate::util::{find_root, ig_dir};
 
@@ -23,9 +23,8 @@ pub fn compress_lsc(
 
     // Phase 2 + 3: Score each line by entropy × token-type weight
     let scorer = EntropyScorer::new();
-    let relevance_re = relevant.and_then(|p| {
-        regex::Regex::new(&format!("(?i){}", regex::escape(p))).ok()
-    });
+    let relevance_re =
+        relevant.and_then(|p| regex::Regex::new(&format!("(?i){}", regex::escape(p))).ok());
     let scored: Vec<(usize, String, f64)> = lines
         .into_iter()
         .map(|(num, line)| {
@@ -76,9 +75,7 @@ struct EntropyScorer {
 
 impl EntropyScorer {
     fn new() -> Self {
-        let root = std::env::current_dir()
-            .map(|p| find_root(&p))
-            .ok();
+        let root = std::env::current_dir().map(|p| find_root(&p)).ok();
         let ig = root.as_ref().map(|r| ig_dir(r));
         let reader = ig.and_then(|d| IndexReader::open(&d).ok());
         let total_files = reader
@@ -163,18 +160,42 @@ fn is_signature(s: &str) -> bool {
     let stripped = strip_leading_keywords(
         s,
         &[
-            "pub ", "pub(crate) ", "pub(super) ",
-            "export ", "default ", "async ", "static ", "abstract ",
-            "private ", "protected ", "public ", "internal ",
-            "override ", "virtual ", "inline ", "const ", "unsafe ",
+            "pub ",
+            "pub(crate) ",
+            "pub(super) ",
+            "export ",
+            "default ",
+            "async ",
+            "static ",
+            "abstract ",
+            "private ",
+            "protected ",
+            "public ",
+            "internal ",
+            "override ",
+            "virtual ",
+            "inline ",
+            "const ",
+            "unsafe ",
         ],
     );
     starts_with_any(
         stripped,
         &[
-            "fn ", "func ", "function ", "def ", "class ", "struct ",
-            "enum ", "trait ", "impl ", "interface ", "type ", "module ",
-            "object ", "record ",
+            "fn ",
+            "func ",
+            "function ",
+            "def ",
+            "class ",
+            "struct ",
+            "enum ",
+            "trait ",
+            "impl ",
+            "interface ",
+            "type ",
+            "module ",
+            "object ",
+            "record ",
         ],
     )
 }
@@ -198,11 +219,8 @@ fn is_structure(s: &str) -> bool {
     starts_with_any(
         s,
         &[
-            "if ", "if(", "else ", "else{",
-            "for ", "for(", "while ", "while(",
-            "match ", "match(", "switch ", "switch(",
-            "try ", "try{", "catch ", "catch(",
-            "loop ", "loop{",
+            "if ", "if(", "else ", "else{", "for ", "for(", "while ", "while(", "match ", "match(",
+            "switch ", "switch(", "try ", "try{", "catch ", "catch(", "loop ", "loop{",
         ],
     )
 }
@@ -224,7 +242,8 @@ fn is_identifier_line(s: &str) -> bool {
 }
 
 fn is_symbol_only(s: &str) -> bool {
-    s.chars().all(|c| matches!(c, '{' | '}' | '(' | ')' | '[' | ']' | ';' | ',' | ' '))
+    s.chars()
+        .all(|c| matches!(c, '{' | '}' | '(' | ')' | '[' | ']' | ';' | ',' | ' '))
 }
 
 // ---------------------------------------------------------------------------
@@ -508,7 +527,11 @@ mod tests {
     #[test]
     fn test_pattern_key_strings() {
         let key = pattern_key(r#"println!("hello world")"#);
-        assert!(key.contains('*'), "quoted strings should be replaced: {}", key);
+        assert!(
+            key.contains('*'),
+            "quoted strings should be replaced: {}",
+            key
+        );
     }
 
     #[test]
@@ -538,17 +561,18 @@ mod tests {
         ];
         let result = deduplicate_lines(lines);
         assert_eq!(result.len(), 1, "3+ matching patterns should merge");
-        assert!(result[0].1.contains("x3"), "merged line should have count: {}", result[0].1);
+        assert!(
+            result[0].1.contains("x3"),
+            "merged line should have count: {}",
+            result[0].1
+        );
     }
 
     // -- Phase 5: Budget Fitting --
 
     #[test]
     fn test_fit_under_budget() {
-        let lines = vec![
-            (1, "short".to_string(), 0.5),
-            (2, "line".to_string(), 0.5),
-        ];
+        let lines = vec![(1, "short".to_string(), 0.5), (2, "line".to_string(), 0.5)];
         let result = fit_to_budget(lines, 1000);
         assert_eq!(result.len(), 2);
     }
@@ -556,10 +580,10 @@ mod tests {
     #[test]
     fn test_fit_over_budget_removes_low_score() {
         let lines = vec![
-            (1, "fn main() {".to_string(), 1.0),          // signature — kept
+            (1, "fn main() {".to_string(), 1.0), // signature — kept
             (2, "let x = boring_boilerplate;".to_string(), 0.01), // low score
             (3, "let y = boring_boilerplate;".to_string(), 0.01), // low score
-            (4, "}".to_string(), 0.05),                    // low score
+            (4, "}".to_string(), 0.05),          // low score
         ];
         // Budget enough to keep signature but not all boilerplate
         let result = fit_to_budget(lines, 8); // 8 tokens = 32 chars
@@ -586,7 +610,11 @@ mod tests {
         ];
         // Budget of 2 tokens = 8 chars — can't keep all 5 signatures
         let result = fit_to_budget(lines, 2);
-        assert!(result.len() < 5, "tight budget should remove some signatures, got {}", result.len());
+        assert!(
+            result.len() < 5,
+            "tight budget should remove some signatures, got {}",
+            result.len()
+        );
     }
 
     // -- Integrated: compress_lsc --
@@ -639,8 +667,15 @@ mod tests {
         ];
         let result = compress_lsc(lines, Some(20), Some("payment"));
         // payment-related lines should survive the tight budget
-        let text: String = result.iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>().join("\n");
-        assert!(text.contains("payment_process"), "relevant signature should survive");
+        let text: String = result
+            .iter()
+            .map(|(_, l)| l.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            text.contains("payment_process"),
+            "relevant signature should survive"
+        );
     }
 
     #[test]

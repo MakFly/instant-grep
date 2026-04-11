@@ -68,10 +68,8 @@ fn is_discoverable(cmd: &str) -> bool {
         // wc -l (line counting) — ig can do this
         "wc" => true,
         // Build/test/lint tools — ig run can filter their output
-        "cargo" | "pytest" | "ruff" | "mypy" | "pip"
-        | "eslint" | "tsc" | "vitest" | "prettier" | "biome"
-        | "rspec" | "rubocop" | "rake"
-        | "golangci-lint" => true,
+        "cargo" | "pytest" | "ruff" | "mypy" | "pip" | "eslint" | "tsc" | "vitest" | "prettier"
+        | "biome" | "rspec" | "rubocop" | "rake" | "golangci-lint" => true,
         // Package managers — ig run can filter their output
         "npm" | "npx" | "pnpm" => true,
         // Docker/k8s — ig run/docker handles these (only useful subcommands)

@@ -128,7 +128,10 @@ pub struct BigramDfTable {
 
 impl BigramDfTable {
     pub fn new(entries: Vec<(u32, u32)>, total_docs: u32) -> Self {
-        Self { entries, total_docs }
+        Self {
+            entries,
+            total_docs,
+        }
     }
 
     /// Load from .ig/bigram_df.bin

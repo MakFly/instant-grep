@@ -2,7 +2,9 @@ use anyhow::{Context, Result};
 use regex_syntax::Parser;
 use regex_syntax::hir::literal::{ExtractKind, Extractor};
 
-use crate::index::ngram::{BigramDfTable, DEFAULT_MAX_NGRAM_LEN, extract_covering_ngrams, hash_ngram};
+use crate::index::ngram::{
+    BigramDfTable, DEFAULT_MAX_NGRAM_LEN, extract_covering_ngrams, hash_ngram,
+};
 use crate::query::plan::NgramQuery;
 
 /// Convert a regex pattern into an NgramQuery using sparse n-grams.

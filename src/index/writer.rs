@@ -11,7 +11,9 @@ use rayon::prelude::*;
 use crate::index::filedata::{self, FileData, FileDataIndex};
 use crate::index::merge;
 use crate::index::metadata::{INDEX_VERSION, IndexMetadata, IndexedFile};
-use crate::index::ngram::{self, BigramDfTable, NgramKey, extract_sparse_ngrams, extract_sparse_ngrams_with_masks};
+use crate::index::ngram::{
+    self, BigramDfTable, NgramKey, extract_sparse_ngrams, extract_sparse_ngrams_with_masks,
+};
 use crate::index::overlay::{self, OverlayReader};
 use crate::index::postings::DocId;
 use crate::index::spimi;
@@ -253,7 +255,8 @@ fn full_rebuild(
                 if is_binary(&bytes) {
                     return None;
                 }
-                let ngrams_with_masks = extract_sparse_ngrams_with_masks(&bytes, prev_df_table.as_ref());
+                let ngrams_with_masks =
+                    extract_sparse_ngrams_with_masks(&bytes, prev_df_table.as_ref());
                 // Collect unique bigram hashes for this file (DF collection)
                 let mut file_bigrams: AHashSet<u32> = AHashSet::with_capacity(bytes.len());
                 for window in bytes.windows(2) {
@@ -269,10 +272,7 @@ fn full_rebuild(
                 let rel_path = path.strip_prefix(root).ok()?.to_string_lossy().to_string();
 
                 // Extract pre-computed filedata (line offsets, symbols, summaries)
-                let ext = path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("");
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                 let line_offsets = filedata::compute_line_offsets(&bytes);
                 let text = std::str::from_utf8(&bytes).ok();
                 let symbols = text
@@ -291,7 +291,14 @@ fn full_rebuild(
                     public_api,
                 };
 
-                Some((rel_path, bytes.len() as u64, mtime, ngrams_with_masks, bigram_hashes, fd))
+                Some((
+                    rel_path,
+                    bytes.len() as u64,
+                    mtime,
+                    ngrams_with_masks,
+                    bigram_hashes,
+                    fd,
+                ))
             })
             .collect();
 
@@ -374,7 +381,11 @@ fn full_rebuild(
         let df_bytes = bincode::serialize(&df_pairs).context("serialize bigram_df")?;
         let df_path = ig.join("bigram_df.bin");
         fs::write(&df_path, &df_bytes).context("write bigram_df.bin")?;
-        eprintln!("Wrote bigram_df.bin ({} entries, {} bytes)", df_pairs.len(), df_bytes.len());
+        eprintln!(
+            "Wrote bigram_df.bin ({} entries, {} bytes)",
+            df_pairs.len(),
+            df_bytes.len()
+        );
         Some("bigram_df.bin".to_string())
     };
 

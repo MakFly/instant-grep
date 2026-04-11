@@ -3,8 +3,8 @@
 //! Reads both files, performs a simple line-by-line comparison, and shows
 //! only changed lines with +/- prefixes and unchanged-line markers.
 
-use std::path::Path;
 use anyhow::Result;
+use std::path::Path;
 
 /// Run the diff command.
 pub fn run(args: &[String]) -> Result<i32> {

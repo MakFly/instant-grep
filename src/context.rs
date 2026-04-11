@@ -52,11 +52,17 @@ pub fn extract_block(file: &Path, target_line: usize) -> Result<BlockResult> {
 }
 
 /// Extract the enclosing code block using pre-computed symbol boundaries.
-pub fn extract_block_cached(file: &Path, target_line: usize, filedata: &FileData) -> Result<BlockResult> {
+pub fn extract_block_cached(
+    file: &Path,
+    target_line: usize,
+    filedata: &FileData,
+) -> Result<BlockResult> {
     // Find the enclosing symbol: last symbol where sym.line <= target_line && target_line <= sym.block_end
-    let enclosing = filedata.symbols.iter().rev().find(|s| {
-        (s.line as usize) <= target_line && target_line <= (s.block_end as usize)
-    });
+    let enclosing = filedata
+        .symbols
+        .iter()
+        .rev()
+        .find(|s| (s.line as usize) <= target_line && target_line <= (s.block_end as usize));
 
     let (start, end) = match enclosing {
         Some(sym) => (sym.line as usize, sym.block_end as usize),
@@ -67,8 +73,8 @@ pub fn extract_block_cached(file: &Path, target_line: usize, filedata: &FileData
     };
 
     // Read only the relevant lines
-    let content = std::fs::read_to_string(file)
-        .with_context(|| format!("reading {}", file.display()))?;
+    let content =
+        std::fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?;
     let lines: Vec<&str> = content.lines().collect();
     let end = end.min(lines.len());
     let start = start.max(1);

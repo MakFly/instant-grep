@@ -86,7 +86,9 @@ impl IndexReader {
     /// Look up in the base index only — decode the full posting list.
     fn lookup_ngram_base(&self, key: NgramKey) -> Vec<DocId> {
         match self.lookup_raw(key) {
-            Some((offset, byte_len)) => vbyte::decode_posting_list(&self.postings, offset, byte_len),
+            Some((offset, byte_len)) => {
+                vbyte::decode_posting_list(&self.postings, offset, byte_len)
+            }
             None => Vec::new(),
         }
     }
@@ -190,7 +192,9 @@ impl IndexReader {
     /// Create a streaming PostingIterator over a base ngram's posting list.
     fn posting_iter(&self, key: NgramKey) -> vbyte::PostingIterator<'_> {
         match self.lookup_raw(key) {
-            Some((offset, byte_len)) => vbyte::PostingIterator::new(&self.postings, offset, byte_len),
+            Some((offset, byte_len)) => {
+                vbyte::PostingIterator::new(&self.postings, offset, byte_len)
+            }
             None => vbyte::PostingIterator::new(&[], 0, 0),
         }
     }
@@ -238,8 +242,7 @@ impl IndexReader {
         }
 
         // Fallback: mixed query types, use the old approach
-        let mut lists: Vec<Vec<DocId>> =
-            children.iter().map(|child| self.resolve(child)).collect();
+        let mut lists: Vec<Vec<DocId>> = children.iter().map(|child| self.resolve(child)).collect();
         lists.sort_unstable_by_key(|l| l.len());
         let mut result = lists.remove(0);
         for list in &lists {
@@ -336,7 +339,9 @@ impl IndexReader {
             }
             // Merge base + overlay (both sorted, disjoint ID ranges)
             debug_assert!(
-                base_result.last().map_or(true, |&last| overlay_result.first().map_or(true, |&first| last < first)),
+                base_result.last().map_or(true, |&last| overlay_result
+                    .first()
+                    .map_or(true, |&first| last < first)),
                 "overlay IDs must be greater than all base IDs"
             );
             base_result.extend_from_slice(&overlay_result);

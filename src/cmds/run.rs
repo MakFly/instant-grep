@@ -3,9 +3,9 @@
 //! Executes any shell command and applies the matching filter from the
 //! filter engine to compress output before presenting it.
 
-use anyhow::Result;
 use crate::filter::FilterEngine;
 use crate::runner;
+use anyhow::Result;
 
 /// Run a command with automatic output filtering.
 ///

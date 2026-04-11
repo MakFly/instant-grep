@@ -186,9 +186,7 @@ fn extract_commands(path: &Path) -> anyhow::Result<Vec<CommandExec>> {
     // Build command list with outcomes
     let mut execs = Vec::new();
     for p in pending {
-        let (is_error, error_text) = results
-            .remove(&p.id)
-            .unwrap_or((false, String::new()));
+        let (is_error, error_text) = results.remove(&p.id).unwrap_or((false, String::new()));
         execs.push(CommandExec {
             command: p.command,
             is_error,
@@ -259,9 +257,11 @@ fn detect_corrections(commands: &[CommandExec]) -> Vec<CorrectionPattern> {
         }
 
         let category = classify_error(&failed.error_text);
-        let entry = pattern_map
-            .entry(category.clone())
-            .or_insert((0, failed.command.clone(), succeeded.command.clone()));
+        let entry = pattern_map.entry(category.clone()).or_insert((
+            0,
+            failed.command.clone(),
+            succeeded.command.clone(),
+        ));
         entry.0 += 1;
     }
 
@@ -292,7 +292,10 @@ fn print_patterns(patterns: &[CorrectionPattern], limit: usize, since_days: u32,
     println!("════════════════════════════════════════════");
 
     if patterns.is_empty() {
-        println!("No correction patterns found (last {} days, {} sessions).", since_days, sessions);
+        println!(
+            "No correction patterns found (last {} days, {} sessions).",
+            since_days, sessions
+        );
         return;
     }
 
@@ -305,10 +308,7 @@ fn print_patterns(patterns: &[CorrectionPattern], limit: usize, since_days: u32,
         sessions
     );
 
-    println!(
-        "  {:<30}  {:>5}  Example",
-        "Pattern", "Count"
-    );
+    println!("  {:<30}  {:>5}  Example", "Pattern", "Count");
     println!("  {}", "─".repeat(70));
 
     for p in patterns.iter().take(shown) {
