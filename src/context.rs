@@ -232,12 +232,12 @@ mod tests {
     fn test_context_finds_rust_function() {
         let mut f = NamedTempFile::new().unwrap();
         writeln!(f, "use std::io;").unwrap();
-        writeln!(f, "").unwrap();
+        writeln!(f).unwrap();
         writeln!(f, "fn main() {{").unwrap(); // line 3
         writeln!(f, "    let x = 42;").unwrap(); // line 4
         writeln!(f, "    println!(\"hello\");").unwrap(); // line 5
         writeln!(f, "}}").unwrap(); // line 6
-        writeln!(f, "").unwrap();
+        writeln!(f).unwrap();
         writeln!(f, "fn other() {{").unwrap();
         writeln!(f, "    // other").unwrap();
         writeln!(f, "}}").unwrap();

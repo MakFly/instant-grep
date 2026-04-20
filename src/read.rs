@@ -739,7 +739,7 @@ mod tests {
     fn test_read_full() {
         let mut f = NamedTempFile::with_suffix(".rs").unwrap();
         writeln!(f, "use std::io;").unwrap();
-        writeln!(f, "").unwrap();
+        writeln!(f).unwrap();
         writeln!(f, "fn main() {{").unwrap();
         writeln!(f, "    println!(\"hello\");").unwrap();
         writeln!(f, "}}").unwrap();
@@ -755,12 +755,12 @@ mod tests {
         let mut f = NamedTempFile::with_suffix(".rs").unwrap();
         writeln!(f, "use std::io;").unwrap();
         writeln!(f, "use std::path::Path;").unwrap();
-        writeln!(f, "").unwrap();
+        writeln!(f).unwrap();
         writeln!(f, "pub fn main() {{").unwrap();
         writeln!(f, "    let x = 42;").unwrap();
         writeln!(f, "    println!(\"hello\");").unwrap();
         writeln!(f, "}}").unwrap();
-        writeln!(f, "").unwrap();
+        writeln!(f).unwrap();
         writeln!(f, "struct Config {{").unwrap();
         writeln!(f, "    name: String,").unwrap();
         writeln!(f, "}}").unwrap();
@@ -793,11 +793,11 @@ mod tests {
     fn test_read_typescript_signatures() {
         let mut f = NamedTempFile::with_suffix(".ts").unwrap();
         writeln!(f, "import {{ useState }} from 'react';").unwrap();
-        writeln!(f, "").unwrap();
+        writeln!(f).unwrap();
         writeln!(f, "export function greet(name: string) {{").unwrap();
         writeln!(f, "  return `hello ${{name}}`;").unwrap();
         writeln!(f, "}}").unwrap();
-        writeln!(f, "").unwrap();
+        writeln!(f).unwrap();
         writeln!(f, "export class UserService {{").unwrap();
         writeln!(f, "  private name: string;").unwrap();
         writeln!(f, "}}").unwrap();
@@ -848,7 +848,7 @@ mod tests {
     fn test_aggressive_elides_function_bodies() {
         let mut f = NamedTempFile::with_suffix(".rs").unwrap();
         writeln!(f, "use std::io;").unwrap();
-        writeln!(f, "").unwrap();
+        writeln!(f).unwrap();
         writeln!(f, "pub fn compute(x: i32) -> i32 {{").unwrap();
         writeln!(f, "    let a = x * 2;").unwrap();
         writeln!(f, "    let b = a + 1;").unwrap();
@@ -893,9 +893,9 @@ mod tests {
     fn test_aggressive_collapses_blank_lines() {
         let mut f = NamedTempFile::with_suffix(".rs").unwrap();
         writeln!(f, "use std::io;").unwrap();
-        writeln!(f, "").unwrap();
-        writeln!(f, "").unwrap();
-        writeln!(f, "").unwrap();
+        writeln!(f).unwrap();
+        writeln!(f).unwrap();
+        writeln!(f).unwrap();
         writeln!(f, "use std::path::Path;").unwrap();
 
         let result = read_file_filtered(f.path(), FilterLevel::Aggressive).unwrap();
@@ -979,7 +979,7 @@ mod tests {
         let mut f = NamedTempFile::with_suffix(".php").unwrap();
         writeln!(f, "<?php").unwrap();
         writeln!(f, "namespace App\\Controllers;").unwrap();
-        writeln!(f, "").unwrap();
+        writeln!(f).unwrap();
         writeln!(f, "class ClientController {{").unwrap();
         writeln!(f, "    public function index() {{").unwrap();
         writeln!(f, "        $clients = Client::all();").unwrap();
@@ -989,7 +989,7 @@ mod tests {
         )
         .unwrap();
         writeln!(f, "    }}").unwrap();
-        writeln!(f, "").unwrap();
+        writeln!(f).unwrap();
         writeln!(f, "    public function show($id) {{").unwrap();
         writeln!(f, "        $client = Client::findOrFail($id);").unwrap();
         writeln!(f, "        return view('clients.show', compact('client'));").unwrap();
@@ -1034,14 +1034,14 @@ mod tests {
     fn test_aggressive_ts_class_methods() {
         let mut f = NamedTempFile::with_suffix(".ts").unwrap();
         writeln!(f, "import {{ Injectable }} from '@nestjs/common';").unwrap();
-        writeln!(f, "").unwrap();
+        writeln!(f).unwrap();
         writeln!(f, "export class UserService {{").unwrap();
         writeln!(f, "    private users: User[] = [];").unwrap();
-        writeln!(f, "").unwrap();
+        writeln!(f).unwrap();
         writeln!(f, "    function findAll(): User[] {{").unwrap();
         writeln!(f, "        return this.users.filter(u => u.active);").unwrap();
         writeln!(f, "    }}").unwrap();
-        writeln!(f, "").unwrap();
+        writeln!(f).unwrap();
         writeln!(f, "    function findById(id: string): User {{").unwrap();
         writeln!(f, "        const user = this.users.find(u => u.id === id);").unwrap();
         writeln!(f, "        if (!user) throw new Error('Not found');").unwrap();

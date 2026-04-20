@@ -996,7 +996,7 @@ mod tests {
         let settings = r#"{"permissions":{"allow":["Bash(git *)"]}}"#;
         fs::write(dir.path().join("settings.json"), settings).unwrap();
 
-        let result = configure_claude_settings(&dir.path().to_path_buf());
+        let result = configure_claude_settings(dir.path());
         assert!(matches!(result, ConfigResult::Configured(_)));
 
         let content = fs::read_to_string(dir.path().join("settings.json")).unwrap();
@@ -1012,7 +1012,7 @@ mod tests {
         let settings = r#"{"permissions":{"allow":["Bash(git *)","Bash(ig *)"]}}"#;
         fs::write(dir.path().join("settings.json"), settings).unwrap();
 
-        let result = configure_claude_settings(&dir.path().to_path_buf());
+        let result = configure_claude_settings(dir.path());
         assert!(matches!(result, ConfigResult::AlreadyDone(_)));
     }
 
@@ -1020,7 +1020,7 @@ mod tests {
     fn test_claude_settings_missing_file_creates_it() {
         let dir = TempDir::new().unwrap();
         // No settings.json written — file does not exist, should create with defaults
-        let result = configure_claude_settings(&dir.path().to_path_buf());
+        let result = configure_claude_settings(dir.path());
         assert!(matches!(result, ConfigResult::Configured(_)));
         let content = fs::read_to_string(dir.path().join("settings.json")).unwrap();
         assert!(content.contains("Bash(ig *)"));
@@ -1031,7 +1031,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("settings.json"), "not json").unwrap();
 
-        let result = configure_claude_settings(&dir.path().to_path_buf());
+        let result = configure_claude_settings(dir.path());
         assert!(matches!(result, ConfigResult::Error(_)));
     }
 
@@ -1041,7 +1041,7 @@ mod tests {
         // Valid JSON but no permissions.allow array
         fs::write(dir.path().join("settings.json"), r#"{"other": "value"}"#).unwrap();
 
-        let result = configure_claude_settings(&dir.path().to_path_buf());
+        let result = configure_claude_settings(dir.path());
         assert!(matches!(result, ConfigResult::Configured(_)));
 
         let content = fs::read_to_string(dir.path().join("settings.json")).unwrap();
@@ -1058,7 +1058,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = configure_claude_settings(&dir.path().to_path_buf());
+        let result = configure_claude_settings(dir.path());
         assert!(matches!(result, ConfigResult::Configured(_)));
 
         let content = fs::read_to_string(dir.path().join("settings.json")).unwrap();
@@ -1070,7 +1070,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("settings.json"), r#"{}"#).unwrap();
 
-        let result = configure_claude_settings(&dir.path().to_path_buf());
+        let result = configure_claude_settings(dir.path());
         assert!(matches!(result, ConfigResult::Configured(_)));
 
         let content = fs::read_to_string(dir.path().join("settings.json")).unwrap();
@@ -1088,7 +1088,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = configure_claude_md(&dir.path().to_path_buf());
+        let result = configure_claude_md(dir.path());
         assert!(matches!(result, ConfigResult::Configured(_)));
 
         let content = fs::read_to_string(dir.path().join("CLAUDE.md")).unwrap();
@@ -1108,7 +1108,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = configure_claude_md(&dir.path().to_path_buf());
+        let result = configure_claude_md(dir.path());
         assert!(matches!(result, ConfigResult::AlreadyDone(_)));
     }
 
@@ -1116,7 +1116,7 @@ mod tests {
     fn test_claude_md_missing_file_creates_content() {
         let dir = TempDir::new().unwrap();
         // CLAUDE.md does not exist — configure_claude_md starts from empty string
-        let result = configure_claude_md(&dir.path().to_path_buf());
+        let result = configure_claude_md(dir.path());
         assert!(matches!(result, ConfigResult::Configured(_)));
 
         let content = fs::read_to_string(dir.path().join("CLAUDE.md")).unwrap();
@@ -1129,7 +1129,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("AGENTS.md"), "").unwrap();
 
-        let result = configure_codex_agents_md(&dir.path().to_path_buf());
+        let result = configure_codex_agents_md(dir.path());
         assert!(matches!(result, ConfigResult::Configured(_)));
 
         let content = fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();
@@ -1146,7 +1146,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = configure_codex_agents_md(&dir.path().to_path_buf());
+        let result = configure_codex_agents_md(dir.path());
         assert!(matches!(result, ConfigResult::AlreadyDone(_)));
     }
 
@@ -1159,7 +1159,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = configure_codex_agents_md(&dir.path().to_path_buf());
+        let result = configure_codex_agents_md(dir.path());
         assert!(matches!(result, ConfigResult::Configured(_)));
 
         let content = fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();
