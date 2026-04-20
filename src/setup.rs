@@ -45,6 +45,14 @@ enum ConfigResult {
     Error(String),
 }
 
+// ─── AgentSetup trait ─────────────────────────────────────────────────────────
+
+trait AgentSetup {
+    fn name(&self) -> &str;
+    fn is_present(&self, home: &Path) -> bool;
+    fn configure(&self, home: &Path, dry_run: bool) -> Vec<ConfigResult>;
+}
+
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 fn write_if_not_dry(path: &Path, content: &[u8], dry_run: bool) -> Result<(), String> {
@@ -152,6 +160,250 @@ fn which_exists(binary: &str) -> bool {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
+}
+
+fn print_results(agent_name: &str, results: &[ConfigResult], configured_count: &mut u32) {
+    eprintln!("\x1b[32m✓ {}\x1b[0m", agent_name);
+    for action in results {
+        match action {
+            ConfigResult::Configured(msg) => eprintln!("  → {}", msg),
+            ConfigResult::AlreadyDone(msg) => eprintln!("  \x1b[2m→ {}\x1b[0m", msg),
+            ConfigResult::Error(msg) => eprintln!("  \x1b[31m✗ {}\x1b[0m", msg),
+        }
+    }
+    *configured_count += 1;
+}
+
+// ─── Claude Code ──────────────────────────────────────────────────────────────
+
+struct ClaudeCodeAgent;
+
+impl AgentSetup for ClaudeCodeAgent {
+    fn name(&self) -> &str {
+        "Claude Code"
+    }
+
+    fn is_present(&self, home: &Path) -> bool {
+        home.join(".claude").is_dir() || which_exists("claude")
+    }
+
+    fn configure(&self, home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+        let claude_dir = home.join(".claude");
+        if !claude_dir.is_dir() {
+            let _ = fs::create_dir_all(&claude_dir);
+        }
+        let mut actions = Vec::new();
+        actions.push(configure_claude_settings(&claude_dir));
+        actions.push(configure_claude_md(&claude_dir));
+        actions.extend(configure_claude_hooks_full(&claude_dir, dry_run));
+        actions.extend(configure_claude_env_vars(&claude_dir, dry_run));
+        actions
+    }
+}
+
+// ─── Codex CLI ────────────────────────────────────────────────────────────────
+
+struct CodexAgent;
+
+impl AgentSetup for CodexAgent {
+    fn name(&self) -> &str {
+        "Codex CLI"
+    }
+
+    fn is_present(&self, home: &Path) -> bool {
+        home.join(".codex").is_dir() || which_exists("codex")
+    }
+
+    fn configure(&self, home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+        let codex_dir = home.join(".codex");
+        if !codex_dir.is_dir() {
+            let _ = fs::create_dir_all(&codex_dir);
+        }
+        let result = configure_codex_agents_md(&codex_dir);
+        // configure_codex_agents_md does not use dry_run yet — consistent with original
+        let _ = dry_run;
+        vec![result]
+    }
+}
+
+// ─── OpenCode ─────────────────────────────────────────────────────────────────
+
+struct OpenCodeAgent;
+
+impl AgentSetup for OpenCodeAgent {
+    fn name(&self) -> &str {
+        "OpenCode"
+    }
+
+    fn is_present(&self, home: &Path) -> bool {
+        home.join(".config/opencode").is_dir() || which_exists("opencode")
+    }
+
+    fn configure(&self, home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+        configure_opencode(home, dry_run)
+    }
+}
+
+// ─── Cursor ───────────────────────────────────────────────────────────────────
+
+struct CursorAgent;
+
+impl AgentSetup for CursorAgent {
+    fn name(&self) -> &str {
+        "Cursor"
+    }
+
+    fn is_present(&self, home: &Path) -> bool {
+        home.join(".cursor").is_dir()
+    }
+
+    fn configure(&self, home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+        configure_cursor(home, dry_run)
+    }
+}
+
+// ─── GitHub Copilot ───────────────────────────────────────────────────────────
+
+struct CopilotAgent;
+
+impl AgentSetup for CopilotAgent {
+    fn name(&self) -> &str {
+        "GitHub Copilot"
+    }
+
+    fn is_present(&self, home: &Path) -> bool {
+        home.join(".github").is_dir() || PathBuf::from(".github").is_dir()
+    }
+
+    fn configure(&self, home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+        configure_copilot(home, dry_run)
+    }
+}
+
+// ─── Windsurf ─────────────────────────────────────────────────────────────────
+
+struct WindsurfAgent;
+
+impl AgentSetup for WindsurfAgent {
+    fn name(&self) -> &str {
+        "Windsurf"
+    }
+
+    fn is_present(&self, home: &Path) -> bool {
+        home.join(".windsurf").is_dir() || PathBuf::from(".windsurf").is_dir()
+    }
+
+    fn configure(&self, home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+        configure_windsurf(home, dry_run)
+    }
+}
+
+// ─── Cline ────────────────────────────────────────────────────────────────────
+
+struct ClineAgent;
+
+impl AgentSetup for ClineAgent {
+    fn name(&self) -> &str {
+        "Cline"
+    }
+
+    fn is_present(&self, home: &Path) -> bool {
+        home.join(".cline").is_dir() || PathBuf::from(".cline").is_dir()
+    }
+
+    fn configure(&self, home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+        configure_cline(home, dry_run)
+    }
+}
+
+// ─── Gemini CLI ───────────────────────────────────────────────────────────────
+
+struct GeminiAgent;
+
+impl AgentSetup for GeminiAgent {
+    fn name(&self) -> &str {
+        "Gemini CLI"
+    }
+
+    fn is_present(&self, home: &Path) -> bool {
+        home.join(".gemini").is_dir() || which_exists("gemini")
+    }
+
+    fn configure(&self, home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+        configure_gemini(home, dry_run)
+    }
+}
+
+// ─── Aider ────────────────────────────────────────────────────────────────────
+
+struct AiderAgent;
+
+impl AgentSetup for AiderAgent {
+    fn name(&self) -> &str {
+        "Aider"
+    }
+
+    fn is_present(&self, home: &Path) -> bool {
+        home.join(".aider.conf.yml").exists() || which_exists("aider")
+    }
+
+    fn configure(&self, home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+        configure_aider(home, dry_run)
+    }
+}
+
+// ─── Continue ─────────────────────────────────────────────────────────────────
+
+struct ContinueAgent;
+
+impl AgentSetup for ContinueAgent {
+    fn name(&self) -> &str {
+        "Continue"
+    }
+
+    fn is_present(&self, home: &Path) -> bool {
+        home.join(".continue").is_dir()
+    }
+
+    fn configure(&self, home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+        configure_continue(home, dry_run)
+    }
+}
+
+// ─── Zed ──────────────────────────────────────────────────────────────────────
+
+struct ZedAgent;
+
+impl AgentSetup for ZedAgent {
+    fn name(&self) -> &str {
+        "Zed"
+    }
+
+    fn is_present(&self, home: &Path) -> bool {
+        home.join(".config/zed").is_dir()
+    }
+
+    fn configure(&self, home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+        configure_zed(home, dry_run)
+    }
+}
+
+// ─── Kilo ─────────────────────────────────────────────────────────────────────
+
+struct KiloAgent;
+
+impl AgentSetup for KiloAgent {
+    fn name(&self) -> &str {
+        "Kilo"
+    }
+
+    fn is_present(&self, home: &Path) -> bool {
+        home.join(".kilo").is_dir() || PathBuf::from(".kilo").is_dir()
+    }
+
+    fn configure(&self, home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+        configure_kilo(home, dry_run)
+    }
 }
 
 // ─── Claude Code — full hook suite ───────────────────────────────────────────
@@ -662,6 +914,230 @@ fn configure_cline(_home: &Path, dry_run: bool) -> Vec<ConfigResult> {
     }
 }
 
+// ─── Gemini CLI ───────────────────────────────────────────────────────────────
+
+fn configure_gemini(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+    let gemini_dir = home.join(".gemini");
+    let md_path = gemini_dir.join("GEMINI.md");
+
+    let content = fs::read_to_string(&md_path).unwrap_or_default();
+
+    if content.contains("## Search Tools") && content.contains("ig") {
+        return vec![ConfigResult::AlreadyDone(
+            "GEMINI.md already has ig instructions".to_string(),
+        )];
+    }
+
+    let new_content = if content.is_empty() {
+        format!("# GEMINI.md\n{}", IG_SEARCH_TOOLS_SECTION)
+    } else {
+        format!("{}\n{}", content.trim_end(), IG_SEARCH_TOOLS_SECTION)
+    };
+
+    match write_if_not_dry(&md_path, new_content.as_bytes(), dry_run) {
+        Ok(_) => vec![ConfigResult::Configured(
+            "Added ig instructions to ~/.gemini/GEMINI.md".to_string(),
+        )],
+        Err(e) => vec![ConfigResult::Error(e)],
+    }
+}
+
+// ─── Aider ────────────────────────────────────────────────────────────────────
+
+fn configure_aider(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+    let mut results = Vec::new();
+
+    // Write IG.md under ~/.aider/
+    let aider_dir = home.join(".aider");
+    let ig_md_path = aider_dir.join("IG.md");
+
+    if ig_md_path.exists() {
+        results.push(ConfigResult::AlreadyDone(
+            "~/.aider/IG.md already exists".to_string(),
+        ));
+    } else {
+        let ig_md_content = format!("# ig (instant-grep)\n{}", IG_SEARCH_TOOLS_SECTION);
+        match write_if_not_dry(&ig_md_path, ig_md_content.as_bytes(), dry_run) {
+            Ok(_) => results.push(ConfigResult::Configured(
+                "Created ~/.aider/IG.md".to_string(),
+            )),
+            Err(e) => results.push(ConfigResult::Error(e)),
+        }
+    }
+
+    // Write/merge ~/.aider.conf.yml
+    let conf_path = home.join(".aider.conf.yml");
+    let ig_md_str = ig_md_path.to_string_lossy().to_string();
+
+    if conf_path.exists() {
+        let existing = fs::read_to_string(&conf_path).unwrap_or_default();
+        if existing.contains("IG.md") {
+            results.push(ConfigResult::AlreadyDone(
+                "~/.aider.conf.yml already references IG.md".to_string(),
+            ));
+        } else {
+            // Append read entry
+            let appended = format!("{}\nread:\n  - \"{}\"\n", existing.trim_end(), ig_md_str);
+            match write_if_not_dry(&conf_path, appended.as_bytes(), dry_run) {
+                Ok(_) => results.push(ConfigResult::Configured(
+                    "Added IG.md to ~/.aider.conf.yml read list".to_string(),
+                )),
+                Err(e) => results.push(ConfigResult::Error(e)),
+            }
+        }
+    } else {
+        let conf_content = format!("read:\n  - \"{}\"\n", ig_md_str);
+        match write_if_not_dry(&conf_path, conf_content.as_bytes(), dry_run) {
+            Ok(_) => results.push(ConfigResult::Configured(
+                "Created ~/.aider.conf.yml with IG.md read entry".to_string(),
+            )),
+            Err(e) => results.push(ConfigResult::Error(e)),
+        }
+    }
+
+    results
+}
+
+// ─── Continue ─────────────────────────────────────────────────────────────────
+
+fn configure_continue(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+    let continue_dir = home.join(".continue");
+    let config_path = continue_dir.join("config.json");
+
+    let content = fs::read_to_string(&config_path).unwrap_or_else(|_| "{}".to_string());
+    let mut parsed: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => {
+            return vec![ConfigResult::Error(
+                "Could not parse ~/.continue/config.json".to_string(),
+            )];
+        }
+    };
+
+    if parsed.get("customCommands").is_none() {
+        parsed["customCommands"] = serde_json::json!([]);
+    }
+
+    let commands = parsed["customCommands"].as_array_mut().unwrap();
+    let already = commands.iter().any(|c| {
+        c.get("name")
+            .and_then(|n| n.as_str())
+            .unwrap_or("")
+            == "ig"
+    });
+
+    if already {
+        return vec![ConfigResult::AlreadyDone(
+            "ig command already in ~/.continue/config.json customCommands".to_string(),
+        )];
+    }
+
+    commands.push(serde_json::json!({
+        "name": "ig",
+        "description": "trigger ig search/read",
+        "prompt": "Use `ig \"pattern\" [path]` for code search. Trigram-indexed, fast, project-aware."
+    }));
+
+    if !dry_run {
+        let formatted = serde_json::to_string_pretty(&parsed).unwrap_or_default();
+        match write_if_not_dry(&config_path, format!("{}\n", formatted).as_bytes(), dry_run) {
+            Ok(_) => vec![ConfigResult::Configured(
+                "Added ig command to ~/.continue/config.json customCommands".to_string(),
+            )],
+            Err(e) => vec![ConfigResult::Error(e)],
+        }
+    } else {
+        vec![ConfigResult::Configured(
+            "Would add ig command to ~/.continue/config.json customCommands".to_string(),
+        )]
+    }
+}
+
+// ─── Zed ──────────────────────────────────────────────────────────────────────
+
+fn configure_zed(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+    let zed_dir = home.join(".config/zed");
+    let settings_path = zed_dir.join("settings.json");
+
+    let content = fs::read_to_string(&settings_path).unwrap_or_else(|_| "{}".to_string());
+    let mut parsed: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => {
+            return vec![ConfigResult::Error(
+                "Could not parse ~/.config/zed/settings.json".to_string(),
+            )];
+        }
+    };
+
+    // Check if already configured
+    let already = parsed
+        .get("assistant")
+        .and_then(|a| a.get("context_servers"))
+        .and_then(|cs| cs.get("ig"))
+        .is_some();
+
+    if already {
+        return vec![ConfigResult::AlreadyDone(
+            "ig context server already in ~/.config/zed/settings.json".to_string(),
+        )];
+    }
+
+    // Ensure assistant.context_servers.ig exists
+    if parsed.get("assistant").is_none() {
+        parsed["assistant"] = serde_json::json!({});
+    }
+    if parsed["assistant"].get("context_servers").is_none() {
+        parsed["assistant"]["context_servers"] = serde_json::json!({});
+    }
+    parsed["assistant"]["context_servers"]["ig"] = serde_json::json!({
+        "command": "ig",
+        "args": ["rewrite"]
+    });
+
+    if !dry_run {
+        let formatted = serde_json::to_string_pretty(&parsed).unwrap_or_default();
+        match write_if_not_dry(&settings_path, format!("{}\n", formatted).as_bytes(), dry_run) {
+            Ok(_) => vec![ConfigResult::Configured(
+                "Added ig context server to ~/.config/zed/settings.json".to_string(),
+            )],
+            Err(e) => vec![ConfigResult::Error(e)],
+        }
+    } else {
+        vec![ConfigResult::Configured(
+            "Would add ig context server to ~/.config/zed/settings.json".to_string(),
+        )]
+    }
+}
+
+// ─── Kilo ─────────────────────────────────────────────────────────────────────
+
+fn configure_kilo(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+    // Prefer ~/.kilo/, fall back to ./.kilo/ detection but always write to ~/.kilo/
+    let kilo_dir = home.join(".kilo");
+    let md_path = kilo_dir.join("kilorules.md");
+
+    let content = fs::read_to_string(&md_path).unwrap_or_default();
+
+    if content.contains("## Search Tools") && content.contains("ig") {
+        return vec![ConfigResult::AlreadyDone(
+            "kilorules.md already has ig instructions".to_string(),
+        )];
+    }
+
+    let new_content = if content.is_empty() {
+        format!("# kilorules.md\n{}", IG_SEARCH_TOOLS_SECTION)
+    } else {
+        format!("{}\n{}", content.trim_end(), IG_SEARCH_TOOLS_SECTION)
+    };
+
+    match write_if_not_dry(&md_path, new_content.as_bytes(), dry_run) {
+        Ok(_) => vec![ConfigResult::Configured(
+            "Added ig instructions to ~/.kilo/kilorules.md".to_string(),
+        )],
+        Err(e) => vec![ConfigResult::Error(e)],
+    }
+}
+
 /// Resolve the real user's home directory, even when running under sudo.
 pub(crate) fn resolve_real_home() -> Option<PathBuf> {
     // If SUDO_USER is set, we're running under sudo — use the real user's home
@@ -713,150 +1189,28 @@ pub fn run_setup(dry_run: bool) {
 
     let mut configured = 0u32;
 
-    // --- Claude Code ---
-    let claude_dir = home.join(".claude");
-    if claude_dir.is_dir() || which_exists("claude") {
-        if !claude_dir.is_dir() {
-            let _ = fs::create_dir_all(&claude_dir);
+    let agents: &[&dyn AgentSetup] = &[
+        &ClaudeCodeAgent,
+        &CodexAgent,
+        &OpenCodeAgent,
+        &CursorAgent,
+        &CopilotAgent,
+        &WindsurfAgent,
+        &ClineAgent,
+        &GeminiAgent,
+        &AiderAgent,
+        &ContinueAgent,
+        &ZedAgent,
+        &KiloAgent,
+    ];
+
+    for agent in agents {
+        if agent.is_present(&home) {
+            let results = agent.configure(&home, dry_run);
+            print_results(agent.name(), &results, &mut configured);
+        } else {
+            eprintln!("\x1b[2m⊘ {} — not detected\x1b[0m", agent.name());
         }
-        let mut actions = Vec::new();
-
-        // Existing: permissions + CLAUDE.md
-        actions.push(configure_claude_settings(&claude_dir));
-        actions.push(configure_claude_md(&claude_dir));
-
-        // NEW: Full hook suite
-        actions.extend(configure_claude_hooks_full(&claude_dir, dry_run));
-
-        // NEW: Env vars
-        actions.extend(configure_claude_env_vars(&claude_dir, dry_run));
-
-        eprintln!("\x1b[32m✓ Claude Code\x1b[0m");
-        for action in &actions {
-            match action {
-                ConfigResult::Configured(msg) => eprintln!("  → {}", msg),
-                ConfigResult::AlreadyDone(msg) => eprintln!("  \x1b[2m→ {}\x1b[0m", msg),
-                ConfigResult::Error(msg) => eprintln!("  \x1b[31m✗ {}\x1b[0m", msg),
-            }
-        }
-        configured += 1;
-    } else {
-        eprintln!("\x1b[2m⊘ Claude Code — not detected\x1b[0m");
-    }
-
-    // --- Codex CLI ---
-    let codex_dir = home.join(".codex");
-    if codex_dir.is_dir() || which_exists("codex") {
-        if !codex_dir.is_dir() {
-            let _ = fs::create_dir_all(&codex_dir);
-        }
-        let result = configure_codex_agents_md(&codex_dir);
-        eprintln!("\x1b[32m✓ Codex CLI\x1b[0m");
-        match &result {
-            ConfigResult::Configured(msg) | ConfigResult::AlreadyDone(msg) => {
-                eprintln!("  → {}", msg)
-            }
-            ConfigResult::Error(msg) => eprintln!("  \x1b[31m✗ {}\x1b[0m", msg),
-        }
-        configured += 1;
-    } else {
-        eprintln!("\x1b[2m⊘ Codex CLI — not detected\x1b[0m");
-    }
-
-    // --- OpenCode ---
-    let opencode_dir = home.join(".config/opencode");
-    if opencode_dir.is_dir() || which_exists("opencode") {
-        let actions = configure_opencode(&home, dry_run);
-        eprintln!("\x1b[32m✓ OpenCode\x1b[0m");
-        for action in &actions {
-            match action {
-                ConfigResult::Configured(msg) => eprintln!("  → {}", msg),
-                ConfigResult::AlreadyDone(msg) => eprintln!("  \x1b[2m→ {}\x1b[0m", msg),
-                ConfigResult::Error(msg) => eprintln!("  \x1b[31m✗ {}\x1b[0m", msg),
-            }
-        }
-        configured += 1;
-    } else {
-        eprintln!("\x1b[2m⊘ OpenCode — not detected\x1b[0m");
-    }
-
-    // --- Cursor ---
-    let cursor_dir = home.join(".cursor");
-    if cursor_dir.is_dir() {
-        let actions = configure_cursor(&home, dry_run);
-        eprintln!("\x1b[32m✓ Cursor\x1b[0m");
-        for action in &actions {
-            match action {
-                ConfigResult::Configured(msg) => eprintln!("  → {}", msg),
-                ConfigResult::AlreadyDone(msg) => eprintln!("  \x1b[2m→ {}\x1b[0m", msg),
-                ConfigResult::Error(msg) => eprintln!("  \x1b[31m✗ {}\x1b[0m", msg),
-            }
-        }
-        configured += 1;
-    } else {
-        eprintln!("\x1b[2m⊘ Cursor — not detected\x1b[0m");
-    }
-
-    // --- Copilot ---
-    let github_dir = home.join(".github");
-    let project_github = PathBuf::from(".github");
-    if github_dir.is_dir() || project_github.is_dir() {
-        let actions = configure_copilot(&home, dry_run);
-        eprintln!("\x1b[32m✓ GitHub Copilot\x1b[0m");
-        for action in &actions {
-            match action {
-                ConfigResult::Configured(msg) => eprintln!("  → {}", msg),
-                ConfigResult::AlreadyDone(msg) => eprintln!("  \x1b[2m→ {}\x1b[0m", msg),
-                ConfigResult::Error(msg) => eprintln!("  \x1b[31m✗ {}\x1b[0m", msg),
-            }
-        }
-        configured += 1;
-    } else {
-        eprintln!("\x1b[2m⊘ GitHub Copilot — not detected\x1b[0m");
-    }
-
-    // --- Windsurf ---
-    let windsurf_dir = home.join(".windsurf");
-    let project_windsurf = PathBuf::from(".windsurf");
-    if windsurf_dir.is_dir() || project_windsurf.is_dir() {
-        let actions = configure_windsurf(&home, dry_run);
-        eprintln!("\x1b[32m✓ Windsurf\x1b[0m");
-        for action in &actions {
-            match action {
-                ConfigResult::Configured(msg) => eprintln!("  → {}", msg),
-                ConfigResult::AlreadyDone(msg) => eprintln!("  \x1b[2m→ {}\x1b[0m", msg),
-                ConfigResult::Error(msg) => eprintln!("  \x1b[31m✗ {}\x1b[0m", msg),
-            }
-        }
-        configured += 1;
-    } else {
-        eprintln!("\x1b[2m⊘ Windsurf — not detected\x1b[0m");
-    }
-
-    // --- Cline ---
-    let cline_dir = home.join(".cline");
-    let project_cline = PathBuf::from(".cline");
-    if cline_dir.is_dir() || project_cline.is_dir() {
-        let actions = configure_cline(&home, dry_run);
-        eprintln!("\x1b[32m✓ Cline\x1b[0m");
-        for action in &actions {
-            match action {
-                ConfigResult::Configured(msg) => eprintln!("  → {}", msg),
-                ConfigResult::AlreadyDone(msg) => eprintln!("  \x1b[2m→ {}\x1b[0m", msg),
-                ConfigResult::Error(msg) => eprintln!("  \x1b[31m✗ {}\x1b[0m", msg),
-            }
-        }
-        configured += 1;
-    } else {
-        eprintln!("\x1b[2m⊘ Cline — not detected\x1b[0m");
-    }
-
-    // --- Gemini CLI ---
-    let gemini_dir = home.join(".gemini");
-    if gemini_dir.is_dir() || which_exists("gemini") {
-        eprintln!("\n\x1b[33mℹ Gemini CLI\x1b[0m (manual setup needed)");
-        eprintln!("  Add to ~/.gemini/GEMINI.md or GEMINI.md in your project:");
-        eprintln!("  \x1b[36mPrefer `ig \"pattern\"` over `rg` or `grep` for code search.\x1b[0m");
     }
 
     // --- Summary ---
@@ -1562,5 +1916,92 @@ mod tests {
             _ => false,
         });
         assert!(has_subagent);
+    }
+
+    // ─── 5 new agent tests ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_configure_gemini_creates_gemini_md() {
+        let dir = TempDir::new().unwrap();
+        let results = configure_gemini(dir.path(), false);
+        assert!(matches!(results[0], ConfigResult::Configured(_)));
+        let md = dir.path().join(".gemini/GEMINI.md");
+        assert!(md.exists());
+        let content = fs::read_to_string(&md).unwrap();
+        assert!(content.contains("ig"));
+        assert!(content.contains("Search Tools"));
+        // Idempotence
+        let results2 = configure_gemini(dir.path(), false);
+        assert!(matches!(results2[0], ConfigResult::AlreadyDone(_)));
+    }
+
+    #[test]
+    fn test_configure_aider_creates_conf_and_ig_md() {
+        let dir = TempDir::new().unwrap();
+        let results = configure_aider(dir.path(), false);
+        let errors: Vec<_> = results
+            .iter()
+            .filter(|r| matches!(r, ConfigResult::Error(_)))
+            .collect();
+        assert!(errors.is_empty(), "no errors expected");
+        assert!(dir.path().join(".aider/IG.md").exists());
+        assert!(dir.path().join(".aider.conf.yml").exists());
+        let conf = fs::read_to_string(dir.path().join(".aider.conf.yml")).unwrap();
+        assert!(conf.contains("IG.md"));
+        // Idempotence
+        let results2 = configure_aider(dir.path(), false);
+        let already: Vec<_> = results2
+            .iter()
+            .filter(|r| matches!(r, ConfigResult::AlreadyDone(_)))
+            .collect();
+        assert_eq!(already.len(), 2, "both IG.md and conf should be AlreadyDone");
+    }
+
+    #[test]
+    fn test_configure_continue_creates_custom_command() {
+        let dir = TempDir::new().unwrap();
+        let continue_dir = dir.path().join(".continue");
+        fs::create_dir_all(&continue_dir).unwrap();
+        fs::write(continue_dir.join("config.json"), "{}").unwrap();
+
+        let results = configure_continue(dir.path(), false);
+        assert!(matches!(results[0], ConfigResult::Configured(_)));
+        let config = fs::read_to_string(continue_dir.join("config.json")).unwrap();
+        assert!(config.contains("\"ig\""));
+        // Idempotence
+        let results2 = configure_continue(dir.path(), false);
+        assert!(matches!(results2[0], ConfigResult::AlreadyDone(_)));
+    }
+
+    #[test]
+    fn test_configure_zed_creates_context_server() {
+        let dir = TempDir::new().unwrap();
+        let zed_dir = dir.path().join(".config/zed");
+        fs::create_dir_all(&zed_dir).unwrap();
+        fs::write(zed_dir.join("settings.json"), "{}").unwrap();
+
+        let results = configure_zed(dir.path(), false);
+        assert!(matches!(results[0], ConfigResult::Configured(_)));
+        let settings = fs::read_to_string(zed_dir.join("settings.json")).unwrap();
+        assert!(settings.contains("context_servers"));
+        assert!(settings.contains("\"ig\""));
+        // Idempotence
+        let results2 = configure_zed(dir.path(), false);
+        assert!(matches!(results2[0], ConfigResult::AlreadyDone(_)));
+    }
+
+    #[test]
+    fn test_configure_kilo_creates_kilorules_md() {
+        let dir = TempDir::new().unwrap();
+        let results = configure_kilo(dir.path(), false);
+        assert!(matches!(results[0], ConfigResult::Configured(_)));
+        let md = dir.path().join(".kilo/kilorules.md");
+        assert!(md.exists());
+        let content = fs::read_to_string(&md).unwrap();
+        assert!(content.contains("ig"));
+        assert!(content.contains("Search Tools"));
+        // Idempotence
+        let results2 = configure_kilo(dir.path(), false);
+        assert!(matches!(results2[0], ConfigResult::AlreadyDone(_)));
     }
 }
