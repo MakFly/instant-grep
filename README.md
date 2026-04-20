@@ -279,6 +279,20 @@ Since v1.7.0, ig is a **complete standalone solution** for AI agent token optimi
 | ls (5 listings) | 4.3K | 758B | **-83%** |
 | **Total (100 commands)** | **3.7 MB** | **241K** | **-93.5%** |
 
+### ig vs rtk (output-compression proxies)
+
+Benchmark on 19 commands (rust/cloud + mocked pytest/jest/kubectl/terraform/helm/ansible/npm/pnpm/ruff/eslint). Measurement: `cmd 2>&1 | wc -c` vs `ig run <cmd>` vs `rtk <cmd>`. See `/tmp/rtk-bench/REPORT.md` for full per-command table.
+
+| Metric | ig | rtk |
+|---|---|---|
+| Wins | **10 / 19** | 3 / 19 |
+| Ties | 6 / 19 | 6 / 19 |
+| Top wins for ig | `ls -laR` 89% · `cargo clippy` 100% · `git status` 88% · `eslint` 71% · `pnpm install` 87% |
+| Top wins for rtk | `helm list` 20% · `ansible-playbook` 39% |
+| Median wallclock | ~10ms | ~10ms (parity) |
+
+When ig's filters match (after the basename-normalization fix in 3aaa7f9), ig matches or beats rtk on most common commands. ig's dedicated subcommands (`ig ls`, `ig git`, `ig read`) compress harder than a generic output filter because they know the semantic structure of what they read.
+
 ### ig v1.4.0 vs ripgrep
 
 | Pattern | ig | ripgrep | Winner |

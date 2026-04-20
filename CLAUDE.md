@@ -82,3 +82,19 @@ ig setup                     # configure AI CLI agents + install hooks
 - INDEX_VERSION must be bumped when on-disk format changes
 - Tests must reproduce danlark1 test vectors for sparse n-grams
 - 38 default excluded directories (node_modules, target, vendor, etc.)
+
+## Filter matching policy
+
+`ig run <cmd>` looks up a filter with a two-step lookup in `src/cmds/run.rs::resolve_filter`:
+1. Try the raw command string (`cargo test --release`).
+2. On miss, retry with `args[0]` replaced by its basename (`/usr/bin/cargo` → `cargo`).
+
+This is how filters whose `match` regex starts with `^pytest` still activate when the command is invoked through an absolute path (shebang, wrapper, mock). Do not add path-aware regexes to filter `.toml` files — the normalization does that for you.
+
+`ig run` also transparently routes to dedicated ig subcommands when appropriate:
+- `ig run ls …` → `ig ls`
+- `ig run git status/log/diff` → `ig git`
+- `ig run find …` → `ig files`
+- `ig run cat …` → `ig read`
+
+Routing is opt-out via `IG_RUN_ROUTE=0`.
