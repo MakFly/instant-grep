@@ -412,6 +412,115 @@ struct CmdStats {
     estimated_bytes: u64,
 }
 
+/// Parse a line of shell history and return the command portion, stripping
+/// any leading zsh-extended `: <epoch>:<elapsed>;` prefix.
+fn parse_history_line(line: &str) -> Option<&str> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return None;
+    }
+    if trimmed.starts_with(": ")
+        && let Some(idx) = trimmed.find(';')
+    {
+        return Some(trimmed[idx + 1..].trim());
+    }
+    Some(trimmed)
+}
+
+fn shell_history_files() -> Vec<PathBuf> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let home = PathBuf::from(home);
+    [".zsh_history", ".bash_history", ".histfile"]
+        .iter()
+        .map(|f| home.join(f))
+        .filter(|p| p.exists())
+        .collect()
+}
+
+/// Scan `~/.zsh_history` / `~/.bash_history` for commands that could go
+/// through `ig run`. Complementary to `run_discover` which reads Claude
+/// Code sessions — many users run commands both in their shell and inside
+/// an agent.
+pub fn run_shell_history_scan(since_days: u32, limit: usize) {
+    let files = shell_history_files();
+    if files.is_empty() {
+        eprintln!("No shell history files found under $HOME");
+        return;
+    }
+
+    let cutoff = if since_days > 0 {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        now.saturating_sub(since_days as u64 * 86400)
+    } else {
+        0
+    };
+
+    let mut missed: BTreeMap<String, CmdStats> = BTreeMap::new();
+    let mut total = 0u64;
+
+    for path in &files {
+        // Skip old files entirely if their mtime predates the window
+        if cutoff > 0
+            && let Ok(meta) = fs::metadata(path)
+            && let Ok(modified) = meta.modified()
+        {
+            let mtime = modified
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            if mtime < cutoff.saturating_sub(86400) {
+                continue;
+            }
+        }
+        let Ok(content) = fs::read_to_string(path) else {
+            continue;
+        };
+        for line in content.lines() {
+            let Some(cmd) = parse_history_line(line) else {
+                continue;
+            };
+            total += 1;
+            if let RewriteResult::Rewrite(_) = discover_classify(cmd) {
+                let key = discover_command_key(cmd);
+                let stats = missed.entry(key).or_default();
+                stats.count += 1;
+                stats.estimated_bytes += estimate_output_bytes(cmd);
+            }
+        }
+    }
+
+    eprintln!();
+    eprintln!(
+        "\x1b[1mShell history scan\x1b[0m ({} files, {} cmds)",
+        files.len(),
+        total
+    );
+    eprintln!("────────────────────────────────────────────────────────────");
+    if missed.is_empty() {
+        eprintln!("  No missed opportunities in shell history.");
+        return;
+    }
+    eprintln!(
+        "  {:<35} {:>6}  {:>10}",
+        "Command Pattern", "Count", "Est. Saved"
+    );
+    eprintln!("────────────────────────────────────────────────────────────");
+    let mut sorted: Vec<_> = missed.into_iter().collect();
+    sorted.sort_by(|a, b| b.1.count.cmp(&a.1.count));
+    for (cmd, stats) in sorted.iter().take(limit) {
+        eprintln!(
+            "  {:<35} {:>6}  {:>10}",
+            cmd,
+            stats.count,
+            format_bytes(stats.estimated_bytes)
+        );
+    }
+    eprintln!("────────────────────────────────────────────────────────────");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -560,5 +669,35 @@ mod tests {
     fn test_discover_key_simple_command() {
         assert_eq!(discover_command_key("grep -rn pattern src/"), "grep");
         assert_eq!(discover_command_key("git log --oneline"), "git log");
+    }
+
+    // --- parse_history_line: shell history parsing ---
+
+    #[test]
+    fn test_parse_history_plain_line() {
+        assert_eq!(parse_history_line("grep foo src/"), Some("grep foo src/"));
+        assert_eq!(
+            parse_history_line("  cargo test  "),
+            Some("cargo test")
+        );
+    }
+
+    #[test]
+    fn test_parse_history_zsh_extended_line() {
+        assert_eq!(
+            parse_history_line(": 1700000000:0;grep pattern file"),
+            Some("grep pattern file")
+        );
+        assert_eq!(
+            parse_history_line(": 1700000000:12;cargo build --release"),
+            Some("cargo build --release")
+        );
+    }
+
+    #[test]
+    fn test_parse_history_skips_empty_and_comments() {
+        assert_eq!(parse_history_line(""), None);
+        assert_eq!(parse_history_line("   "), None);
+        assert_eq!(parse_history_line("# a comment"), None);
     }
 }

@@ -522,8 +522,15 @@ fn main() -> Result<()> {
             std::process::exit(status.code().unwrap_or(1));
         }
 
-        Some(Commands::Discover { since, limit }) => {
+        Some(Commands::Discover {
+            since,
+            limit,
+            shell,
+        }) => {
             discover::run_discover(since, limit);
+            if shell {
+                discover::run_shell_history_scan(since, limit);
+            }
         }
 
         Some(Commands::Completions { shell }) => {

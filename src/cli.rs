@@ -263,16 +263,21 @@ pub enum Commands {
         command: Vec<String>,
     },
 
-    /// Discover missed token-saving opportunities (use `ig gain --discover` instead)
-    #[command(hide = true)]
+    /// Discover missed token-saving opportunities across agent sessions and
+    /// shell history. Reports commands that could have gone through `ig run`
+    /// but didn't.
     Discover {
-        /// Only scan sessions from the last N days (default: 30)
+        /// Only scan sessions/history from the last N days (default: 30)
         #[arg(long, default_value = "30")]
         since: u32,
 
         /// Maximum entries to show per section (default: 15)
         #[arg(long, default_value = "15")]
         limit: usize,
+
+        /// Also scan ~/.zsh_history and ~/.bash_history for missed cmds
+        #[arg(long)]
+        shell: bool,
     },
 
     /// Generate shell completions (bash, zsh, fish, powershell)
