@@ -257,7 +257,7 @@ pub enum Commands {
 
     /// Execute a command without ig filtering (debug/passthrough mode)
     #[command(hide = true)]
-    Proxy {
+    Raw {
         /// The command to execute raw
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         command: Vec<String>,
@@ -313,6 +313,7 @@ pub enum Commands {
     },
 
     /// Run a command with token-optimized output filtering
+    #[command(alias = "proxy")]
     Run {
         /// Command and arguments to run
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]

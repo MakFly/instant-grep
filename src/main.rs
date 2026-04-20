@@ -507,16 +507,16 @@ fn main() -> Result<()> {
             }
         }
 
-        Some(Commands::Proxy { command: proxy_cmd }) => {
-            if proxy_cmd.is_empty() {
-                eprintln!("Usage: ig proxy <command...>");
+        Some(Commands::Raw { command: raw_cmd }) => {
+            if raw_cmd.is_empty() {
+                eprintln!("Usage: ig raw <command...>");
                 std::process::exit(1);
             }
-            let status = std::process::Command::new(&proxy_cmd[0])
-                .args(&proxy_cmd[1..])
+            let status = std::process::Command::new(&raw_cmd[0])
+                .args(&raw_cmd[1..])
                 .status()
                 .unwrap_or_else(|e| {
-                    eprintln!("Failed to execute {}: {}", proxy_cmd[0], e);
+                    eprintln!("Failed to execute {}: {}", raw_cmd[0], e);
                     std::process::exit(1);
                 });
             std::process::exit(status.code().unwrap_or(1));

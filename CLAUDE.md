@@ -36,6 +36,9 @@ Pipeline: `regex → regex-syntax Extractor → covering sparse n-grams → hash
 - `src/pack.rs` — project context generator (.ig/context.md)
 - `src/ls.rs` — compact directory listing
 - `src/rewrite.rs` — command rewriting engine for PreToolUse hook
+- `src/runner.rs` — `ig run`/`ig proxy` command proxy with filter pipeline and tee fallback
+- `src/tee.rs` — tee store for raw output of truncated/failed commands (`.ig/tee/`)
+- `src/filter/` — TOML-driven filter pipeline (8 stages: ansi, replace, keep, drop, truncate, head, tail, fallback)
 - `src/tracking.rs` — token savings tracking (JSONL history)
 - `src/gain.rs` — savings dashboard
 - `src/setup.rs` — AI agent auto-configuration + hook installation
@@ -62,6 +65,11 @@ ig read <file> [-s]          # smart file reading (signatures mode)
 ig smart [path]              # 2-line file summaries
 ig pack [path]               # generate .ig/context.md
 ig gain [--clear]            # token savings dashboard
+ig run <cmd>                 # run any command through the filter pipeline
+ig proxy <cmd>               # alias of `ig run` (more intuitive in hook rewrites)
+ig tee list                  # list saved raw outputs of truncated / failed commands
+ig tee show <id>             # print the raw output of a tee entry
+ig tee clear                 # delete every tee entry
 ig rewrite <cmd>             # rewrite command to ig equivalent (hook-internal, hidden from --help)
 ig completions <shell>       # generate shell completions
 ig setup                     # configure AI CLI agents + install hooks
