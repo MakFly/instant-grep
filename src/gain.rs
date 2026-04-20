@@ -514,6 +514,122 @@ fn command_key(cmd: &str) -> String {
     }
 }
 
+/// Return the [start, end) unix-second range for a named period.
+/// Supported: this-day, last-day, this-week, last-week, this-month, last-month.
+fn period_range(name: &str, now: u64) -> Option<(u64, u64)> {
+    const DAY: u64 = 86400;
+    let today = (now / DAY) * DAY;
+    // Compute "start of current week" — treat week as 7 days ending today (simple model).
+    let week_start = today.saturating_sub(6 * DAY);
+    // Month = last 30 days window (calendar-month parsing is done elsewhere via month_from_ts).
+    let month_start = today.saturating_sub(29 * DAY);
+    match name {
+        "this-day" => Some((today, now)),
+        "last-day" => Some((today.saturating_sub(DAY), today)),
+        "this-week" => Some((week_start, now)),
+        "last-week" => Some((
+            week_start.saturating_sub(7 * DAY),
+            week_start,
+        )),
+        "this-month" => Some((month_start, now)),
+        "last-month" => Some((
+            month_start.saturating_sub(30 * DAY),
+            month_start,
+        )),
+        _ => None,
+    }
+}
+
+fn sum_entries(entries: &[&tracking::HistoryEntry], range: (u64, u64)) -> (u64, u64, usize) {
+    let (a, b) = range;
+    let mut input = 0u64;
+    let mut output = 0u64;
+    let mut count = 0usize;
+    for e in entries {
+        if e.timestamp >= a && e.timestamp < b {
+            input += e.original_bytes;
+            output += e.output_bytes;
+            count += 1;
+        }
+    }
+    (input, output, count)
+}
+
+/// Compare token savings between two named periods.
+pub fn show_compare(spec: &str, json: bool) {
+    let parts: Vec<&str> = spec.splitn(2, ':').collect();
+    if parts.len() != 2 {
+        eprintln!(
+            "Invalid --compare value: {}. Expected format: this-week:last-week",
+            spec
+        );
+        return;
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let Some(left) = period_range(parts[0], now) else {
+        eprintln!("Unknown period: {}", parts[0]);
+        return;
+    };
+    let Some(right) = period_range(parts[1], now) else {
+        eprintln!("Unknown period: {}", parts[1]);
+        return;
+    };
+
+    let all = tracking::read_history();
+    let refs: Vec<&tracking::HistoryEntry> = all.iter().collect();
+
+    let (li, lo, lc) = sum_entries(&refs, left);
+    let (ri, ro, rc) = sum_entries(&refs, right);
+    let ls = li.saturating_sub(lo);
+    let rs = ri.saturating_sub(ro);
+
+    if json {
+        println!(
+            "{{\"left\":{{\"name\":\"{}\",\"commands\":{},\"saved\":{}}},\"right\":{{\"name\":\"{}\",\"commands\":{},\"saved\":{}}}}}",
+            parts[0], lc, ls, parts[1], rc, rs
+        );
+        return;
+    }
+
+    eprintln!(
+        "\x1b[1mgain --compare\x1b[0m  {} vs {}",
+        parts[0], parts[1]
+    );
+    eprintln!("────────────────────────────────────────────────────────────");
+    eprintln!(
+        "  {:<18} {:>6}  {:>10}  {:>10}",
+        "Period", "Count", "Saved", "Input"
+    );
+    eprintln!("────────────────────────────────────────────────────────────");
+    eprintln!(
+        "  {:<18} {:>6}  {:>10}  {:>10}",
+        parts[0],
+        lc,
+        format_bytes(ls),
+        format_bytes(li)
+    );
+    eprintln!(
+        "  {:<18} {:>6}  {:>10}  {:>10}",
+        parts[1],
+        rc,
+        format_bytes(rs),
+        format_bytes(ri)
+    );
+    eprintln!("────────────────────────────────────────────────────────────");
+    let delta_count = lc as i64 - rc as i64;
+    let delta_saved = ls as i64 - rs as i64;
+    let sign = if delta_saved >= 0 { "+" } else { "" };
+    eprintln!(
+        "  Δ commands: {:+}    Δ saved: {}{}",
+        delta_count,
+        sign,
+        format_bytes(delta_saved.unsigned_abs())
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -556,5 +672,63 @@ mod tests {
     fn test_short_date() {
         let ts = 20554 * 86400;
         assert_eq!(short_date_from_ts(ts), "Apr 11");
+    }
+
+    #[test]
+    fn period_range_this_day() {
+        let now = 1_700_000_000; // mid-day
+        let (a, b) = period_range("this-day", now).unwrap();
+        assert!(a <= now);
+        assert_eq!(b, now);
+        assert!((now - a) < 86400);
+    }
+
+    #[test]
+    fn period_range_last_week() {
+        let now = 1_700_000_000;
+        let (a, b) = period_range("last-week", now).unwrap();
+        assert!(b > a);
+        assert_eq!(b - a, 7 * 86400);
+    }
+
+    #[test]
+    fn period_range_unknown() {
+        assert!(period_range("yesterday", 0).is_none());
+    }
+
+    #[test]
+    fn sum_entries_filters_by_range() {
+        let entries = [
+            tracking::HistoryEntry {
+                command: "ig read".into(),
+                original_bytes: 1000,
+                output_bytes: 200,
+                saved_bytes: 800,
+                timestamp: 100,
+                project: "".into(),
+            },
+            tracking::HistoryEntry {
+                command: "ig ls".into(),
+                original_bytes: 500,
+                output_bytes: 100,
+                saved_bytes: 400,
+                timestamp: 200,
+                project: "".into(),
+            },
+            tracking::HistoryEntry {
+                command: "ig git".into(),
+                original_bytes: 300,
+                output_bytes: 50,
+                saved_bytes: 250,
+                timestamp: 300,
+                project: "".into(),
+            },
+        ];
+        let refs: Vec<&tracking::HistoryEntry> = entries.iter().collect();
+        // Range [150, 250) should match only the second entry (ts=200).
+        let (input, output, count) = sum_entries(&refs, (150, 250));
+        assert_eq!(count, 1);
+        assert_eq!(input, 500);
+        assert_eq!(output, 100);
     }
 }

@@ -253,6 +253,15 @@ pub enum Commands {
         /// Days to scan for --discover (default: 30)
         #[arg(long, default_value = "30")]
         since: u32,
+
+        /// Show commands from shell history that should have gone through ig
+        #[arg(long)]
+        missed: bool,
+
+        /// Compare two periods (this-week, last-week, this-month, last-month,
+        /// this-day, last-day). Format: "this-week:last-week".
+        #[arg(long, value_name = "PERIODS")]
+        compare: Option<String>,
     },
 
     /// Execute a command without ig filtering (debug/passthrough mode)

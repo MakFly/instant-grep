@@ -488,9 +488,15 @@ fn main() -> Result<()> {
             monthly,
             discover: gain_discover,
             since,
+            missed,
+            compare,
         }) => {
             if gain_discover {
                 discover::run_discover(since, 15);
+            } else if missed {
+                discover::run_shell_history_scan(since, 15);
+            } else if let Some(spec) = compare {
+                gain::show_compare(&spec, gain_json);
             } else {
                 gain::show_gain(gain::GainOpts {
                     clear,
