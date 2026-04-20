@@ -1,0 +1,16 @@
+[[filters]]
+name = "ruff-check"
+match = "^ruff check"
+strip_ansi = true
+keep_lines = "\\S+\\.py:\\d+:"
+truncate_at = 200
+max_lines = 60
+on_empty = "All checks passed"
+
+[[filters]]
+name = "ruff-format"
+match = "^ruff format"
+strip_ansi = true
+keep_lines = "(reformatted|unchanged|error|Error)"
+max_lines = 30
+on_empty = "All files already formatted"

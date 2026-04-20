@@ -1,0 +1,15 @@
+[[filters]]
+name = "eslint-json"
+match = "^(eslint|npx eslint|bunx eslint).*(--format json|--f json|-f json)"
+strip_ansi = true
+truncate_at = 300
+max_lines = 80
+
+[[filters]]
+name = "eslint-compact"
+match = "^(eslint|npx eslint|bunx eslint)"
+strip_ansi = true
+keep_lines = "(\\S+\\.(?:js|ts|jsx|tsx|mjs|cjs).*(?:error|warning)|\\d+ error|\\d+ warning|problem)"
+truncate_at = 200
+max_lines = 60
+on_empty = "No lint errors"

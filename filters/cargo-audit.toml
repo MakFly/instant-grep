@@ -1,0 +1,7 @@
+[[filters]]
+name = "cargo-audit"
+match = "^cargo audit"
+strip_ansi = true
+keep_lines = "(Crate:|Version:|Title:|Date:|ID:|Severity:|URL:|error|warning|Vulnerabilities found|No vulnerabilities)"
+max_lines = 60
+on_empty = "No vulnerabilities found"

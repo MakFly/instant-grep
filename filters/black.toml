@@ -1,0 +1,7 @@
+[[filters]]
+name = "black"
+match = "^(black|python -m black)"
+strip_ansi = true
+keep_lines = "(reformatted|\\d+ file|unchanged|error|Error|would reformat)"
+max_lines = 30
+on_empty = "All files already formatted"
