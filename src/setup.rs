@@ -1019,12 +1019,9 @@ fn configure_continue(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
     }
 
     let commands = parsed["customCommands"].as_array_mut().unwrap();
-    let already = commands.iter().any(|c| {
-        c.get("name")
-            .and_then(|n| n.as_str())
-            .unwrap_or("")
-            == "ig"
-    });
+    let already = commands
+        .iter()
+        .any(|c| c.get("name").and_then(|n| n.as_str()).unwrap_or("") == "ig");
 
     if already {
         return vec![ConfigResult::AlreadyDone(
@@ -1096,7 +1093,11 @@ fn configure_zed(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
 
     if !dry_run {
         let formatted = serde_json::to_string_pretty(&parsed).unwrap_or_default();
-        match write_if_not_dry(&settings_path, format!("{}\n", formatted).as_bytes(), dry_run) {
+        match write_if_not_dry(
+            &settings_path,
+            format!("{}\n", formatted).as_bytes(),
+            dry_run,
+        ) {
             Ok(_) => vec![ConfigResult::Configured(
                 "Added ig context server to ~/.config/zed/settings.json".to_string(),
             )],
@@ -1954,7 +1955,11 @@ mod tests {
             .iter()
             .filter(|r| matches!(r, ConfigResult::AlreadyDone(_)))
             .collect();
-        assert_eq!(already.len(), 2, "both IG.md and conf should be AlreadyDone");
+        assert_eq!(
+            already.len(),
+            2,
+            "both IG.md and conf should be AlreadyDone"
+        );
     }
 
     #[test]

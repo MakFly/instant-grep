@@ -80,10 +80,7 @@ fn run_all_goldens() {
 
         match engine.filter_output(&cmd, &raw) {
             None => {
-                failures.push(format!(
-                    "[{}] no filter matched command: {:?}",
-                    stem, cmd
-                ));
+                failures.push(format!("[{}] no filter matched command: {:?}", stem, cmd));
             }
             Some(actual) => {
                 let actual = actual.trim_end().to_string();

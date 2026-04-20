@@ -527,15 +527,9 @@ fn period_range(name: &str, now: u64) -> Option<(u64, u64)> {
         "this-day" => Some((today, now)),
         "last-day" => Some((today.saturating_sub(DAY), today)),
         "this-week" => Some((week_start, now)),
-        "last-week" => Some((
-            week_start.saturating_sub(7 * DAY),
-            week_start,
-        )),
+        "last-week" => Some((week_start.saturating_sub(7 * DAY), week_start)),
         "this-month" => Some((month_start, now)),
-        "last-month" => Some((
-            month_start.saturating_sub(30 * DAY),
-            month_start,
-        )),
+        "last-month" => Some((month_start.saturating_sub(30 * DAY), month_start)),
         _ => None,
     }
 }
@@ -594,10 +588,7 @@ pub fn show_compare(spec: &str, json: bool) {
         return;
     }
 
-    eprintln!(
-        "\x1b[1mgain --compare\x1b[0m  {} vs {}",
-        parts[0], parts[1]
-    );
+    eprintln!("\x1b[1mgain --compare\x1b[0m  {} vs {}", parts[0], parts[1]);
     eprintln!("────────────────────────────────────────────────────────────");
     eprintln!(
         "  {:<18} {:>6}  {:>10}  {:>10}",

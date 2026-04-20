@@ -676,10 +676,7 @@ mod tests {
     #[test]
     fn test_parse_history_plain_line() {
         assert_eq!(parse_history_line("grep foo src/"), Some("grep foo src/"));
-        assert_eq!(
-            parse_history_line("  cargo test  "),
-            Some("cargo test")
-        );
+        assert_eq!(parse_history_line("  cargo test  "), Some("cargo test"));
     }
 
     #[test]

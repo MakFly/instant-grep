@@ -265,7 +265,12 @@ mod tests {
     fn rotation_keeps_20_most_recent() {
         let tmp = tempfile::tempdir().unwrap();
         for i in 0..25 {
-            save_in(tmp.path(), b"x".repeat(1000).as_slice(), &format!("cmd-{}", i)).unwrap();
+            save_in(
+                tmp.path(),
+                b"x".repeat(1000).as_slice(),
+                &format!("cmd-{}", i),
+            )
+            .unwrap();
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         let entries = list_in(tmp.path());

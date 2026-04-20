@@ -183,10 +183,7 @@ pub fn start_daemon(root: &Path) -> Result<()> {
 
     let state = Arc::new(DaemonState::new(&root)?);
     {
-        let rv = state
-            .reader_view
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
+        let rv = state.reader_view.read().unwrap_or_else(|e| e.into_inner());
         eprintln!(
             "Daemon started: {} files indexed, listening...",
             rv.reader.metadata.file_count
@@ -362,10 +359,7 @@ fn process_query_cached(line: &str, state: &DaemonState, reloaded: bool) -> Quer
     };
 
     let start = Instant::now();
-    let rv = state
-        .reader_view
-        .read()
-        .unwrap_or_else(|e| e.into_inner());
+    let rv = state.reader_view.read().unwrap_or_else(|e| e.into_inner());
     let total_files = rv.reader.total_file_count() as usize;
     let cache_key = (req.pattern.clone(), req.case_insensitive);
 
@@ -379,26 +373,28 @@ fn process_query_cached(line: &str, state: &DaemonState, reloaded: bool) -> Quer
             .cloned();
         match cached {
             Some(q) => q,
-            None => match regex_to_query(&req.pattern, req.case_insensitive, rv.df_table.as_ref()) {
-                Ok(q) => {
-                    state
-                        .query_cache
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .put(cache_key.clone(), q.clone());
-                    q
+            None => {
+                match regex_to_query(&req.pattern, req.case_insensitive, rv.df_table.as_ref()) {
+                    Ok(q) => {
+                        state
+                            .query_cache
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .put(cache_key.clone(), q.clone());
+                        q
+                    }
+                    Err(e) => {
+                        return QueryResponse {
+                            results: None,
+                            error: Some(format!("invalid regex: {}", e)),
+                            candidates: 0,
+                            total_files,
+                            search_ms: 0.0,
+                            reloaded,
+                        };
+                    }
                 }
-                Err(e) => {
-                    return QueryResponse {
-                        results: None,
-                        error: Some(format!("invalid regex: {}", e)),
-                        candidates: 0,
-                        total_files,
-                        search_ms: 0.0,
-                        reloaded,
-                    };
-                }
-            },
+            }
         }
     };
 
@@ -527,10 +523,7 @@ fn process_query_cached(line: &str, state: &DaemonState, reloaded: bool) -> Quer
 /// Warm the OS page cache by pre-faulting postings mmap and reading file headers.
 fn warm_page_cache(state: &Arc<DaemonState>) {
     let start = Instant::now();
-    let rv = state
-        .reader_view
-        .read()
-        .unwrap_or_else(|e| e.into_inner());
+    let rv = state.reader_view.read().unwrap_or_else(|e| e.into_inner());
 
     // Phase 1: pre-fault postings mmap
     rv.reader.warm_postings();
@@ -994,13 +987,7 @@ mod tests {
     fn test_daemon_state_detects_index_rebuild() {
         let (dir, root) = setup_test_project();
         let state = DaemonState::new(&root).unwrap();
-        let initial_count = state
-            .reader_view
-            .read()
-            .unwrap()
-            .reader
-            .metadata
-            .file_count;
+        let initial_count = state.reader_view.read().unwrap().reader.metadata.file_count;
 
         // Add a new file
         let src = root.join("src");
@@ -1017,13 +1004,7 @@ mod tests {
         // Now the daemon should detect the change
         let reloaded = state.reload_if_changed();
         assert!(reloaded, "should detect index was rebuilt");
-        let new_count = state
-            .reader_view
-            .read()
-            .unwrap()
-            .reader
-            .metadata
-            .file_count;
+        let new_count = state.reader_view.read().unwrap().reader.metadata.file_count;
         assert!(
             new_count > initial_count,
             "file count should increase after adding a file: {} vs {}",
