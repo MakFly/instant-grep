@@ -61,7 +61,7 @@ AI agents call CLI tools constantly. Every byte of output is a token consumed. O
 
 1. **Search** — trigram-indexed regex search (same algorithm as [GitHub Code Search](https://github.blog/engineering/architecture-optimization/the-technology-behind-githubs-new-code-search/)). First search auto-builds the index. Subsequent searches: near-instant.
 
-2. **Token compression** — `ig git status` outputs 25 bytes instead of 422. `ig read` adds line numbers. `ig ls` produces compact listings. A PreToolUse hook rewrites commands transparently — the AI agent never knows the difference.
+2. **Token compression** — `ig git status` outputs 25 bytes instead of 422. `ig read --plain` is byte-exact with `cat`, or `-s` gives signatures-only (−95% on large code files). `ig ls` produces compact listings. Compact search mode (`IG_COMPACT=1`) caps matches + truncates long lines for −60 to −95% on `grep`/`rg`. A PreToolUse hook rewrites commands transparently — the AI agent never knows the difference.
 
 |             | ripgrep   | ig (CLI)       | ig (daemon)        |
 | ----------- | --------- | -------------- | ------------------ |
@@ -100,20 +100,35 @@ cp target/release/ig ~/.local/bin/
 
 ## Token Savings
 
-### Git proxy — measured compression
+### v1.8.2 benchmarks — measured on real projects
 
-`ig git` replaces verbose git output with compact summaries. The hook rewrites `git status` → `ig git status` transparently.
+Numbers below come from a monorepo (Next.js frontend ~12 MB + Symfony/PHP backend ~5.5 MB). Every row is a single `wc -c` comparison between the raw command and its ig-rewritten equivalent.
 
-| Command | Native | ig | Savings |
-|---------|-------:|---:|--------:|
-| `git status` | 732 B | 127 B | **-83%** |
-| `git log -10` | 8,861 B | 997 B | **-89%** |
-| `git show HEAD` | 11,920 B | 5,812 B | **-51%** |
-| `git diff` (large) | 26,288 B | 6,906 B | **-74%** |
-| `grep -r "pattern"` | 5,384 B | 0 B | **-100%** |
-| `find . -name "*.rs"` | 1,080 B | 627 B | **-42%** |
-| `tree src/` | 983 B | 343 B | **-65%** |
-| `ls -la src/` | 980 B | 343 B | **-65%** |
+| Category | Command | Raw | ig | Savings |
+|---|---|---:|---:|---:|
+| **ls** | `ls -la` | 3,086 B | 577 B | **−81%** |
+| **ls** | `ls -laR app/` | 81,866 B | 232 B | **−99.7%** *(ig ls is a flat tree — not 1:1 with `ls -laR`)* |
+| **cat** small | `cat package.json` | 5,187 B | 5,187 B | 0% *(parity — no regression)* |
+| **cat** large code | `cat ApiExceptionSubscriber.php` → `-s` | 10,929 B | 2,138 B | **−80%** |
+| **cat** large code | `cat market-insights-actions.ts` → `-s` | 8,773 B | 339 B | **−96%** |
+| **grep/rg** dense | `rg 'public function' src/` (PHP) | 243,740 B | 14,360 B | **−94%** |
+| **grep/rg** dense | `rg 'useState' features/ app/` | 95,021 B | 15,934 B | **−83%** |
+| **grep/rg** dense | `rg 'Entity' src/` (PHP) | 122,345 B | 11,758 B | **−90%** |
+| **grep/rg** medium | `rg 'export function' app/` | 57,812 B | 21,809 B | **−62%** |
+| **grep/rg** sparse | `rg 'fn build' src/` (10 matches) | 674 B | 642 B | −5% *(physical floor)* |
+| **git** | `git status` | 732 B | 127 B | **−83%** |
+| **git** | `git log -10` | 8,861 B | 997 B | **−89%** |
+| **git** | `git diff` (large) | 26,288 B | 6,906 B | **−74%** |
+| **docker** | `docker ps` | 1,792 B | 593 B | **−67%** |
+| **docker** | `docker compose ps` | 1,792 B | 593 B | **−67%** |
+| **docker** | `docker logs` | 1,909 B | 886 B | **−54%** |
+| **JS/TS** | `jest --verbose` | 6,125 B | 910 B | **−85%** |
+| **JS/TS** | `bun test` | 3,467 B | 301 B | **−91%** |
+| **JS/TS** | `playwright test` | 3,984 B | 688 B | **−83%** |
+| **PHP** | `phpunit` | 1,340 B | 698 B | **−48%** |
+| **PHP** | `pest` | 1,220 B | 651 B | **−47%** |
+
+> **How grep/rg compaction works** (`IG_COMPACT=1`, auto-set by rewrites): line truncation at 100 chars (UTF-8 safe), per-file cap of 10 matches, global cap of 200 matches with an explicit `… global cap reached` marker. Inter-file blank lines and `--` separators are dropped. Matches rtk's `--context-only` gains on dense patterns, beats rtk on sparse ones (no header overhead).
 
 ### Cumulative savings (real session, 800+ commands)
 
@@ -153,7 +168,7 @@ ig discover                   # find missed optimization opportunities
 | `git status/log/diff/show` | 0 (rewrite) | Transparently compressed |
 | `git reset --hard` | 2 (deny) | Blocked by hook |
 | `git push --force` | 3 (ask) | Rewritten but user must confirm |
-| `cat file` | 0 (rewrite) | `ig read file` with line numbers |
+| `cat file` | 0 (rewrite) | `ig read --plain file` (byte-exact) or `-s` on large code files |
 | `python3 script.py` | 1 (passthrough) | No rewrite |
 
 ## Usage
@@ -169,11 +184,33 @@ ig "fetchData" . --json           # JSON output for agents
 ig "Result<T>" . --stats          # show performance stats
 ```
 
+### Compact search mode (v1.8.2+)
+
+Set `IG_COMPACT=1` (or let the PreToolUse hook do it when rewriting `grep`/`rg`) to enable aggressive output compaction:
+
+```bash
+IG_COMPACT=1 ig "pattern" src/    # capped, truncated, no separators
+```
+
+What changes:
+- Line truncation at **100 chars** (UTF-8 safe, `…` marker, match stays visible)
+- Per-file cap: **10 matches** with `… +N more` footer
+- Global cap: **200 matches** with `… global cap reached` marker
+- Inter-file blank line + `--` separators between non-contiguous matches are dropped
+
+Override individual caps:
+```bash
+IG_LINE_MAX=80 IG_MAX_MATCHES_PER_FILE=5 IG_MAX_MATCHES_TOTAL=100 ig "pattern" src/
+```
+
+Typical gains on real projects: **−60 to −94%** on dense patterns (`rg 'public function' src/` on a Symfony codebase: 244 KB → 14 KB).
+
 ### File intelligence
 
 ```bash
 ig read src/main.rs               # numbered lines
-ig read src/main.rs -s            # signatures only (imports + function names, -87%)
+ig read src/main.rs --plain       # no line numbers, byte-exact with `cat` (v1.8.2+)
+ig read src/main.rs -s            # signatures only (imports + function names, -95% on large code)
 ig read src/main.rs -a            # aggressive mode (strip comments, elide bodies)
 ig read src/main.rs -b 500        # budget mode (500 tokens max, entropy-scored)
 ig read src/main.rs -r "payment"  # relevance boost (keep payment-related code)
