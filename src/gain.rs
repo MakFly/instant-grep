@@ -149,7 +149,7 @@ fn show_dashboard(entries: &[&tracking::HistoryEntry]) {
     eprintln!("────────────────────────────────────────────────────────────");
 
     let mut sorted: Vec<_> = by_cmd.into_iter().collect();
-    sorted.sort_by(|a, b| b.1.saved_bytes.cmp(&a.1.saved_bytes));
+    sorted.sort_by_key(|b| std::cmp::Reverse(b.1.saved_bytes));
 
     for (i, (cmd, stats)) in sorted.iter().enumerate() {
         let avg_pct = if stats.input_bytes > 0 {
@@ -365,7 +365,7 @@ fn show_breakdown(entries: &[&tracking::HistoryEntry], group: GroupBy) {
 
     // Show in reverse chronological order, last 30 entries max
     let mut sorted: Vec<_> = groups.into_iter().collect();
-    sorted.sort_by(|a, b| b.0.cmp(&a.0));
+    sorted.sort_by_key(|b| std::cmp::Reverse(b.0.clone()));
 
     for (key, (count, input, saved)) in sorted.iter().take(30) {
         let avg_pct = if *input > 0 {

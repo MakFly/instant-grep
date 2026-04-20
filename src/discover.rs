@@ -221,7 +221,7 @@ pub fn run_discover(since_days: u32, limit: usize) {
         eprintln!("────────────────────────────────────────────────────────────");
 
         let mut sorted: Vec<_> = missed.into_iter().collect();
-        sorted.sort_by(|a, b| b.1.count.cmp(&a.1.count));
+        sorted.sort_by_key(|b| std::cmp::Reverse(b.1.count));
 
         for (cmd, stats) in sorted.iter().take(limit) {
             eprintln!(
@@ -245,7 +245,7 @@ pub fn run_discover(since_days: u32, limit: usize) {
         eprintln!("────────────────────────────────────────────────────────────");
 
         let mut sorted: Vec<_> = unhandled.into_iter().collect();
-        sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted.sort_by_key(|b| std::cmp::Reverse(b.1));
 
         for (cmd, count) in sorted.iter().take(limit) {
             eprintln!("  {:<40} {:>6}", cmd, count);
@@ -509,7 +509,7 @@ pub fn run_shell_history_scan(since_days: u32, limit: usize) {
     );
     eprintln!("────────────────────────────────────────────────────────────");
     let mut sorted: Vec<_> = missed.into_iter().collect();
-    sorted.sort_by(|a, b| b.1.count.cmp(&a.1.count));
+    sorted.sort_by_key(|b| std::cmp::Reverse(b.1.count));
     for (cmd, stats) in sorted.iter().take(limit) {
         eprintln!(
             "  {:<35} {:>6}  {:>10}",

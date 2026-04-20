@@ -380,7 +380,7 @@ impl Printer {
 
         // Summary line
         let mut ext_sorted: Vec<_> = ext_counts.into_iter().collect();
-        ext_sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        ext_sorted.sort_by_key(|b| std::cmp::Reverse(b.1));
         let ext_display: Vec<String> = ext_sorted
             .iter()
             .take(5)

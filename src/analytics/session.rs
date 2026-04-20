@@ -82,7 +82,7 @@ pub fn run_session(since_days: u32) {
         println!("Top missed commands:");
 
         let mut missed_sorted: Vec<_> = missed.into_iter().collect();
-        missed_sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        missed_sorted.sort_by_key(|b| std::cmp::Reverse(b.1));
 
         for (replacement, count) in missed_sorted.iter().take(10) {
             println!("  {} ({} times)", replacement, count);

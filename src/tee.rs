@@ -169,7 +169,7 @@ pub fn list_in(dir: &Path) -> Vec<TeeEntry> {
             })
         })
         .collect();
-    out.sort_by(|a, b| b.modified.cmp(&a.modified));
+    out.sort_by_key(|b| std::cmp::Reverse(b.modified));
     out
 }
 
@@ -202,7 +202,7 @@ fn rotate(dir: &Path) {
             Some((path, modified))
         })
         .collect();
-    entries.sort_by(|a, b| b.1.cmp(&a.1));
+    entries.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     for (idx, (path, modified)) in entries.iter().enumerate() {
         let too_old = now

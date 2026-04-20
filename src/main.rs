@@ -885,7 +885,7 @@ fn print_compact(results: &[search::matcher::FileMatches]) {
 
     // Sort by match count descending (most relevant files first)
     let mut sorted: Vec<&search::matcher::FileMatches> = results.iter().collect();
-    sorted.sort_by(|a, b| b.match_count.cmp(&a.match_count));
+    sorted.sort_by_key(|b| std::cmp::Reverse(b.match_count));
 
     for (i, file_matches) in sorted.iter().enumerate() {
         if i >= MAX_FILES {
