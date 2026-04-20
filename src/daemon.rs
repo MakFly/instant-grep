@@ -2,7 +2,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::num::NonZeroUsize;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
@@ -77,15 +77,22 @@ pub fn socket_path(root: &Path) -> PathBuf {
     PathBuf::from(format!("/tmp/ig-{:x}.sock", hash))
 }
 
-/// Shared state for the daemon — reader + last known mtime of metadata.bin + LRU caches.
-struct DaemonState {
+/// The read-only view of the index that can be swapped atomically on reload.
+struct ReaderView {
     reader: IndexReader,
     df_table: Option<BigramDfTable>,
+    last_mtime: SystemTime,
+}
+
+/// Shared state for the daemon — reader behind RwLock (readers parallelizable),
+/// caches behind individual Mutex so a long-running query only blocks other
+/// writers to the same cache, not the reader.
+struct DaemonState {
+    reader_view: RwLock<ReaderView>,
     ig_dir: PathBuf,
     root: PathBuf,
-    last_mtime: SystemTime,
-    regex_cache: LruCache<(String, bool), Arc<regex::bytes::Regex>>,
-    query_cache: LruCache<(String, bool), NgramQuery>,
+    regex_cache: Mutex<LruCache<(String, bool), Arc<regex::bytes::Regex>>>,
+    query_cache: Mutex<LruCache<(String, bool), NgramQuery>>,
 }
 
 impl DaemonState {
@@ -101,45 +108,60 @@ impl DaemonState {
         let last_mtime = metadata_mtime(&ig);
         let cache_cap = NonZeroUsize::new(128).unwrap();
         Ok(Self {
-            reader,
-            df_table,
+            reader_view: RwLock::new(ReaderView {
+                reader,
+                df_table,
+                last_mtime,
+            }),
             ig_dir: ig,
             root,
-            last_mtime,
-            regex_cache: LruCache::new(cache_cap),
-            query_cache: LruCache::new(cache_cap),
+            regex_cache: Mutex::new(LruCache::new(cache_cap)),
+            query_cache: Mutex::new(LruCache::new(cache_cap)),
         })
     }
 
     /// Check if the index has been rebuilt since we last loaded it.
     /// If so, reload the reader and clear caches. Returns true if reloaded.
-    fn reload_if_changed(&mut self) -> bool {
+    fn reload_if_changed(&self) -> bool {
         let current_mtime = metadata_mtime(&self.ig_dir);
-        if current_mtime != self.last_mtime {
-            match IndexReader::open(&self.ig_dir) {
-                Ok(new_reader) => {
-                    let old_count = self.reader.metadata.file_count;
-                    let new_count = new_reader.metadata.file_count;
-                    let new_df_table = if new_reader.metadata.built_with_idf {
-                        BigramDfTable::load(&self.ig_dir)
-                    } else {
-                        None
-                    };
-                    self.reader = new_reader;
-                    self.df_table = new_df_table;
-                    self.last_mtime = current_mtime;
-                    self.regex_cache.clear();
-                    self.query_cache.clear();
-                    eprintln!("Index reloaded: {} → {} files", old_count, new_count);
-                    true
-                }
-                Err(e) => {
-                    eprintln!("Failed to reload index: {}", e);
-                    false
-                }
+        let needs_reload = {
+            let rv = self.reader_view.read().unwrap_or_else(|e| e.into_inner());
+            current_mtime != rv.last_mtime
+        };
+        if !needs_reload {
+            return false;
+        }
+        match IndexReader::open(&self.ig_dir) {
+            Ok(new_reader) => {
+                let new_df_table = if new_reader.metadata.built_with_idf {
+                    BigramDfTable::load(&self.ig_dir)
+                } else {
+                    None
+                };
+                let new_count = new_reader.metadata.file_count;
+                let old_count = {
+                    let mut rv = self.reader_view.write().unwrap_or_else(|e| e.into_inner());
+                    let old = rv.reader.metadata.file_count;
+                    rv.reader = new_reader;
+                    rv.df_table = new_df_table;
+                    rv.last_mtime = current_mtime;
+                    old
+                };
+                self.regex_cache
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clear();
+                self.query_cache
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clear();
+                eprintln!("Index reloaded: {} → {} files", old_count, new_count);
+                true
             }
-        } else {
-            false
+            Err(e) => {
+                eprintln!("Failed to reload index: {}", e);
+                false
+            }
         }
     }
 }
@@ -159,12 +181,15 @@ fn metadata_mtime(ig_dir: &Path) -> SystemTime {
 pub fn start_daemon(root: &Path) -> Result<()> {
     let root = root.canonicalize().context("canonicalize root")?;
 
-    let state = Arc::new(RwLock::new(DaemonState::new(&root)?));
+    let state = Arc::new(DaemonState::new(&root)?);
     {
-        let s = state.read().unwrap_or_else(|e| e.into_inner());
+        let rv = state
+            .reader_view
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         eprintln!(
             "Daemon started: {} files indexed, listening...",
-            s.reader.metadata.file_count
+            rv.reader.metadata.file_count
         );
     }
 
@@ -179,12 +204,19 @@ pub fn start_daemon(root: &Path) -> Result<()> {
     let sock_path = socket_path(&root);
     let _ = std::fs::remove_file(&sock_path);
 
-    // Register cleanup handler BEFORE bind so socket is always cleaned up
+    // Register cleanup handler BEFORE bind so socket is always cleaned up.
+    // Must run synchronously (not in a spawned thread) to avoid a race where
+    // SIGTERM arrives before the handler is registered.
     let sock_cleanup = sock_path.clone();
     ctrlc_cleanup(sock_cleanup);
 
     let listener =
         UnixListener::bind(&sock_path).with_context(|| format!("bind {}", sock_path.display()))?;
+
+    // Restrict socket to owner-only (0o600) so other local users cannot query the index.
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&sock_path, std::fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("chmod 0o600 {}", sock_path.display()))?;
 
     eprintln!("Socket: {}", sock_path.display());
 
@@ -286,7 +318,7 @@ fn run_file_watcher(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn handle_client(stream: UnixStream, state: &Arc<RwLock<DaemonState>>) -> Result<()> {
+fn handle_client(stream: UnixStream, state: &Arc<DaemonState>) -> Result<()> {
     // Set read timeout to prevent hung clients from blocking threads indefinitely
     stream.set_read_timeout(Some(Duration::from_secs(30)))?;
     let mut buf_reader = BufReader::new(&stream);
@@ -299,12 +331,11 @@ fn handle_client(stream: UnixStream, state: &Arc<RwLock<DaemonState>>) -> Result
             break;
         }
 
-        // Acquire write lock for reload check + cached query processing
-        let response = {
-            let mut s = state.write().unwrap_or_else(|e| e.into_inner());
-            let reloaded = s.reload_if_changed();
-            process_query_cached(&line, &mut s, reloaded)
-        };
+        // Reload (write lock) is acquired briefly inside reload_if_changed;
+        // the actual query runs under a read lock so multiple clients can
+        // search in parallel.
+        let reloaded = state.reload_if_changed();
+        let response = process_query_cached(&line, state, reloaded);
 
         let json = serde_json::to_string(&response)?;
         writeln!(writer, "{}", json)?;
@@ -315,7 +346,7 @@ fn handle_client(stream: UnixStream, state: &Arc<RwLock<DaemonState>>) -> Result
 }
 
 /// Process a query using the LRU caches for compiled regexes and NgramQuery results.
-fn process_query_cached(line: &str, state: &mut DaemonState, reloaded: bool) -> QueryResponse {
+fn process_query_cached(line: &str, state: &DaemonState, reloaded: bool) -> QueryResponse {
     let req: QueryRequest = match serde_json::from_str(line) {
         Ok(r) => r,
         Err(e) => {
@@ -331,58 +362,84 @@ fn process_query_cached(line: &str, state: &mut DaemonState, reloaded: bool) -> 
     };
 
     let start = Instant::now();
-    let total_files = state.reader.total_file_count() as usize;
+    let rv = state
+        .reader_view
+        .read()
+        .unwrap_or_else(|e| e.into_inner());
+    let total_files = rv.reader.total_file_count() as usize;
     let cache_key = (req.pattern.clone(), req.case_insensitive);
 
     // NgramQuery: cache lookup or compute
-    let query = if let Some(cached) = state.query_cache.get(&cache_key) {
-        cached.clone()
-    } else {
-        match regex_to_query(&req.pattern, req.case_insensitive, state.df_table.as_ref()) {
-            Ok(q) => {
-                state.query_cache.put(cache_key.clone(), q.clone());
-                q
-            }
-            Err(e) => {
-                return QueryResponse {
-                    results: None,
-                    error: Some(format!("invalid regex: {}", e)),
-                    candidates: 0,
-                    total_files,
-                    search_ms: 0.0,
-                    reloaded,
-                };
-            }
+    let query = {
+        let cached = state
+            .query_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&cache_key)
+            .cloned();
+        match cached {
+            Some(q) => q,
+            None => match regex_to_query(&req.pattern, req.case_insensitive, rv.df_table.as_ref()) {
+                Ok(q) => {
+                    state
+                        .query_cache
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .put(cache_key.clone(), q.clone());
+                    q
+                }
+                Err(e) => {
+                    return QueryResponse {
+                        results: None,
+                        error: Some(format!("invalid regex: {}", e)),
+                        candidates: 0,
+                        total_files,
+                        search_ms: 0.0,
+                        reloaded,
+                    };
+                }
+            },
         }
     };
 
-    let candidates = state.reader.resolve(&query);
+    let candidates = rv.reader.resolve(&query);
     let candidate_count = candidates.len();
 
     // Compiled regex: cache lookup or compile
-    let regex = if let Some(cached) = state.regex_cache.get(&cache_key) {
-        Arc::clone(cached)
-    } else {
-        match RegexBuilder::new(&req.pattern)
-            .case_insensitive(req.case_insensitive)
-            .unicode(false)
-            .build()
-        {
-            Ok(r) => {
-                let arc = Arc::new(r);
-                state.regex_cache.put(cache_key, Arc::clone(&arc));
-                arc
-            }
-            Err(e) => {
-                return QueryResponse {
-                    results: None,
-                    error: Some(format!("regex build error: {}", e)),
-                    candidates: candidate_count,
-                    total_files,
-                    search_ms: start.elapsed().as_secs_f64() * 1000.0,
-                    reloaded,
-                };
-            }
+    let regex = {
+        let cached = state
+            .regex_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&cache_key)
+            .map(Arc::clone);
+        match cached {
+            Some(r) => r,
+            None => match RegexBuilder::new(&req.pattern)
+                .case_insensitive(req.case_insensitive)
+                .unicode(false)
+                .build()
+            {
+                Ok(r) => {
+                    let arc = Arc::new(r);
+                    state
+                        .regex_cache
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .put(cache_key, Arc::clone(&arc));
+                    arc
+                }
+                Err(e) => {
+                    return QueryResponse {
+                        results: None,
+                        error: Some(format!("regex build error: {}", e)),
+                        candidates: candidate_count,
+                        total_files,
+                        search_ms: start.elapsed().as_secs_f64() * 1000.0,
+                        reloaded,
+                    };
+                }
+            },
         }
     };
 
@@ -397,7 +454,7 @@ fn process_query_cached(line: &str, state: &mut DaemonState, reloaded: bool) -> 
     let candidate_paths: Vec<(u32, String)> = candidates
         .iter()
         .filter_map(|doc_id| {
-            let rel_path = state.reader.file_path(*doc_id).to_string();
+            let rel_path = rv.reader.file_path(*doc_id).to_string();
 
             if let Some(ref ft) = req.file_type {
                 let ext = rel_path.rsplit('.').next().unwrap_or("");
@@ -468,22 +525,25 @@ fn process_query_cached(line: &str, state: &mut DaemonState, reloaded: bool) -> 
 }
 
 /// Warm the OS page cache by pre-faulting postings mmap and reading file headers.
-fn warm_page_cache(state: &Arc<RwLock<DaemonState>>) {
+fn warm_page_cache(state: &Arc<DaemonState>) {
     let start = Instant::now();
-    let s = state.read().unwrap_or_else(|e| e.into_inner());
+    let rv = state
+        .reader_view
+        .read()
+        .unwrap_or_else(|e| e.into_inner());
 
     // Phase 1: pre-fault postings mmap
-    s.reader.warm_postings();
+    rv.reader.warm_postings();
     let postings_ms = start.elapsed().as_secs_f64() * 1000.0;
 
     // Phase 2: read first 4KB of each source file (capped at 10,000 files)
-    let file_count = s.reader.metadata.files.len().min(10_000);
-    let root = s.root.clone();
-    let paths: Vec<String> = s.reader.metadata.files[..file_count]
+    let file_count = rv.reader.metadata.files.len().min(10_000);
+    let root = state.root.clone();
+    let paths: Vec<String> = rv.reader.metadata.files[..file_count]
         .iter()
         .map(|f| f.path.clone())
         .collect();
-    drop(s); // release lock during I/O
+    drop(rv); // release lock during I/O
 
     let mut warmed = 0usize;
     let mut buf = [0u8; 4096];
@@ -636,16 +696,11 @@ fn process_query(line: &str, reader: &IndexReader, root: &Path, reloaded: bool) 
     }
 }
 
+/// Install the SIGINT/SIGTERM cleanup handler synchronously so no signal can
+/// arrive between start_daemon() and handler registration.
 fn ctrlc_cleanup(sock_path: PathBuf) {
-    std::thread::spawn(move || {
-        signal_hook_simple(&sock_path);
-    });
-}
-
-fn signal_hook_simple(sock_path: &Path) {
-    let path = sock_path.to_path_buf();
     let _ = ctrlc::set_handler(move || {
-        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&sock_path);
         std::process::exit(0);
     });
 }
@@ -659,10 +714,11 @@ fn pid_path(ig_dir: &Path) -> PathBuf {
 pub fn start_daemon_background(root: &Path) -> Result<()> {
     let root = root.canonicalize().context("canonicalize root")?;
     let ig = crate::util::ig_dir(&root);
-    let sock = socket_path(&root);
 
-    // Check if already running
-    if sock.exists() && is_daemon_alive(&ig) {
+    // Check if already running based on the PID file alone; sock.exists()
+    // is a TOCTOU signal since another process could create/remove it between
+    // the check and a subsequent bind.
+    if is_daemon_alive(&ig) {
         eprintln!("Daemon is already running");
         return Ok(());
     }
@@ -926,7 +982,7 @@ mod tests {
     #[test]
     fn test_daemon_state_detects_no_change() {
         let (dir, root) = setup_test_project();
-        let mut state = DaemonState::new(&root).unwrap();
+        let state = DaemonState::new(&root).unwrap();
         assert!(
             !state.reload_if_changed(),
             "should not reload when nothing changed"
@@ -937,8 +993,14 @@ mod tests {
     #[test]
     fn test_daemon_state_detects_index_rebuild() {
         let (dir, root) = setup_test_project();
-        let mut state = DaemonState::new(&root).unwrap();
-        let initial_count = state.reader.metadata.file_count;
+        let state = DaemonState::new(&root).unwrap();
+        let initial_count = state
+            .reader_view
+            .read()
+            .unwrap()
+            .reader
+            .metadata
+            .file_count;
 
         // Add a new file
         let src = root.join("src");
@@ -955,10 +1017,17 @@ mod tests {
         // Now the daemon should detect the change
         let reloaded = state.reload_if_changed();
         assert!(reloaded, "should detect index was rebuilt");
+        let new_count = state
+            .reader_view
+            .read()
+            .unwrap()
+            .reader
+            .metadata
+            .file_count;
         assert!(
-            state.reader.metadata.file_count > initial_count,
+            new_count > initial_count,
             "file count should increase after adding a file: {} vs {}",
-            state.reader.metadata.file_count,
+            new_count,
             initial_count
         );
 
@@ -975,9 +1044,10 @@ mod tests {
     fn test_process_query_returns_results() {
         let (dir, root) = setup_test_project();
         let state = DaemonState::new(&root).unwrap();
+        let rv = state.reader_view.read().unwrap();
 
         let query_json = r#"{"pattern":"fn main"}"#;
-        let response = process_query(query_json, &state.reader, &state.root, false);
+        let response = process_query(query_json, &rv.reader, &state.root, false);
 
         assert!(response.error.is_none(), "should not error");
         let results = response.results.unwrap();
@@ -985,6 +1055,7 @@ mod tests {
         assert_eq!(results[0].file, "src/main.rs");
         assert!(!response.reloaded);
 
+        drop(rv);
         drop(dir);
     }
 
@@ -992,15 +1063,17 @@ mod tests {
     fn test_process_query_with_reload_flag() {
         let (dir, root) = setup_test_project();
         let state = DaemonState::new(&root).unwrap();
+        let rv = state.reader_view.read().unwrap();
 
         let query_json = r#"{"pattern":"fn main"}"#;
-        let response = process_query(query_json, &state.reader, &state.root, true);
+        let response = process_query(query_json, &rv.reader, &state.root, true);
 
         assert!(
             response.reloaded,
             "reloaded flag should be true when passed"
         );
 
+        drop(rv);
         drop(dir);
     }
 }
