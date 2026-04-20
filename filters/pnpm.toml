@@ -1,0 +1,19 @@
+[[filters]]
+name = "pnpm-install"
+match = "^pnpm (install|add|remove|i )"
+strip_ansi = true
+keep_lines = "(added|removed|updated|changed|done|error|Error|ERR_|warn)"
+max_lines = 30
+on_empty = "Dependencies are up to date"
+
+[[filters]]
+name = "pnpm-run"
+match = "^pnpm (run |exec )"
+strip_ansi = true
+max_lines = 60
+
+[[filters]]
+name = "pnpm-dlx"
+match = "^pnpm dlx"
+strip_ansi = true
+max_lines = 60

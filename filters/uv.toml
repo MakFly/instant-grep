@@ -1,0 +1,29 @@
+[[filters]]
+name = "uv-pip"
+match = "^uv pip"
+strip_ansi = true
+keep_lines = "(Resolved|Installed|Uninstalled|Audited|error|Error|warning)"
+max_lines = 30
+on_empty = "Operation completed"
+
+[[filters]]
+name = "uv-run"
+match = "^uv run"
+strip_ansi = true
+max_lines = 60
+
+[[filters]]
+name = "uv-sync"
+match = "^uv sync"
+strip_ansi = true
+keep_lines = "(Resolved|Installed|Uninstalled|Audited|error|Error)"
+max_lines = 30
+on_empty = "Environment is up to date"
+
+[[filters]]
+name = "uv-lock"
+match = "^uv lock"
+strip_ansi = true
+keep_lines = "(Resolved|Updated|error|Error)"
+max_lines = 20
+on_empty = "Lock file is up to date"

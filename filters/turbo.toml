@@ -1,0 +1,15 @@
+[[filters]]
+name = "turbo-build"
+match = "^(turbo|npx turbo|bunx turbo) (build|run)"
+strip_ansi = true
+keep_lines = "(Tasks:|Cached:|Time:|error|Error|failed|FAIL|\\S+:build|\\S+:test|\\S+:lint)"
+max_lines = 50
+on_empty = "All tasks completed"
+
+[[filters]]
+name = "turbo-lint"
+match = "^(turbo|npx turbo|bunx turbo) lint"
+strip_ansi = true
+keep_lines = "(Tasks:|Cached:|Time:|error|Error|warning|\\S+:lint)"
+max_lines = 50
+on_empty = "All lint tasks passed"

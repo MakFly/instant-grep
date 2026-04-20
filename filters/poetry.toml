@@ -1,0 +1,27 @@
+[[filters]]
+name = "poetry-install"
+match = "^poetry (install|add|remove)"
+strip_ansi = true
+keep_lines = "(Installing|Updating|Removing|Package operations|Downloading|Writing|error|Error)"
+max_lines = 40
+on_empty = "Dependencies are up to date"
+
+[[filters]]
+name = "poetry-run"
+match = "^poetry run"
+strip_ansi = true
+max_lines = 60
+
+[[filters]]
+name = "poetry-show"
+match = "^poetry (show|list)"
+strip_ansi = true
+truncate_at = 120
+max_lines = 40
+
+[[filters]]
+name = "poetry-build"
+match = "^poetry build"
+strip_ansi = true
+keep_lines = "(Building|Built|error|Error)"
+max_lines = 20

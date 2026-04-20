@@ -1,0 +1,17 @@
+[[filters]]
+name = "nx-run"
+match = "^(nx|npx nx|bunx nx) (run|build|test|lint)"
+strip_ansi = true
+keep_lines = "(>|Executor|ERROR|error|Warning|NX|SUCCESS|FAILED|\\d+ task)"
+truncate_at = 200
+max_lines = 60
+on_empty = "All tasks completed"
+
+[[filters]]
+name = "nx-affected"
+match = "^(nx|npx nx|bunx nx) affected"
+strip_ansi = true
+keep_lines = "(>|Executor|ERROR|error|Warning|NX|SUCCESS|FAILED|\\d+ task|Affected)"
+truncate_at = 200
+max_lines = 60
+on_empty = "No affected projects"
