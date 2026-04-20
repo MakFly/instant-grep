@@ -1,0 +1,23 @@
+[[filters]]
+name = "go-test"
+match = "^go test"
+strip_ansi = true
+keep_lines = "(--- FAIL|--- PASS|--- SKIP|FAIL|ok |panic:|FAIL\\s)"
+max_lines = 80
+on_empty = "All tests passed"
+
+[[filters]]
+name = "go-build"
+match = "^go build"
+strip_ansi = true
+keep_lines = "(Error|error|undefined|cannot|./)"
+max_lines = 50
+on_empty = "Build succeeded"
+
+[[filters]]
+name = "go-vet"
+match = "^go vet"
+strip_ansi = true
+keep_lines = "(Error|error|exit status)"
+max_lines = 50
+on_empty = "No vet issues"

@@ -1,0 +1,7 @@
+[[filters]]
+name = "rspec"
+match = "^(rspec|bundle exec rspec)"
+strip_ansi = true
+keep_lines = "(Failure|Error|error|examples|failures|pending|\\d+ example|rspec \\./)"
+max_lines = 80
+on_empty = "All examples passed"

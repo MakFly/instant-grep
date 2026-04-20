@@ -1,0 +1,15 @@
+[[filters]]
+name = "jest"
+match = "^(jest|npx jest|bunx jest|bun test)"
+strip_ansi = true
+keep_lines = "(PASS|FAIL|✓|✗|×|●|RUNS|Tests:|Test Suites:|Snapshots:|Time:|Ran all)"
+max_lines = 80
+on_empty = "All tests passed"
+
+[[filters]]
+name = "jest-verbose"
+match = "^(jest|npx jest|bunx jest) .*(--verbose|-v)"
+strip_ansi = true
+keep_lines = "(✓|✗|×|●|PASS|FAIL|Tests:|Time:)"
+max_lines = 100
+on_empty = "All tests passed"

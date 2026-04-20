@@ -1,0 +1,13 @@
+[[filters]]
+name = "playwright"
+match = "^(playwright|npx playwright|bunx playwright)"
+strip_ansi = true
+keep_lines = "(passed|failed|skipped|Error|error|flaky|\\d+ test|Running|FAILED|PASSED)"
+max_lines = 80
+on_empty = "All tests passed"
+
+[[filters]]
+name = "playwright-show-report"
+match = "^(npx|bunx) playwright show-report"
+strip_ansi = true
+max_lines = 10

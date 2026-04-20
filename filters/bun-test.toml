@@ -1,0 +1,7 @@
+[[filters]]
+name = "bun-test"
+match = "^bun test"
+strip_ansi = true
+keep_lines = "(pass|fail|PASS|FAIL|error|\\d+ tests?|\\d+ passed|\\d+ failed|expect)"
+max_lines = 60
+on_empty = "All tests passed"

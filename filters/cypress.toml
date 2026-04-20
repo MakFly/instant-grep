@@ -1,0 +1,7 @@
+[[filters]]
+name = "cypress"
+match = "^(cypress|npx cypress|bunx cypress)"
+strip_ansi = true
+keep_lines = "(passing|failing|pending|Error|error|✓|✗|×|Running:|Finished in)"
+max_lines = 80
+on_empty = "All tests passed"
