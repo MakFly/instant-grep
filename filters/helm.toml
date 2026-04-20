@@ -1,0 +1,36 @@
+[[filters]]
+name = "helm-install"
+match = "^helm (install|upgrade)"
+strip_ansi = true
+keep_lines = "(STATUS:|DEPLOYED:|NAMESPACE:|CHART:|VERSION:|REVISION:|NOTES:|Error|error|failed)"
+max_lines = 40
+on_empty = "Helm operation completed"
+
+[[filters]]
+name = "helm-list"
+match = "^helm (list|ls)"
+strip_ansi = true
+truncate_at = 150
+max_lines = 30
+
+[[filters]]
+name = "helm-status"
+match = "^helm status"
+strip_ansi = true
+keep_lines = "(STATUS:|DEPLOYED:|NAMESPACE:|NOTES:|Resources:)"
+max_lines = 30
+
+[[filters]]
+name = "helm-lint"
+match = "^helm lint"
+strip_ansi = true
+keep_lines = "(Error|Warning|error|\\[ERROR\\]|\\[WARNING\\]|\\[INFO\\])"
+max_lines = 40
+on_empty = "Lint passed with no issues"
+
+[[filters]]
+name = "helm-diff"
+match = "^helm diff"
+strip_ansi = true
+keep_lines = "(^[+\\-]|has been added|has been removed|has been changed)"
+max_lines = 60

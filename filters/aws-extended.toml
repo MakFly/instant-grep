@@ -1,0 +1,28 @@
+[[filters]]
+name = "aws-cloudformation"
+match = "^aws cloudformation"
+strip_ansi = true
+keep_lines = "(StackStatus|CREATE_COMPLETE|UPDATE_COMPLETE|DELETE_COMPLETE|ROLLBACK|FAILED|error)"
+truncate_at = 200
+max_lines = 50
+
+[[filters]]
+name = "aws-s3"
+match = "^aws s3"
+strip_ansi = true
+keep_lines = "(upload:|download:|delete:|copy:|Error:|error)"
+max_lines = 40
+
+[[filters]]
+name = "aws-ec2"
+match = "^aws ec2"
+strip_ansi = true
+truncate_at = 200
+max_lines = 40
+
+[[filters]]
+name = "aws-logs"
+match = "^aws logs"
+strip_ansi = true
+tail = 50
+truncate_at = 200

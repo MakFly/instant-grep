@@ -1,0 +1,22 @@
+[[filters]]
+name = "ansible-playbook"
+match = "^ansible-playbook"
+strip_ansi = true
+keep_lines = "(PLAY |TASK |ok:|changed:|failed:|fatal:|skipping:|unreachable:|PLAY RECAP|error)"
+truncate_at = 200
+max_lines = 100
+
+[[filters]]
+name = "ansible-lint"
+match = "^ansible-lint"
+strip_ansi = true
+keep_lines = "(WARNING|ERROR|error|\\[E\\d+\\]|Passed|Failed)"
+max_lines = 60
+on_empty = "No lint errors found"
+
+[[filters]]
+name = "ansible-galaxy"
+match = "^ansible-galaxy"
+strip_ansi = true
+keep_lines = "(Installing|Downloading|Successfully|ERROR|error)"
+max_lines = 30

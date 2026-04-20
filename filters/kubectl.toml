@@ -1,0 +1,36 @@
+[[filters]]
+name = "kubectl-describe"
+match = "^kubectl describe"
+strip_ansi = true
+truncate_at = 200
+max_lines = 80
+
+[[filters]]
+name = "kubectl-apply"
+match = "^kubectl apply"
+strip_ansi = true
+keep_lines = "(configured|created|unchanged|Error|error|Warning)"
+max_lines = 50
+on_empty = "No changes applied"
+
+[[filters]]
+name = "kubectl-rollout"
+match = "^kubectl rollout"
+strip_ansi = true
+keep_lines = "(successfully rolled|Waiting|error|Error)"
+max_lines = 30
+
+[[filters]]
+name = "kubectl-events"
+match = "^kubectl (get events|events)"
+strip_ansi = true
+drop_lines = "^\\s*$"
+truncate_at = 200
+max_lines = 40
+
+[[filters]]
+name = "kubectl-top"
+match = "^kubectl top"
+strip_ansi = true
+truncate_at = 120
+max_lines = 30

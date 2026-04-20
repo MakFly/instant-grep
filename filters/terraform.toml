@@ -1,0 +1,32 @@
+[[filters]]
+name = "terraform-plan"
+match = "^terraform plan"
+strip_ansi = true
+keep_lines = "(Plan:|\\+ |~ |\\- |<= |>= |must be replaced|Error:|Warning:|changes to make)"
+truncate_at = 200
+max_lines = 80
+on_empty = "No changes. Infrastructure is up-to-date."
+
+[[filters]]
+name = "terraform-apply"
+match = "^terraform apply"
+strip_ansi = true
+keep_lines = "(Apply complete|Creation complete|Modifications complete|Destruction complete|Error:|Warning:|\\+ |~ |\\- )"
+truncate_at = 200
+max_lines = 60
+on_empty = "Apply complete with no changes"
+
+[[filters]]
+name = "terraform-validate"
+match = "^terraform validate"
+strip_ansi = true
+keep_lines = "(Error:|Warning:|Success|valid)"
+max_lines = 30
+on_empty = "Configuration is valid"
+
+[[filters]]
+name = "terraform-init"
+match = "^terraform init"
+strip_ansi = true
+keep_lines = "(Initializing|Installing|Finding|Error:|Warning:|Terraform has been successfully)"
+max_lines = 30
