@@ -319,6 +319,12 @@ pub enum Commands {
         args: Vec<String>,
     },
 
+    /// Manage the tee store (raw output of truncated / failed commands)
+    Tee {
+        #[command(subcommand)]
+        op: TeeOp,
+    },
+
     /// Run a command and show only errors/warnings
     Err {
         /// Command and arguments to run
@@ -410,4 +416,17 @@ pub enum Commands {
         #[arg(long, default_value = "30")]
         since: u32,
     },
+}
+
+#[derive(Subcommand)]
+pub enum TeeOp {
+    /// Print the raw content of a tee entry
+    Show {
+        /// Tee id (from `ig tee list`)
+        id: String,
+    },
+    /// List tee entries, newest first
+    List,
+    /// Delete every tee entry
+    Clear,
 }

@@ -23,6 +23,7 @@ mod search;
 mod setup;
 mod smart;
 mod symbols;
+mod tee;
 mod tracking;
 mod trust;
 mod uninstall;
@@ -38,7 +39,7 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use clap::Parser;
 
-use cli::{Cli, Commands};
+use cli::{Cli, Commands, TeeOp};
 use index::metadata::{INDEX_VERSION, IndexMetadata};
 use index::overlay::OverlayReader;
 use index::writer;
@@ -554,6 +555,37 @@ fn main() -> Result<()> {
                 std::process::exit(code);
             }
         }
+
+        Some(Commands::Tee { op }) => match op {
+            TeeOp::Show { id } => match tee::read(&id) {
+                Some(bytes) => {
+                    use std::io::Write;
+                    std::io::stdout().write_all(&bytes)?;
+                }
+                None => {
+                    eprintln!("tee entry not found: {}", id);
+                    std::process::exit(1);
+                }
+            },
+            TeeOp::List => {
+                let entries = tee::list();
+                if entries.is_empty() {
+                    eprintln!("no tee entries");
+                } else {
+                    for e in entries {
+                        let age = std::time::SystemTime::now()
+                            .duration_since(e.modified)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+                        println!("{}  {:>8} B  {}s ago", e.id, e.bytes, age);
+                    }
+                }
+            }
+            TeeOp::Clear => {
+                let n = tee::clear();
+                eprintln!("removed {} tee entries", n);
+            }
+        },
 
         Some(Commands::Err { args }) => {
             let code = cmds::err::run(&args)?;

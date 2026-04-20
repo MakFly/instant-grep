@@ -3,6 +3,7 @@ use std::process::Command;
 use anyhow::Result;
 
 use crate::filter::{CompiledFilter, apply_filter};
+use crate::tee;
 use crate::tracking;
 
 /// Run a command with an optional filter applied to its output.
@@ -17,16 +18,27 @@ pub fn run_filtered(args: &[&str], filter: Option<&CompiledFilter>) -> Result<i3
     let raw = merge_output(&output);
     let exit_code = output.status.code().unwrap_or(1);
 
-    let filtered = if let Some(f) = filter {
+    let mut filtered = if let Some(f) = filter {
         apply_filter(f, &raw)
     } else {
         raw.clone()
     };
 
+    // Tee fallback: if the filter hid most of the output on a failing command,
+    // save the raw stream and tell the caller where to find it.
+    let cmd_str = args.join(" ");
+    if tee::should_save(raw.len(), filtered.len(), exit_code)
+        && let Some(tee_id) = tee::save(raw.as_bytes(), &cmd_str)
+    {
+        filtered.push_str(&format!(
+            "\n[ig: full output saved — run `ig tee show {}` to read it]\n",
+            tee_id
+        ));
+    }
+
     print!("{}", filtered);
 
     // Track token savings
-    let cmd_str = args.join(" ");
     tracking::log_savings(&tracking::TrackEntry {
         command: format!("ig run {}", cmd_str),
         original_bytes: raw.len() as u64,
