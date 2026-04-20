@@ -170,6 +170,10 @@ pub enum Commands {
         /// Show only git-changed lines with enclosing context
         #[arg(short = 'd', long)]
         delta: bool,
+
+        /// Raw output — no line numbers, no colors (byte-for-byte identical to cat)
+        #[arg(short = 'p', long)]
+        plain: bool,
     },
 
     /// Show 2-line smart summary for each file

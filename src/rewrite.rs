@@ -182,14 +182,36 @@ fn try_rewrite(cmd: &str) -> Option<String> {
     }
 }
 
-/// cat file → ig read file
+/// cat file → ig read --plain file (or -s for large source files)
 fn rewrite_cat(parts: &[String]) -> Option<String> {
     // Only rewrite simple `cat file` (no flags like -n, -A, etc.)
-    if parts.len() == 2 && !parts[1].starts_with('-') {
-        Some(format!("ig read {}", parts[1]))
-    } else {
-        None
+    if parts.len() != 2 || parts[1].starts_with('-') {
+        return None;
     }
+    let file = &parts[1];
+    if large_code_file(file) {
+        Some(format!("ig read {} -s", file))
+    } else {
+        Some(format!("ig read --plain {}", file))
+    }
+}
+
+/// Returns true when the file is a "large" source file worth signature-only output.
+/// Heuristic: extension in the code-file set AND file size > 8 KB (≈ 300 lines of code).
+fn large_code_file(path: &str) -> bool {
+    const CODE_EXT: &[&str] = &[
+        "rs", "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "go", "php", "java", "kt", "scala",
+        "cpp", "cc", "c", "h", "hpp", "rb", "swift", "cs",
+    ];
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    if !CODE_EXT.iter().any(|e| *e == ext) {
+        return false;
+    }
+    std::fs::metadata(path).map(|m| m.len() > 8_000).unwrap_or(false)
 }
 
 /// head -N file → ig read file (first N lines shown by default)
@@ -283,8 +305,8 @@ fn rewrite_grep(parts: &[String]) -> Option<String> {
     };
 
     match path {
-        Some(p) if p != "." => Some(format!("ig{} \"{}\" {}", case_flag, pattern, p)),
-        _ => Some(format!("ig{} \"{}\"", case_flag, pattern)),
+        Some(p) if p != "." => Some(format!("IG_COMPACT=1 ig{} \"{}\" {}", case_flag, pattern, p)),
+        _ => Some(format!("IG_COMPACT=1 ig{} \"{}\"", case_flag, pattern)),
     }
 }
 
@@ -332,8 +354,14 @@ fn rewrite_rg(parts: &[String]) -> Option<String> {
         None => String::new(),
     };
     match path {
-        Some(p) => Some(format!("ig{}{} \"{}\" {}", case_flag, type_arg, pattern, p)),
-        None => Some(format!("ig{}{} \"{}\"", case_flag, type_arg, pattern)),
+        Some(p) => Some(format!(
+            "IG_COMPACT=1 ig{}{} \"{}\" {}",
+            case_flag, type_arg, pattern, p
+        )),
+        None => Some(format!(
+            "IG_COMPACT=1 ig{}{} \"{}\"",
+            case_flag, type_arg, pattern
+        )),
     }
 }
 
@@ -378,8 +406,14 @@ fn rewrite_find(parts: &[String]) -> Option<String> {
 }
 
 /// ls [dir] → ig ls [dir]
+/// Only rewrite when there's a path arg OR an informative flag (-l, -a, -R).
+/// Bare `ls` on cwd already produces a terse listing; rewriting adds noise.
 fn rewrite_ls(parts: &[String]) -> Option<String> {
-    // Collect non-flag args
+    let has_informative_flag = parts
+        .iter()
+        .skip(1)
+        .any(|p| p.starts_with('-') && (p.contains('l') || p.contains('a') || p.contains('R')));
+
     let args: Vec<&str> = parts
         .iter()
         .skip(1)
@@ -388,9 +422,10 @@ fn rewrite_ls(parts: &[String]) -> Option<String> {
         .collect();
 
     match args.len() {
+        0 if !has_informative_flag => None, // bare `ls` — pass through
         0 => Some("ig ls".to_string()),
         1 => Some(format!("ig ls {}", args[0])),
-        _ => None, // Multiple paths — don't rewrite
+        _ => None,
     }
 }
 
@@ -515,9 +550,10 @@ mod tests {
 
     #[test]
     fn test_rewrite_cat() {
+        // A non-existent / small file routes to --plain.
         assert!(matches!(
-            classify_command("cat src/main.rs"),
-            RewriteResult::Rewrite(s) if s == "ig read src/main.rs"
+            classify_command("cat /tmp/__ig_nonexistent_file__"),
+            RewriteResult::Rewrite(s) if s == "ig read --plain /tmp/__ig_nonexistent_file__"
         ));
         assert!(matches!(
             classify_command("cat -n src/main.rs"),
@@ -553,11 +589,11 @@ mod tests {
     fn test_rewrite_grep_recursive() {
         assert!(matches!(
             classify_command("grep -rn useState src/"),
-            RewriteResult::Rewrite(s) if s == "ig \"useState\" src/"
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig \"useState\" src/"
         ));
         assert!(matches!(
             classify_command("grep -ri pattern ."),
-            RewriteResult::Rewrite(s) if s == "ig -i \"pattern\""
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig -i \"pattern\""
         ));
     }
 
@@ -573,11 +609,11 @@ mod tests {
     fn test_rewrite_rg() {
         assert!(matches!(
             classify_command("rg useState src/"),
-            RewriteResult::Rewrite(s) if s == "ig \"useState\" src/"
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig \"useState\" src/"
         ));
         assert!(matches!(
             classify_command("rg -i pattern"),
-            RewriteResult::Rewrite(s) if s == "ig -i \"pattern\""
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig -i \"pattern\""
         ));
     }
 
@@ -586,15 +622,15 @@ mod tests {
         // Bug fix: -t flag value must be forwarded as --type to ig
         assert!(matches!(
             classify_command("rg -t ts pattern"),
-            RewriteResult::Rewrite(s) if s == "ig --type ts \"pattern\""
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig --type ts \"pattern\""
         ));
         assert!(matches!(
             classify_command("rg -t rs useState src/"),
-            RewriteResult::Rewrite(s) if s == "ig --type rs \"useState\" src/"
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig --type rs \"useState\" src/"
         ));
         assert!(matches!(
             classify_command("rg -i -t ts pattern"),
-            RewriteResult::Rewrite(s) if s == "ig -i --type ts \"pattern\""
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig -i --type ts \"pattern\""
         ));
     }
 
@@ -640,13 +676,18 @@ mod tests {
 
     #[test]
     fn test_rewrite_ls() {
+        // Bare `ls` is passthrough now — raw output is already terse and we were adding noise.
         assert!(matches!(
             classify_command("ls"),
-            RewriteResult::Rewrite(s) if s == "ig ls"
+            RewriteResult::Passthrough
         ));
         assert!(matches!(
             classify_command("ls src/"),
             RewriteResult::Rewrite(s) if s == "ig ls src/"
+        ));
+        assert!(matches!(
+            classify_command("ls -la"),
+            RewriteResult::Rewrite(s) if s == "ig ls"
         ));
         assert!(matches!(
             classify_command("ls -la src/"),
@@ -790,7 +831,7 @@ mod tests {
     fn test_rewrite_grep_e_flag() {
         assert!(matches!(
             classify_command("grep -r -e pattern src/"),
-            RewriteResult::Rewrite(s) if s == r#"ig "pattern" src/"#
+            RewriteResult::Rewrite(s) if s == r#"IG_COMPACT=1 ig "pattern" src/"#
         ));
     }
 

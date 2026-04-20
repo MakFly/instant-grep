@@ -281,6 +281,7 @@ fn main() -> Result<()> {
             budget,
             relevant,
             delta,
+            plain,
         }) => {
             let path = std::path::Path::new(&file);
             let original_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
@@ -310,6 +311,14 @@ fn main() -> Result<()> {
             };
 
             if !delta_done {
+                // --plain: raw cat-equivalent output, no line numbers, no colors
+                if plain {
+                    let result = read::read_file_filtered(path, read::FilterLevel::Full)?;
+                    let mut printer = Printer::new(false, false);
+                    printer.print_read_plain(&result);
+                    return Ok(());
+                }
+
                 let use_lsc = budget.is_some() || aggressive;
                 let level = if delta {
                     // Delta with no changes falls back to signatures

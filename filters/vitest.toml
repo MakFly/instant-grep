@@ -11,9 +11,8 @@ strip_ansi = true
 #         Tests  1 failed | 45 passed (46)
 #      Duration  1.23s
 #
-# Drop `✓` passing lines and the top DEV banner; keep everything else. Using
-# `drop_lines` (rather than a fragile exhaustive `keep_lines`) is more
-# maintainable as vitest evolves its output format.
-drop_lines = "(^\\s*✓\\s|^\\s*DEV\\s|^\\s*$)"
+# Drop `✓` passing lines, the DEV banner, ✗ suite summary lines (redundant
+# with the FAIL block below), node_modules stack frames, and timing/start lines.
+drop_lines = "(^\\s*✓\\s|^\\s*DEV\\s|^\\s*$|^\\s*✗\\s.*\\(\\d+ tests\\)|\\bnode_modules/|^\\s*Start at\\s|^\\s*Duration\\s)"
 max_lines = 80
 on_empty = "All tests passed"

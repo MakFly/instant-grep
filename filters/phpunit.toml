@@ -12,6 +12,6 @@ strip_ansi = true
 #   FAILURES!
 #   Tests: 100, Assertions: 200, Failures: 2, Errors: 1, Skipped: 3.
 # Keep only failure/error blocks and the final totals.
-keep_lines = "(^\\d+\\) |^Failed asserting|^FAILURES!$|^ERRORS!$|^WARNINGS!$|^RISKY!$|^There were|^There was|^Tests:\\s|^Exception|Error:|^OK\\s*\\(|^OK\\s*,|^Time:|^Memory:|^\\S+\\.php:\\d+)"
-max_lines = 80
+keep_lines = "(^\\d+\\) |^Failed asserting|^FAILURES!$|^ERRORS!$|^WARNINGS!$|^RISKY!$|^There were|^There was|^Tests:\\s|^Exception|Error:|^OK\\s*\\(|^OK\\s*,|^\\S+\\.php:\\d+)"
+max_lines = 60
 on_empty = "All tests passed"

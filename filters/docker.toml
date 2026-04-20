@@ -2,8 +2,17 @@
 name = "docker-ps"
 match = "^docker ps"
 strip_ansi = true
-truncate_at = 120
 max_lines = 30
+replace = [
+  { find = "COMMAND\\s+",          with = "" },
+  { find = "\"[^\"]*\"\\s*",       with = "" },
+  { find = "CREATED\\s+",          with = "" },
+  { find = "\\d+ \\w+ ago\\s*",    with = "" },
+  { find = "SERVICE\\s+",          with = "" },
+  { find = "Up \\d+ \\w+",         with = "Up" },
+  { find = "0\\.0\\.0\\.0:",       with = "" },
+  { find = " {2,}",                with = "  " },
+]
 
 [[filters]]
 name = "docker-images"
@@ -18,8 +27,10 @@ match = "^docker logs"
 strip_ansi = true
 replace = [
   { find = "^\\d{4}-\\d{2}-\\d{2}T[\\d:.]+Z\\s*", with = "" },
+  { find = "^(INFO|WARN|WARNING|ERROR|DEBUG)\\s+", with = "$1 " },
 ]
-tail = 50
+drop_lines = "(GET /health |/favicon\\.ico|connection established$|Loading configuration|Connecting to )"
+tail = 25
 
 [[filters]]
 name = "docker-build"
@@ -27,6 +38,22 @@ match = "^docker build"
 strip_ansi = true
 keep_lines = "(^(STEP|Step|ERROR|error|#\\d+))"
 max_lines = 60
+
+[[filters]]
+name = "docker-compose-ps"
+match = "^docker compose ps"
+strip_ansi = true
+max_lines = 20
+replace = [
+  { find = "COMMAND\\s+",          with = "" },
+  { find = "\"[^\"]*\"\\s*",       with = "" },
+  { find = "CREATED\\s+",          with = "" },
+  { find = "\\d+ \\w+ ago\\s*",    with = "" },
+  { find = "SERVICE\\s+",          with = "" },
+  { find = "Up \\d+ \\w+",         with = "Up" },
+  { find = "0\\.0\\.0\\.0:",       with = "" },
+  { find = " {2,}",                with = "  " },
+]
 
 [[filters]]
 name = "docker-compose"

@@ -16,6 +16,14 @@ pub struct Printer {
     stdout: StandardStream,
     first_file: bool,
     json_mode: bool,
+    max_line_len: usize,
+    max_matches_per_file: usize,
+    max_matches_total: usize,
+    compact: bool,
+    current_file_matches: usize,
+    current_file_truncated_notice: bool,
+    total_matches_emitted: usize,
+    global_cap_hit: bool,
 }
 
 impl Printer {
@@ -27,10 +35,19 @@ impl Printer {
         } else {
             ColorChoice::Never
         };
+        let (max_line_len, max_matches_per_file, max_matches_total, compact) = compact_limits();
         Self {
             stdout: StandardStream::stdout(choice),
             first_file: true,
             json_mode,
+            max_line_len,
+            max_matches_per_file,
+            max_matches_total,
+            compact,
+            current_file_matches: 0,
+            current_file_truncated_notice: false,
+            total_matches_emitted: 0,
+            global_cap_hit: false,
         }
     }
 
@@ -58,7 +75,12 @@ impl Printer {
             return;
         }
 
-        if !self.first_file {
+        if self.global_cap_hit {
+            return;
+        }
+
+        // Compact mode: no blank line between files (save 1 byte per file).
+        if !self.first_file && !self.compact {
             let _ = writeln!(self.stdout);
         }
         self.first_file = false;
@@ -67,9 +89,41 @@ impl Printer {
         let _ = writeln!(self.stdout);
 
         let mut prev_line_num: Option<usize> = None;
+        self.current_file_matches = 0;
+        self.current_file_truncated_notice = false;
 
         for line_match in &file_matches.matches {
-            if let Some(prev) = prev_line_num
+            if self.max_matches_total > 0 && self.total_matches_emitted >= self.max_matches_total {
+                let _ = self
+                    .stdout
+                    .set_color(ColorSpec::new().set_fg(Some(Color::Cyan)).set_dimmed(true));
+                let _ = writeln!(self.stdout, "… global cap reached ({} matches)", self.max_matches_total);
+                let _ = self.stdout.reset();
+                self.global_cap_hit = true;
+                return;
+            }
+
+            if self.max_matches_per_file > 0
+                && self.current_file_matches >= self.max_matches_per_file
+            {
+                if !self.current_file_truncated_notice {
+                    let remaining = file_matches
+                        .matches
+                        .len()
+                        .saturating_sub(self.current_file_matches);
+                    let _ = self
+                        .stdout
+                        .set_color(ColorSpec::new().set_fg(Some(Color::Cyan)).set_dimmed(true));
+                    let _ = writeln!(self.stdout, "… +{} more", remaining);
+                    let _ = self.stdout.reset();
+                    self.current_file_truncated_notice = true;
+                }
+                break;
+            }
+
+            // Compact mode: skip `--` separators between non-contiguous matches.
+            if !self.compact
+                && let Some(prev) = prev_line_num
                 && line_match.line_number > prev + 1
             {
                 let _ = self
@@ -81,6 +135,8 @@ impl Printer {
             prev_line_num = Some(line_match.line_number);
 
             self.print_line(line_match);
+            self.current_file_matches += 1;
+            self.total_matches_emitted += 1;
         }
     }
 
@@ -144,12 +200,24 @@ impl Printer {
         }
         let _ = self.stdout.reset();
 
-        let line = &line_match.line;
-        if line_match.match_ranges.is_empty() || line_match.is_context {
+        let owned_trunc: Vec<u8>;
+        let mut ranges_adj: Vec<std::ops::Range<usize>> = line_match.match_ranges.clone();
+        let line: &[u8] = if self.max_line_len > 0 && line_match.line.len() > self.max_line_len {
+            owned_trunc = truncate_match_line(
+                &line_match.line,
+                &line_match.match_ranges,
+                self.max_line_len,
+                &mut ranges_adj,
+            );
+            &owned_trunc
+        } else {
+            &line_match.line
+        };
+        if ranges_adj.is_empty() || line_match.is_context {
             let _ = self.stdout.write_all(line);
         } else {
             let mut pos = 0;
-            for range in &line_match.match_ranges {
+            for range in &ranges_adj {
                 let start = range.start.min(line.len());
                 let end = range.end.min(line.len());
 
@@ -321,6 +389,12 @@ impl Printer {
                 .set_color(ColorSpec::new().set_fg(Some(Color::Green)).set_dimmed(true));
             let _ = write!(self.stdout, "{:>4}: ", num);
             let _ = self.stdout.reset();
+            let _ = writeln!(self.stdout, "{}", line);
+        }
+    }
+
+    pub fn print_read_plain(&mut self, result: &ReadResult) {
+        for (_num, line) in &result.lines {
             let _ = writeln!(self.stdout, "{}", line);
         }
     }
@@ -557,6 +631,105 @@ fn format_duration(d: Duration) -> String {
     } else {
         format!("{:.2}s", d.as_secs_f64())
     }
+}
+
+/// Read compact-mode env vars. `IG_COMPACT=1` enables the following defaults:
+/// - line length capped at 100
+/// - per-file match cap: 10
+/// - global match cap: 200
+/// - no `--` separator between non-contiguous matches
+/// - no blank line between files
+/// `IG_LINE_MAX`, `IG_MAX_MATCHES_PER_FILE`, `IG_MAX_MATCHES_TOTAL` override individual caps.
+fn compact_limits() -> (usize, usize, usize, bool) {
+    let compact = std::env::var("IG_COMPACT").ok().as_deref() == Some("1");
+    let line_max = std::env::var("IG_LINE_MAX")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(if compact { 100 } else { 0 });
+    let per_file = std::env::var("IG_MAX_MATCHES_PER_FILE")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(if compact { 10 } else { 0 });
+    let total = std::env::var("IG_MAX_MATCHES_TOTAL")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(if compact { 200 } else { 0 });
+    (line_max, per_file, total, compact)
+}
+
+/// Truncate `line` to at most `max_len` bytes while preserving match markers.
+/// Strategy: if a match fits within the window, keep the window around the first match.
+/// Otherwise return `line[..first60] + "…" + line[len-30..]`.
+/// Adjusts provided match ranges into the new buffer (or empties them if they fall outside).
+fn truncate_match_line(
+    line: &[u8],
+    ranges: &[std::ops::Range<usize>],
+    max_len: usize,
+    out_ranges: &mut Vec<std::ops::Range<usize>>,
+) -> Vec<u8> {
+    out_ranges.clear();
+    if line.len() <= max_len {
+        out_ranges.extend_from_slice(ranges);
+        return line.to_vec();
+    }
+    // Strip leading whitespace first — cheapest win.
+    let lead = line.iter().take_while(|b| **b == b' ' || **b == b'\t').count();
+    let trimmed = &line[lead..];
+    if trimmed.len() <= max_len {
+        for r in ranges {
+            let s = r.start.saturating_sub(lead);
+            let e = r.end.saturating_sub(lead);
+            if e > s && s < trimmed.len() {
+                out_ranges.push(s..e.min(trimmed.len()));
+            }
+        }
+        return trimmed.to_vec();
+    }
+
+    // Build: first_head bytes + "…" + last_tail bytes (head+tail = max_len - 1 for ellipsis)
+    let ellipsis: &[u8] = "…".as_bytes(); // 3 bytes
+    let budget = max_len.saturating_sub(ellipsis.len());
+    let head_len = (budget * 2 / 3).min(trimmed.len());
+    let tail_len = budget.saturating_sub(head_len).min(trimmed.len() - head_len);
+
+    let head = &trimmed[..safe_utf8_boundary(trimmed, head_len, false)];
+    let tail_start = trimmed.len() - tail_len;
+    let tail = &trimmed[safe_utf8_boundary(trimmed, tail_start, true)..];
+
+    let mut out = Vec::with_capacity(head.len() + ellipsis.len() + tail.len());
+    out.extend_from_slice(head);
+    out.extend_from_slice(ellipsis);
+    out.extend_from_slice(tail);
+
+    // Adjust ranges: keep those fully inside head; drop those that cross the cut.
+    for r in ranges {
+        let s = r.start.saturating_sub(lead);
+        let e = r.end.saturating_sub(lead);
+        if e <= head.len() {
+            out_ranges.push(s..e);
+        } else if s >= trimmed.len() - tail.len() {
+            let off = head.len() + ellipsis.len();
+            let ns = off + (s - (trimmed.len() - tail.len()));
+            let ne = off + (e - (trimmed.len() - tail.len()));
+            out_ranges.push(ns..ne);
+        }
+        // else: spans the cut, drop.
+    }
+    out
+}
+
+fn safe_utf8_boundary(buf: &[u8], mut idx: usize, forward: bool) -> usize {
+    idx = idx.min(buf.len());
+    if forward {
+        while idx < buf.len() && (buf[idx] & 0xC0) == 0x80 {
+            idx += 1;
+        }
+    } else {
+        while idx > 0 && (buf[idx] & 0xC0) == 0x80 {
+            idx -= 1;
+        }
+    }
+    idx
 }
 
 #[cfg(test)]
