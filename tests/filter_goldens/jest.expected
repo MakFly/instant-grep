@@ -1,9 +1,5 @@
- RUNS  src/components/Button.test.tsx
- RUNS  src/hooks/useAuth.test.ts
- PASS  src/components/Button.test.tsx
- PASS  src/hooks/useAuth.test.ts
- FAIL  src/api/users.test.ts
   ● UserAPI › deleteUser › should return 404 for unknown user
+      at Object.<anonymous> (src/api/users.test.ts:40:24)
 Test Suites: 1 failed, 2 passed, 3 total
 Tests:       1 failed, 8 passed, 9 total
 Snapshots:   0 total

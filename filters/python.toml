@@ -2,7 +2,9 @@
 name = "pytest"
 match = "^(pytest|python -m pytest)"
 strip_ansi = true
-keep_lines = "(PASSED|FAILED|ERROR|warnings summary|short test summary|=====)"
+# Keep failures, errors, tracebacks, and the final session summary.
+# Drop PASSED lines (too noisy — the final summary reports the count).
+keep_lines = "(^FAILED |^ERROR |^_{3,}|^E   |AssertionError|^Traceback|^  File \"|short test summary info|===+ .*(failed|passed|error|warning).*===+|^Exception)"
 max_lines = 80
 on_empty = "All tests passed"
 

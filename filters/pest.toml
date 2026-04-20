@@ -1,0 +1,18 @@
+[[filters]]
+name = "pest"
+match = "^(pest|php(unit)? vendor/bin/pest|vendor/bin/pest|\\./vendor/bin/pest)"
+strip_ansi = true
+# Pest (PHP) reporter layout:
+#    PASS  Tests\Unit\FooTest     ← section header, drop
+#   ✓ it returns expected value   ← passing test, drop
+#
+#    FAIL  Tests\Feature\BarTest  ← keep (failure section)
+#   ⨯ it fails properly           ← keep
+#    → Error message              ← keep
+#    /path/to/test.php:42         ← keep
+#
+#   Tests:   2 failed, 48 passed (50 assertions)  ← keep
+#   Duration: 0.34s                                ← keep
+keep_lines = "(^\\s*FAIL\\s|^\\s*⨯|^\\s*→|^\\s*Tests:\\s|^\\s*Duration:|^\\s*Failed|^\\s*Error:|^\\s*Exception|AssertionError|\\S+\\.php:\\d+|^\\s*Unexpected)"
+max_lines = 80
+on_empty = "All tests passed"

@@ -8,14 +8,6 @@ max_lines = 80
 on_empty = "No type errors"
 
 [[filters]]
-name = "vitest"
-match = "^(vitest|npx vitest|bunx vitest)"
-strip_ansi = true
-keep_lines = "(✓|×|✗|FAIL|PASS|Tests\\s|Test Files|Duration)"
-max_lines = 60
-on_empty = "All tests passed"
-
-[[filters]]
 name = "eslint"
 match = "^(eslint|npx eslint|bunx eslint)"
 strip_ansi = true

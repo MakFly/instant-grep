@@ -1,0 +1,17 @@
+[[filters]]
+name = "phpunit"
+match = "^(phpunit|php(unit)? vendor/bin/phpunit|vendor/bin/phpunit|\\./vendor/bin/phpunit)"
+strip_ansi = true
+# PHPUnit reporter layout:
+#   PHPUnit 10.0.0 by Sebastian Bergmann.
+#   .....F....EF..R...  20 / 100 (20%)   ← progress line, drop
+#   There were 2 failures:
+#   1) App\Tests\FooTest::test_bar
+#   Failed asserting that 41 matches expected 42.
+#   /path/test.php:42
+#   FAILURES!
+#   Tests: 100, Assertions: 200, Failures: 2, Errors: 1, Skipped: 3.
+# Keep only failure/error blocks and the final totals.
+keep_lines = "(^\\d+\\) |^Failed asserting|^FAILURES!$|^ERRORS!$|^WARNINGS!$|^RISKY!$|^There were|^There was|^Tests:\\s|^Exception|Error:|^OK\\s*\\(|^OK\\s*,|^Time:|^Memory:|^\\S+\\.php:\\d+)"
+max_lines = 80
+on_empty = "All tests passed"

@@ -2,7 +2,9 @@
 name = "jest"
 match = "^(jest|npx jest|bunx jest|bun test)"
 strip_ansi = true
-keep_lines = "(PASS|FAIL|✓|✗|×|●|RUNS|Tests:|Test Suites:|Snapshots:|Time:|Ran all)"
+# Keep only failures + final summary; drop PASS / ✓ passing lines so the
+# output is dominated by signal, not progress.
+keep_lines = "(^FAIL |●|✗|×|^  Expected:|^  Received:|at .*\\(\\S+\\.(js|ts|jsx|tsx):\\d+|^Tests:|^Test Suites:|^Snapshots:|^Time:|^Ran all|^Error:|^TypeError:|^ReferenceError:)"
 max_lines = 80
 on_empty = "All tests passed"
 
@@ -10,6 +12,6 @@ on_empty = "All tests passed"
 name = "jest-verbose"
 match = "^(jest|npx jest|bunx jest) .*(--verbose|-v)"
 strip_ansi = true
-keep_lines = "(✓|✗|×|●|PASS|FAIL|Tests:|Time:)"
+keep_lines = "(^FAIL |●|✗|×|^  Expected:|^  Received:|at .*\\(\\S+\\.(js|ts|jsx|tsx):\\d+|^Tests:|^Test Suites:|^Time:)"
 max_lines = 100
 on_empty = "All tests passed"

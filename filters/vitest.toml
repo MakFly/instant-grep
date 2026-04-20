@@ -1,0 +1,19 @@
+[[filters]]
+name = "vitest"
+match = "^(vitest|npx vitest|bunx vitest)( run| --run)?"
+strip_ansi = true
+# Vitest reporter layout (passing lines start with ` ✓`, failing with ` ✗` or ` ❯`):
+#   ✓ tests/foo.test.ts  (12 tests) 234ms   ← passing suite, drop
+#   ✗ tests/bar.test.ts  (3 tests | 1 failed) 567ms   ← failing suite, keep
+#   FAIL  tests/bar.test.ts > bar > should do X
+#   AssertionError: expected 1 to be 2
+#    Test Files  1 failed | 5 passed (6)
+#         Tests  1 failed | 45 passed (46)
+#      Duration  1.23s
+#
+# Drop `✓` passing lines and the top DEV banner; keep everything else. Using
+# `drop_lines` (rather than a fragile exhaustive `keep_lines`) is more
+# maintainable as vitest evolves its output format.
+drop_lines = "(^\\s*✓\\s|^\\s*DEV\\s|^\\s*$)"
+max_lines = 80
+on_empty = "All tests passed"
