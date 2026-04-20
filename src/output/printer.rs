@@ -97,7 +97,11 @@ impl Printer {
                 let _ = self
                     .stdout
                     .set_color(ColorSpec::new().set_fg(Some(Color::Cyan)).set_dimmed(true));
-                let _ = writeln!(self.stdout, "… global cap reached ({} matches)", self.max_matches_total);
+                let _ = writeln!(
+                    self.stdout,
+                    "… global cap reached ({} matches)",
+                    self.max_matches_total
+                );
                 let _ = self.stdout.reset();
                 self.global_cap_hit = true;
                 return;
@@ -639,6 +643,7 @@ fn format_duration(d: Duration) -> String {
 /// - global match cap: 200
 /// - no `--` separator between non-contiguous matches
 /// - no blank line between files
+///
 /// `IG_LINE_MAX`, `IG_MAX_MATCHES_PER_FILE`, `IG_MAX_MATCHES_TOTAL` override individual caps.
 fn compact_limits() -> (usize, usize, usize, bool) {
     let compact = std::env::var("IG_COMPACT").ok().as_deref() == Some("1");
@@ -673,7 +678,10 @@ fn truncate_match_line(
         return line.to_vec();
     }
     // Strip leading whitespace first — cheapest win.
-    let lead = line.iter().take_while(|b| **b == b' ' || **b == b'\t').count();
+    let lead = line
+        .iter()
+        .take_while(|b| **b == b' ' || **b == b'\t')
+        .count();
     let trimmed = &line[lead..];
     if trimmed.len() <= max_len {
         for r in ranges {
@@ -690,7 +698,9 @@ fn truncate_match_line(
     let ellipsis: &[u8] = "…".as_bytes(); // 3 bytes
     let budget = max_len.saturating_sub(ellipsis.len());
     let head_len = (budget * 2 / 3).min(trimmed.len());
-    let tail_len = budget.saturating_sub(head_len).min(trimmed.len() - head_len);
+    let tail_len = budget
+        .saturating_sub(head_len)
+        .min(trimmed.len() - head_len);
 
     let head = &trimmed[..safe_utf8_boundary(trimmed, head_len, false)];
     let tail_start = trimmed.len() - tail_len;

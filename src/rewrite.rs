@@ -211,7 +211,9 @@ fn large_code_file(path: &str) -> bool {
     if !CODE_EXT.iter().any(|e| *e == ext) {
         return false;
     }
-    std::fs::metadata(path).map(|m| m.len() > 8_000).unwrap_or(false)
+    std::fs::metadata(path)
+        .map(|m| m.len() > 8_000)
+        .unwrap_or(false)
 }
 
 /// head -N file → ig read file (first N lines shown by default)
@@ -305,7 +307,10 @@ fn rewrite_grep(parts: &[String]) -> Option<String> {
     };
 
     match path {
-        Some(p) if p != "." => Some(format!("IG_COMPACT=1 ig{} \"{}\" {}", case_flag, pattern, p)),
+        Some(p) if p != "." => Some(format!(
+            "IG_COMPACT=1 ig{} \"{}\" {}",
+            case_flag, pattern, p
+        )),
         _ => Some(format!("IG_COMPACT=1 ig{} \"{}\"", case_flag, pattern)),
     }
 }
@@ -677,10 +682,7 @@ mod tests {
     #[test]
     fn test_rewrite_ls() {
         // Bare `ls` is passthrough now — raw output is already terse and we were adding noise.
-        assert!(matches!(
-            classify_command("ls"),
-            RewriteResult::Passthrough
-        ));
+        assert!(matches!(classify_command("ls"), RewriteResult::Passthrough));
         assert!(matches!(
             classify_command("ls src/"),
             RewriteResult::Rewrite(s) if s == "ig ls src/"
