@@ -666,38 +666,28 @@ fn configure_cline(_home: &Path, dry_run: bool) -> Vec<ConfigResult> {
 pub(crate) fn resolve_real_home() -> Option<PathBuf> {
     // If SUDO_USER is set, we're running under sudo — use the real user's home
     if let Ok(sudo_user) = std::env::var("SUDO_USER") {
-        // Validate username to prevent shell injection
+        // Strict username validation: POSIX portable filename set minus '.',
+        // since '.' allows usernames like `a.$(id)` which would still be passed
+        // through to external processes.
         if !sudo_user
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
         {
             eprintln!("Warning: SUDO_USER contains invalid characters, ignoring");
-        } else {
-            // Try /etc/passwd lookup via getent (Linux)
-            if let Some(home_dir) = std::process::Command::new("getent")
-                .args(["passwd", &sudo_user])
-                .output()
-                .ok()
-                .filter(|o| o.status.success())
-                .and_then(|o| {
-                    let line = String::from_utf8_lossy(&o.stdout).to_string();
-                    line.split(':').nth(5).map(|h| PathBuf::from(h.trim()))
-                })
-            {
-                return Some(home_dir);
-            }
-            // Fallback: expand ~user via shell (safe — username validated above)
-            if let Some(home) = std::process::Command::new("sh")
-                .args(["-c", &format!("eval echo ~{}", sudo_user)])
-                .output()
-                .ok()
-                .filter(|o| o.status.success())
-                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                .filter(|h| !h.is_empty())
-            {
-                return Some(PathBuf::from(home));
-            }
+        } else if let Some(home_dir) = std::process::Command::new("getent")
+            .args(["passwd", &sudo_user])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .and_then(|o| {
+                let line = String::from_utf8_lossy(&o.stdout).to_string();
+                line.split(':').nth(5).map(|h| PathBuf::from(h.trim()))
+            })
+        {
+            return Some(home_dir);
         }
+        // No shell fallback: if getent can't resolve the user, we refuse to
+        // guess. The caller will fall back to $HOME below.
     }
     // Default: use HOME
     std::env::var("HOME").ok().map(PathBuf::from)

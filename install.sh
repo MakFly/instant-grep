@@ -6,9 +6,16 @@ set -euo pipefail
 
 REPO="MakFly/instant-grep"
 
-# When running under sudo, resolve the real user's home directory
+# When running under sudo, resolve the real user's home directory.
+# Only use getent (reads /etc/passwd); never fall back to shell expansion
+# since `eval echo ~$SUDO_USER` is a command-injection sink if SUDO_USER
+# is attacker-controlled.
 if [ -n "${SUDO_USER:-}" ]; then
-  REAL_HOME=$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || eval echo "~$SUDO_USER")
+  REAL_HOME=$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || true)
+  if [ -z "$REAL_HOME" ]; then
+    echo "Could not resolve home directory for SUDO_USER=$SUDO_USER via getent" >&2
+    exit 1
+  fi
 else
   REAL_HOME="$HOME"
 fi
