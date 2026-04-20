@@ -1,0 +1,14 @@
+============================= test session starts ==============================
+tests/test_auth.py::test_login_success PASSED
+tests/test_auth.py::test_login_failure PASSED
+tests/test_auth.py::test_logout PASSED
+tests/test_api.py::test_create_user PASSED
+tests/test_api.py::test_get_user PASSED
+tests/test_api.py::test_delete_user FAILED
+tests/test_api.py::test_list_users PASSED
+tests/test_models.py::test_user_model PASSED
+tests/test_models.py::test_post_model PASSED
+================================= FAILURES =================================
+=========================== short test summary info ============================
+FAILED tests/test_api.py::test_delete_user - AssertionError: assert 200 == 404
+============================== 1 failed, 41 passed in 3.42s ==============================

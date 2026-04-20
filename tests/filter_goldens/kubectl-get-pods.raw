@@ -1,0 +1,8 @@
+NAME                                    READY   STATUS             RESTARTS   AGE
+web-deployment-7d8f9b44f9-xkl2p        1/1     Running            0          2d
+web-deployment-7d8f9b44f9-mn3qr        1/1     Running            0          2d
+api-deployment-5c6b7a8f9d-pqr4s        1/1     Running            3          1d
+api-deployment-5c6b7a8f9d-uvw5t        0/1     CrashLoopBackOff   15         1d
+worker-deployment-9e0f1c2d3e-xyz6u     1/1     Running            0          5h
+db-deployment-4a5b6c7d8e-abc7v         1/1     Running            0          7d
+redis-deployment-1b2c3d4e5f-def8w      1/1     Running            0          7d

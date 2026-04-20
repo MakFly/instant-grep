@@ -1,0 +1,7 @@
+src/auth.py:12:5: F401 `os` imported but unused
+src/auth.py:34:1: E302 Expected 2 blank lines, got 1
+src/models/user.py:56:80: E501 Line too long (92 > 79 characters)
+src/models/user.py:89:9: F841 Local variable `result` is assigned to but never used
+src/api/endpoints.py:23:1: W291 Trailing whitespace
+src/api/endpoints.py:67:5: B008 Do not perform function calls in default arguments
+Found 6 errors.

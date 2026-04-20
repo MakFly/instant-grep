@@ -1,0 +1,1 @@
+jest --testPathPattern=src/
