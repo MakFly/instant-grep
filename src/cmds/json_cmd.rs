@@ -93,7 +93,7 @@ mod tests {
     fn schema_scalars() {
         assert_eq!(to_schema(&json!("hello")), json!("string"));
         assert_eq!(to_schema(&json!(42)), json!("int"));
-        assert_eq!(to_schema(&json!(3.14)), json!("float"));
+        assert_eq!(to_schema(&json!(2.5)), json!("float"));
         assert_eq!(to_schema(&json!(true)), json!("bool"));
         assert_eq!(to_schema(&json!(null)), json!("null"));
     }

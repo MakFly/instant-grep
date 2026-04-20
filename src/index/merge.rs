@@ -358,7 +358,15 @@ pub fn build_lexicon_mmap_from_file(
 
         let stored_key = key + 1; // sentinel: 0 = empty
         let mut slot = (stored_key as usize) % table_size;
+        let mut probes = 0usize;
         loop {
+            if probes >= table_size {
+                return Err(anyhow::anyhow!(
+                    "lexicon hash table full: {} entries, table_size {}",
+                    entry_count,
+                    table_size
+                ));
+            }
             let lex_base = slot * ENTRY_SIZE;
             let existing = u64::from_le_bytes(mmap[lex_base..lex_base + 8].try_into().unwrap());
             if existing == 0 {
@@ -370,6 +378,7 @@ pub fn build_lexicon_mmap_from_file(
                 break;
             }
             slot = (slot + 1) % table_size;
+            probes += 1;
         }
     }
 
