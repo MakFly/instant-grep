@@ -1,51 +1,21 @@
 #!/usr/bin/env bash
 # ig-guard.sh — PreToolUse/Bash hook
-# Merged from: ig-rewrite.sh, find-rewrite.sh, prefer-ig.sh
-# Phase 1: block forbidden search tools (from env var, fast, no deps)
-# Phase 2: rewrite commands to ig equivalents (from stdin JSON, needs jq)
-
-# ── Phase 1: Blocking ───────────────────────────────────────────────────────
-# Uses $CLAUDE_BASH_COMMAND (env var) — no stdin read, instant exit on block.
+# Phase 1: no-op early exits (subagent pass-through, empty command).
+# Phase 2: full rewrite / deny logic delegated to `ig rewrite`.
+#
+# Previously Phase 1 BLOCKED grep/rg/find so Claude saw an error and had to
+# retype. That friction is removed: grep/rg/find now fall through to Phase 2
+# where `ig rewrite` transparently substitutes the command via updatedInput.
+# The user never sees a block, the agent keeps going.
 
 COMMAND="$CLAUDE_BASH_COMMAND"
 [[ -z "$COMMAND" ]] && exit 0
 
-# Skip blocking for subagents — they need find/grep for exploration
+# Skip for subagents — they can use whatever they like.
 [[ -n "${CLAUDE_AGENT_NAME:-}" ]] && exit 0
 
-# Allow: piped grep (echo|grep, cat|grep) — string manipulation, not code search
-if ! echo "$COMMAND" | grep -qE '\|[[:space:]]*(grep|egrep|fgrep)'; then
-
-  # Block: rg (always)
-  if echo "$COMMAND" | grep -qE '(^|\s|;|&&|\|\|)rg\s'; then
-    echo "BLOCK: Use ig instead of rg. Examples:" >&2
-    echo "  ig \"pattern\" [path]        # search" >&2
-    echo "  ig -l \"pattern\"            # file paths only" >&2
-    exit 2
-  fi
-
-  # Block: grep used for code search (grep -r, -R, -rn, --include, --recursive, egrep, fgrep)
-  if echo "$COMMAND" | grep -qE '(^|\s|;|&&|\|\|)(grep\s+-(r|R|rn|nr|rl|lr)|grep\s+--include|grep\s+--recursive|egrep\s|fgrep\s)'; then
-    echo "BLOCK: Use ig instead of grep for code search. Examples:" >&2
-    echo "  ig \"pattern\" [path]        # search" >&2
-    echo "  ig -t rs \"pattern\"         # filter by type" >&2
-    echo "  ig -i \"pattern\"            # case-insensitive" >&2
-    exit 2
-  fi
-
-  # Block: find for file discovery (allow -maxdepth 1 which is basically ls)
-  if echo "$COMMAND" | grep -qE '(^|\s|;|&&|\|\|)find\s+\S+\s+.*(-name|-type\s+f|-iname)' && \
-     ! echo "$COMMAND" | grep -qE 'find\s+\S+\s+-maxdepth\s+1'; then
-    echo "BLOCK: Use ig for file discovery. Examples:" >&2
-    echo "  ig files [path]            # list all indexed files" >&2
-    echo "  ig -l \"pattern\" [path]    # files matching content" >&2
-    exit 2
-  fi
-
-fi
-
-# ── Phase 2: Rewriting ──────────────────────────────────────────────────────
-# Uses stdin JSON — only reached if Phase 1 didn't block.
+# ── Phase 2: Rewriting + DENY enforcement ──────────────────────────────────
+# Uses stdin JSON — needs jq.
 
 command -v jq &>/dev/null || exit 0
 
@@ -97,6 +67,12 @@ case $EXIT_CODE in
         "updatedInput": $updated
       }
     }'
+    ;;
+  2) # Deny — destructive command. The Rust rewriter wrote the reason to
+     # its stderr, which was swallowed; re-emit a clear message to the
+     # user and block the tool invocation.
+    echo "BLOCK (ig rewrite): destructive command refused" >&2
+    exit 2
     ;;
   3) # Rewrite needs user confirmation
     UPDATED_INPUT=$(echo "$ORIGINAL_INPUT" | jq --arg cmd "$REWRITTEN" '.command = $cmd')
