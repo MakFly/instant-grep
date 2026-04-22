@@ -489,7 +489,9 @@ fn configure_claude_hooks_full(claude_dir: &Path, dry_run: bool) -> Vec<ConfigRe
     }
 
     // PreToolUse/Bash — destructive git blocker
-    let destructive_git_cmd = r#"echo "$CLAUDE_BASH_COMMAND" | grep -qE '(git reset --hard|git checkout \.|git clean -f|--force|--no-verify)' && echo 'BLOCK: Destructive git command detected. Confirm with user first.' >&2 && exit 2 || exit 0"#;
+    // Reads command from $CLAUDE_BASH_COMMAND (legacy) or stdin JSON (Claude
+    // Code 2.1+). Works with both harness versions.
+    let destructive_git_cmd = r#"CMD="${CLAUDE_BASH_COMMAND:-}"; [[ -z "$CMD" && ! -t 0 ]] && CMD="$(jq -r '.tool_input.command // empty' 2>/dev/null)"; echo "$CMD" | grep -qE '(git reset --hard|git checkout \.|git clean -f|--force|--no-verify)' && echo 'BLOCK: Destructive git command detected. Confirm with user first.' >&2 && exit 2 || exit 0"#;
     if ensure_hook_registered(
         &mut parsed,
         "PreToolUse",
@@ -505,7 +507,8 @@ fn configure_claude_hooks_full(claude_dir: &Path, dry_run: bool) -> Vec<ConfigRe
     }
 
     // PreToolUse/Bash — npm/npx blocker
-    let npm_cmd = r#"echo "$CLAUDE_BASH_COMMAND" | grep -qE '^(npm |npx )' && echo 'BLOCK: Use bun/bunx instead of npm/npx (global rule).' >&2 && exit 2 || exit 0"#;
+    // Same env-var/stdin-JSON dual source as the destructive git blocker.
+    let npm_cmd = r#"CMD="${CLAUDE_BASH_COMMAND:-}"; [[ -z "$CMD" && ! -t 0 ]] && CMD="$(jq -r '.tool_input.command // empty' 2>/dev/null)"; echo "$CMD" | grep -qE '^(npm |npx )' && echo 'BLOCK: Use bun/bunx instead of npm/npx (global rule).' >&2 && exit 2 || exit 0"#;
     if ensure_hook_registered(
         &mut parsed,
         "PreToolUse",
