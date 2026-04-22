@@ -25,6 +25,7 @@ max_lines = 30
 name = "docker-logs"
 match = "^docker logs"
 strip_ansi = true
+dedup_consecutive = true
 replace = [
   { find = "^\\d{4}-\\d{2}-\\d{2}T[\\d:.]+Z\\s*", with = "" },
   { find = "^(INFO|WARN|WARNING|ERROR|DEBUG)\\s+", with = "$1 " },

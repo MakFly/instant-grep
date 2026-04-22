@@ -1,0 +1,15 @@
+[[filters]]
+name = "rsync"
+match = "^rsync"
+strip_ansi = true
+keep_lines = "(sent|received|total size|speedup|error|rsync:|failed)"
+max_lines = 50
+on_empty = "Rsync completed with no changes"
+
+[[filters]]
+name = "ping"
+match = "^ping"
+strip_ansi = true
+tail = 10
+keep_lines = "(bytes from|packet loss|min/avg/max|error|unreachable|unknown host)"
+max_lines = 15

@@ -48,8 +48,9 @@ Index: yes
 | **Symbols extracted** | **4,834** from a Laravel project, **7,702** from a monorepo |
 | **Context reduction** | 12,841 bytes → 3,828 bytes per turn (**-70%**) |
 | **Agent setup** | 8 agents configured in **one command** |
-| **Rust tests** | **320 tests** |
+| **Rust tests** | **416 tests** (367 bin + 49 goldens) |
 | **Integration tests** | **63/65 pass** (2 voluntary skips, 0 failures) |
+| **Commands rewritten** | **91 bins** across 42 TOML filters (v1.9.0) |
 
 > Every number on this page is measured with `wc -c` on real commands, on real projects (1,609-file Laravel app, 3,084-file monorepo). See the [interactive benchmark dashboard](benchmarks/index.html) for charts.
 
@@ -157,6 +158,48 @@ ig gain                       # savings dashboard
 ig gain --history             # individual command history
 ig gain --json                # machine-readable output
 ig discover                   # find missed optimization opportunities
+```
+
+### Command rewriting — full RTK parity (v1.9.0)
+
+`ig rewrite` now matches [`rtk rewrite`](https://github.com/rtk-ai/rtk) on every depth feature and exceeds it on breadth. The hook (`~/.claude/hooks/ig-guard.sh`) is a thin shell delegator — all intelligence lives in the Rust binary. Measured in a 4-round × 30-session `claude -p` benchmark, 28 / 28 piped `rg`/`grep -r`/`find -name` commands are now silently rewritten (0 `BLOCK` errors visible to the model).
+
+| Feature | `ig rewrite` | `rtk rewrite` |
+|---|:---:|:---:|
+| Thin shell hook (stdin JSON delegator) | ✅ | ✅ |
+| Pipelines (`rg pat src \| head -20`) | ✅ | ✅ |
+| Compounds (`cargo test && ls -la`) | ✅ | ✅ |
+| ENV prefix (`RUST_LOG=debug rg …`) | ✅ | ✅ |
+| `sudo` / `env` wrappers | ✅ | ✅ |
+| Absolute binary paths (`/usr/bin/grep`) | ✅ | ✅ |
+| Git global options (`git -C path log`) | ✅ | ✅ |
+| Deny rules (`rm -rf /`, `git reset --hard`) | ✅ | ✅ |
+| Ask rules (`git push --force`) | ✅ | ✅ |
+| Dedup consecutive identical output lines | ✅ | ✅ |
+| Rewritten command categories | **91** | 72 |
+
+All features are quote-aware: `|`/`;`/`&&` inside `"…"` or `'…'` are preserved literally.
+
+**Example rewrites** (what the agent typed → what actually runs):
+
+```
+grep -r "fn main" src --include="*.rs" | wc -l
+  → IG_COMPACT=1 ig "fn main" src | wc -l
+
+RUST_LOG=debug rg useState features/
+  → RUST_LOG=debug IG_COMPACT=1 ig "useState" features/
+
+/usr/bin/grep -rn pattern .
+  → IG_COMPACT=1 ig "pattern"
+
+git -C /tmp/repo log --oneline
+  → ig git log --oneline
+
+find src -type f -name "*.rs"
+  → ig files --glob "*.rs"
+
+cargo test && ls -la src
+  → ig run cargo test && ig ls src
 ```
 
 ### Deny/Ask safety rules

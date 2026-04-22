@@ -1,0 +1,31 @@
+[[filters]]
+name = "tofu"
+match = "^tofu (plan|apply|destroy|init|validate|show|refresh)"
+strip_ansi = true
+keep_lines = "(Plan:|\\+ |~ |\\- |<= |>= |must be replaced|Error:|Warning:|Apply complete|Destroy complete|Success|valid)"
+truncate_at = 200
+max_lines = 80
+on_empty = "No changes. Infrastructure is up-to-date."
+
+[[filters]]
+name = "gcloud"
+match = "^gcloud"
+strip_ansi = true
+keep_lines = "(ERROR|error|WARNING|warning|Created|Deleted|Updated|NAME|LOCATION|STATUS)"
+truncate_at = 200
+max_lines = 60
+
+[[filters]]
+name = "systemctl-status"
+match = "^systemctl status"
+strip_ansi = true
+keep_lines = "(● |Active:|Loaded:|Main PID:|Tasks:|Memory:|CPU:|error|failed)"
+max_lines = 30
+
+[[filters]]
+name = "systemctl"
+match = "^systemctl"
+strip_ansi = true
+keep_lines = "(UNIT|LOAD|ACTIVE|SUB|DESCRIPTION|\\.service|\\.socket|failed|error)"
+truncate_at = 200
+max_lines = 40

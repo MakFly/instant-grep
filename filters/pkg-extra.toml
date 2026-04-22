@@ -1,0 +1,44 @@
+[[filters]]
+name = "composer-install"
+match = "^composer (install|update|require|remove)"
+strip_ansi = true
+keep_lines = "(Package operations|Generating|successfully|error|WARNING|Error)"
+max_lines = 40
+on_empty = "Composer operation succeeded"
+
+[[filters]]
+name = "composer"
+match = "^composer"
+strip_ansi = true
+truncate_at = 200
+max_lines = 60
+
+[[filters]]
+name = "brew-install"
+match = "^brew (install|upgrade|reinstall)"
+strip_ansi = true
+keep_lines = "(==> Installing|installed|error|Error|Warning)"
+max_lines = 30
+on_empty = "Brew operation succeeded"
+
+[[filters]]
+name = "brew"
+match = "^brew"
+strip_ansi = true
+truncate_at = 200
+max_lines = 60
+
+[[filters]]
+name = "pio"
+match = "^pio"
+strip_ansi = true
+keep_lines = "(SUCCESS|FAILED|Error|error|RAM:|Flash:|Linking|Building)"
+max_lines = 50
+on_empty = "PIO operation succeeded"
+
+[[filters]]
+name = "pip-other"
+match = "^pip (list|show|freeze|uninstall)"
+strip_ansi = true
+truncate_at = 200
+max_lines = 60

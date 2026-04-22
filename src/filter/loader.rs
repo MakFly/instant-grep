@@ -30,6 +30,8 @@ struct FilterDef {
     tail: Option<usize>,
     max_lines: Option<usize>,
     on_empty: Option<String>,
+    #[serde(default)]
+    dedup_consecutive: bool,
 }
 
 #[derive(Deserialize)]
@@ -193,6 +195,7 @@ fn compile_filter(def: FilterDef) -> Result<CompiledFilter, String> {
         tail: def.tail,
         max_lines: def.max_lines,
         on_empty: def.on_empty,
+        dedup_consecutive: def.dedup_consecutive,
     })
 }
 
@@ -247,6 +250,7 @@ on_empty = "All tests passed"
             tail: None,
             max_lines: None,
             on_empty: None,
+            dedup_consecutive: false,
         };
         assert!(compile_filter(def).is_err());
     }
@@ -265,6 +269,7 @@ on_empty = "All tests passed"
             tail: None,
             max_lines: None,
             on_empty: None,
+            dedup_consecutive: false,
         };
         let err = compile_filter(def).unwrap_err();
         assert!(err.contains("mutually exclusive"));

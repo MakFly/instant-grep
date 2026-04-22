@@ -1,0 +1,30 @@
+[[filters]]
+name = "df"
+match = "^df"
+strip_ansi = true
+truncate_at = 150
+max_lines = 20
+
+[[filters]]
+name = "du"
+match = "^du"
+strip_ansi = true
+# Keep only the largest entries (du usually sorted or -h mixed).
+truncate_at = 150
+max_lines = 30
+
+[[filters]]
+name = "ps"
+match = "^ps"
+strip_ansi = true
+truncate_at = 200
+max_lines = 40
+
+[[filters]]
+name = "diff"
+match = "^diff"
+strip_ansi = true
+keep_lines = "^([<>@+\\-]|diff |Only in )"
+truncate_at = 200
+max_lines = 80
+on_empty = "Files are identical"

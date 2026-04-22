@@ -1,0 +1,37 @@
+[[filters]]
+name = "next-build"
+match = "^next build"
+strip_ansi = true
+keep_lines = "(Compiled successfully|error|warning|Error|Warning|Route \\(|First Load JS|Type error|Failed to compile)"
+max_lines = 80
+on_empty = "Next build succeeded"
+
+[[filters]]
+name = "next-dev"
+match = "^next (dev|start|lint)"
+strip_ansi = true
+keep_lines = "(ready|compiled|error|warning|Error|Warning|listening|Port)"
+max_lines = 40
+
+[[filters]]
+name = "prisma-migrate"
+match = "^prisma (migrate|db push|db pull|db seed)"
+strip_ansi = true
+keep_lines = "(Applying migration|Migration|Created|applied|error|Error|already in sync)"
+max_lines = 40
+on_empty = "Prisma operation succeeded"
+
+[[filters]]
+name = "prisma-generate"
+match = "^prisma generate"
+strip_ansi = true
+keep_lines = "(Generated|generated|error|Error)"
+max_lines = 20
+on_empty = "Prisma client generated"
+
+[[filters]]
+name = "prisma"
+match = "^prisma"
+strip_ansi = true
+truncate_at = 200
+max_lines = 40

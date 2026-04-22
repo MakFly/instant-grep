@@ -1,0 +1,52 @@
+[[filters]]
+name = "shellcheck"
+match = "^shellcheck"
+strip_ansi = true
+keep_lines = "(In .+ line \\d+|\\^-*|SC\\d+|error|warning|note)"
+truncate_at = 200
+max_lines = 80
+on_empty = "Shellcheck passed"
+
+[[filters]]
+name = "yamllint"
+match = "^yamllint"
+strip_ansi = true
+keep_lines = "(:\\d+:\\d+|error|warning)"
+truncate_at = 200
+max_lines = 60
+on_empty = "Yamllint passed"
+
+[[filters]]
+name = "markdownlint"
+match = "^markdownlint"
+strip_ansi = true
+keep_lines = "(:\\d+(:\\d+)?|MD\\d+|error)"
+truncate_at = 200
+max_lines = 60
+on_empty = "Markdownlint passed"
+
+[[filters]]
+name = "hadolint"
+match = "^hadolint"
+strip_ansi = true
+keep_lines = "(:\\d+ DL\\d+|error|warning)"
+truncate_at = 200
+max_lines = 40
+on_empty = "Hadolint passed"
+
+[[filters]]
+name = "pre-commit"
+match = "^pre-commit"
+strip_ansi = true
+keep_lines = "(\\.\\.+(Passed|Failed|Skipped)|- exit code:|error|FAILED|Fix|hint:)"
+max_lines = 80
+on_empty = "All pre-commit hooks passed"
+
+[[filters]]
+name = "trunk-check"
+match = "^trunk (check|fmt)"
+strip_ansi = true
+keep_lines = "(\\d+ issues?|Issues|ISSUE|error|warning|\\[(error|warning)\\]|Checked|Fixed)"
+truncate_at = 200
+max_lines = 80
+on_empty = "Trunk check passed"

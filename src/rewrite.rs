@@ -132,23 +132,79 @@ fn is_ask_git_push_force(cmd: &str) -> bool {
 }
 
 fn try_rewrite(cmd: &str) -> Option<String> {
-    // Skip empty or compound commands (pipes, &&, ||, ;)
-    if cmd.is_empty()
-        || cmd.contains('|')
-        || cmd.contains("&&")
-        || cmd.contains("||")
-        || cmd.contains(';')
-    {
+    if cmd.trim().is_empty() {
         return None;
     }
 
-    let parts = shell_split(cmd);
+    // Split on top-level shell operators (pipes, &&, ||, ;), respecting quotes.
+    // For pipes (`|`), only the first segment is rewritten (stream semantics must
+    // be preserved for downstream filters). For `&&`/`||`/`;`, each segment is
+    // rewritten independently since they are sequenced commands.
+    let parts = split_top_level(cmd);
     if parts.is_empty() {
         return None;
     }
 
+    let mut any_rewrite = false;
+    let mut out = String::new();
+    let mut seen_pipe = false;
+
+    for (i, seg) in parts.iter().enumerate() {
+        let segment = &seg.text;
+        let op = seg.op.as_deref(); // trailing operator, if any
+
+        // Once we cross a pipe, downstream segments keep their original form
+        // (stdin-based filters like `head -20`, `wc -l`, `grep x` should not be
+        // touched — they operate on the upstream stdout).
+        let skip_segment = seen_pipe;
+
+        let rewritten_seg = if skip_segment {
+            segment.to_string()
+        } else {
+            match try_rewrite_segment(segment) {
+                Some(r) => {
+                    any_rewrite = true;
+                    r
+                }
+                None => segment.to_string(),
+            }
+        };
+
+        out.push_str(&rewritten_seg);
+        if let Some(o) = op {
+            out.push_str(o);
+        }
+        if op == Some(" | ") {
+            seen_pipe = true;
+        }
+        // Guard: if last part without op, no trailing separator needed
+        let _ = i;
+    }
+
+    if any_rewrite { Some(out) } else { None }
+}
+
+/// Rewrite a single command segment (no pipes / operators inside).
+/// Handles env prefix stripping (`sudo`, `env`, `VAR=val`) and absolute
+/// binary path normalization (`/usr/bin/grep` → `grep`) before dispatching.
+fn try_rewrite_segment(segment: &str) -> Option<String> {
+    let trimmed = segment.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let (env_prefix, rest) = split_env_prefix(trimmed);
+    let parts_raw = shell_split(rest);
+    if parts_raw.is_empty() {
+        return None;
+    }
+
+    // Normalize absolute paths: `/usr/bin/grep` → `grep`. Keep the rest intact.
+    let mut parts: Vec<String> = parts_raw;
+    parts[0] = strip_absolute_path(&parts[0]).to_string();
+
     let bin = parts[0].as_str();
-    match bin {
+    let rewritten = match bin {
         "cat" => rewrite_cat(&parts),
         "head" => rewrite_head(&parts),
         "tail" => rewrite_tail(&parts),
@@ -158,27 +214,42 @@ fn try_rewrite(cmd: &str) -> Option<String> {
         "find" => rewrite_find(&parts),
         "ls" => rewrite_ls(&parts),
         "git" => rewrite_git(&parts),
-        // New: commands routed through `ig run` filter engine
+        // Commands routed through `ig run` filter engine
         "cargo" => rewrite_via_run(&parts),
         "docker" => rewrite_docker(&parts),
         "kubectl" => rewrite_via_run(&parts),
         "pytest" | "ruff" | "mypy" => rewrite_via_run(&parts),
         "eslint" | "biome" | "prettier" | "tsc" => rewrite_via_run(&parts),
-        "vitest" => rewrite_via_run(&parts),
+        "vitest" | "jest" | "playwright" => rewrite_via_run(&parts),
         "go" => rewrite_via_run(&parts),
         "golangci-lint" => rewrite_via_run(&parts),
         "dotnet" => rewrite_via_run(&parts),
         "rspec" | "rubocop" | "rake" => rewrite_via_run(&parts),
         "gh" => rewrite_via_run(&parts),
-        "aws" => rewrite_via_run(&parts),
+        "aws" | "gcloud" => rewrite_via_run(&parts),
         "psql" => rewrite_via_run(&parts),
         "pnpm" => rewrite_via_run(&parts),
         "npm" => rewrite_npm(&parts),
         "npx" => rewrite_npx(&parts),
         "wc" => rewrite_via_run(&parts),
-        "curl" => rewrite_via_run(&parts),
-        "wget" => rewrite_via_run(&parts),
+        "curl" | "wget" => rewrite_via_run(&parts),
+        "rsync" | "ping" => rewrite_via_run(&parts),
+        "make" | "mvn" | "bundle" | "swift" | "mix" => rewrite_via_run(&parts),
+        "shellcheck" | "yamllint" | "markdownlint" | "hadolint" => rewrite_via_run(&parts),
+        "pre-commit" | "trunk" => rewrite_via_run(&parts),
+        "helm" | "terraform" | "tofu" => rewrite_via_run(&parts),
+        "ansible-playbook" | "systemctl" => rewrite_via_run(&parts),
+        "pip" | "poetry" | "uv" | "composer" | "brew" | "pio" => rewrite_via_run(&parts),
+        "next" | "prisma" => rewrite_via_run(&parts),
+        "df" | "du" | "ps" => rewrite_via_run(&parts),
+        "diff" => rewrite_via_run(&parts),
         _ => None,
+    }?;
+
+    if env_prefix.is_empty() {
+        Some(rewritten)
+    } else {
+        Some(format!("{}{}", env_prefix, rewritten))
     }
 }
 
@@ -426,9 +497,18 @@ fn rewrite_ls(parts: &[String]) -> Option<String> {
         .map(|p| p.as_str())
         .collect();
 
+    // Skip rewriting if the single path contains shell glob metacharacters:
+    // the glob is expanded by the shell at exec time, producing multiple
+    // arguments that `ig ls` cannot accept.
+    let contains_glob = |s: &str| s.contains('*') || s.contains('?') || s.contains('[');
+
     match args.len() {
         0 if !has_informative_flag => None, // bare `ls` — pass through
         0 => Some("ig ls".to_string()),
+        1 if contains_glob(args[0]) => None, // glob path — let real ls handle it
+        // `ls <path>` without flags: raw output already compact — passthrough.
+        // Only rewrite when an informative flag is present (-l, -a, -R).
+        1 if !has_informative_flag => None,
         1 => Some(format!("ig ls {}", args[0])),
         _ => None,
     }
@@ -436,15 +516,47 @@ fn rewrite_ls(parts: &[String]) -> Option<String> {
 
 /// git status/log/diff/branch/show → ig git <subcmd> [args]
 /// Destructive commands (push, reset, checkout, clean, rebase, merge, commit) are NOT rewritten.
+///
+/// Git global options (`-C <path>`, `-c <k=v>`, `--git-dir <dir>`, `--work-tree <dir>`,
+/// `--no-pager`, `--no-optional-locks`, `--bare`, `--literal-pathspecs`) before the
+/// subcommand are stripped — they affect execution context but not the classification.
 fn rewrite_git(parts: &[String]) -> Option<String> {
     if parts.len() < 2 {
         return None;
     }
-    let subcmd = parts[1].as_str();
+
+    // Skip global options to locate the actual subcommand.
+    let mut i = 1;
+    while i < parts.len() {
+        let p = parts[i].as_str();
+        match p {
+            "-C" | "-c" => {
+                // Takes a value argument.
+                i += 2;
+            }
+            "--git-dir" | "--work-tree" => {
+                // May be --git-dir=/path OR --git-dir /path
+                i += 2;
+            }
+            "--no-pager" | "--no-optional-locks" | "--bare" | "--literal-pathspecs" => {
+                i += 1;
+            }
+            s if s.starts_with("--git-dir=") || s.starts_with("--work-tree=") => {
+                i += 1;
+            }
+            _ => break,
+        }
+    }
+
+    if i >= parts.len() {
+        return None;
+    }
+
+    let subcmd = parts[i].as_str();
     // Only rewrite read-only git subcommands
     match subcmd {
         "status" | "log" | "diff" | "branch" | "show" => {
-            let args = parts[2..].join(" ");
+            let args = parts[i + 1..].join(" ");
             if args.is_empty() {
                 Some(format!("ig git {}", subcmd))
             } else {
@@ -497,6 +609,188 @@ fn rewrite_npx(parts: &[String]) -> Option<String> {
     }
     let cmd = parts.join(" ");
     Some(format!("ig run {}", cmd))
+}
+
+/// A segment of a shell command, along with the operator that follows it (if any).
+#[derive(Debug, Clone)]
+struct Segment {
+    text: String,
+    /// Separator between this segment and the next: " | ", " && ", " || ", " ; ".
+    /// None for the last segment.
+    op: Option<String>,
+}
+
+/// Split a command on top-level shell operators (`|`, `||`, `&&`, `;`),
+/// respecting single and double quotes. Does not split on `|` when it is `||`
+/// (logical OR). Each returned Segment keeps its original trailing operator so
+/// the caller can recompose the command after rewriting individual segments.
+fn split_top_level(cmd: &str) -> Vec<Segment> {
+    let mut segments: Vec<Segment> = Vec::new();
+    let mut current = String::new();
+    let bytes: Vec<char> = cmd.chars().collect();
+    let mut i = 0;
+    let mut in_single = false;
+    let mut in_double = false;
+
+    while i < bytes.len() {
+        let c = bytes[i];
+
+        if !in_single && !in_double {
+            // Check for multi-char operators first
+            if c == '&' && bytes.get(i + 1) == Some(&'&') {
+                segments.push(Segment {
+                    text: current.trim().to_string(),
+                    op: Some(" && ".to_string()),
+                });
+                current.clear();
+                i += 2;
+                continue;
+            }
+            if c == '|' && bytes.get(i + 1) == Some(&'|') {
+                segments.push(Segment {
+                    text: current.trim().to_string(),
+                    op: Some(" || ".to_string()),
+                });
+                current.clear();
+                i += 2;
+                continue;
+            }
+            if c == '|' {
+                segments.push(Segment {
+                    text: current.trim().to_string(),
+                    op: Some(" | ".to_string()),
+                });
+                current.clear();
+                i += 1;
+                continue;
+            }
+            if c == ';' {
+                segments.push(Segment {
+                    text: current.trim().to_string(),
+                    op: Some("; ".to_string()),
+                });
+                current.clear();
+                i += 1;
+                continue;
+            }
+        }
+
+        // Quote state tracking
+        if c == '\'' && !in_double {
+            in_single = !in_single;
+        } else if c == '"' && !in_single {
+            in_double = !in_double;
+        } else if c == '\\' && in_double {
+            // Preserve escape + next char
+            current.push(c);
+            if let Some(&next) = bytes.get(i + 1) {
+                current.push(next);
+                i += 2;
+                continue;
+            }
+        }
+
+        current.push(c);
+        i += 1;
+    }
+
+    let last = current.trim().to_string();
+    if !last.is_empty() {
+        segments.push(Segment {
+            text: last,
+            op: None,
+        });
+    }
+
+    segments
+}
+
+/// Strip leading env/sudo prefixes from a segment.
+/// Returns `(prefix_with_trailing_space, remainder)`.
+///
+/// Handles repeated prefixes like `sudo RUST_LOG=debug cargo test`.
+fn split_env_prefix(segment: &str) -> (String, &str) {
+    let mut prefix = String::new();
+    let mut rest = segment;
+
+    loop {
+        let trimmed = rest.trim_start();
+        // `sudo` / `env` tokens
+        if let Some(after) = trimmed.strip_prefix("sudo ") {
+            prefix.push_str("sudo ");
+            rest = after;
+            continue;
+        }
+        if let Some(after) = trimmed.strip_prefix("env ") {
+            prefix.push_str("env ");
+            rest = after;
+            continue;
+        }
+        // `VAR=value` assignment — token ends at first unquoted space
+        if let Some((var, after)) = try_take_env_assignment(trimmed) {
+            prefix.push_str(var);
+            prefix.push(' ');
+            rest = after;
+            continue;
+        }
+        break;
+    }
+
+    (prefix, rest.trim_start())
+}
+
+/// If the string starts with `VAR=value` (value may be quoted), return
+/// (token, remainder_without_leading_space).
+fn try_take_env_assignment(s: &str) -> Option<(&str, &str)> {
+    let bytes = s.as_bytes();
+    // Find the '=' sign, making sure what precedes is [A-Z_][A-Z0-9_]*.
+    let eq = s.find('=')?;
+    if eq == 0 {
+        return None;
+    }
+    let var = &s[..eq];
+    let first = var.chars().next()?;
+    if !(first == '_' || first.is_ascii_uppercase()) {
+        return None;
+    }
+    if !var
+        .chars()
+        .all(|c| c == '_' || c.is_ascii_uppercase() || c.is_ascii_digit())
+    {
+        return None;
+    }
+
+    // Find the end of the value: first unquoted whitespace after eq.
+    let mut i = eq + 1;
+    let mut in_single = false;
+    let mut in_double = false;
+    while i < bytes.len() {
+        let c = bytes[i] as char;
+        if c == '\'' && !in_double {
+            in_single = !in_single;
+        } else if c == '"' && !in_single {
+            in_double = !in_double;
+        } else if c.is_ascii_whitespace() && !in_single && !in_double {
+            break;
+        }
+        i += 1;
+    }
+
+    let token = &s[..i];
+    // Skip the whitespace separating the assignment from the command.
+    let mut rest = &s[i..];
+    rest = rest.trim_start();
+    Some((token, rest))
+}
+
+/// Normalize absolute binary paths: `/usr/bin/grep` → `grep`.
+/// Leaves relative paths and simple names unchanged.
+fn strip_absolute_path(bin: &str) -> &str {
+    if bin.starts_with('/') {
+        bin.rsplit('/').next().unwrap_or(bin)
+    } else {
+        bin
+    }
 }
 
 /// Quote-aware shell tokenizer (Fix R1).
@@ -681,12 +975,14 @@ mod tests {
 
     #[test]
     fn test_rewrite_ls() {
-        // Bare `ls` is passthrough now — raw output is already terse and we were adding noise.
+        // Bare `ls` and `ls <path>` are passthrough — raw output is already terse
+        // and rewriting adds formatting overhead for small directories.
         assert!(matches!(classify_command("ls"), RewriteResult::Passthrough));
         assert!(matches!(
             classify_command("ls src/"),
-            RewriteResult::Rewrite(s) if s == "ig ls src/"
+            RewriteResult::Passthrough
         ));
+        // Informative flags (-l, -a, -R) trigger rewrite
         assert!(matches!(
             classify_command("ls -la"),
             RewriteResult::Rewrite(s) if s == "ig ls"
@@ -698,15 +994,163 @@ mod tests {
     }
 
     #[test]
-    fn test_no_rewrite_pipes() {
+    fn test_pipes_and_compounds() {
+        // Downstream segments after a pipe keep their original form (stdin
+        // filters like grep-on-stdin must not be touched).
         assert!(matches!(
             classify_command("echo hello | grep hello"),
             RewriteResult::Passthrough
         ));
+        // Compound via `&&` rewrites each segment independently.
         assert!(matches!(
             classify_command("cat file && echo done"),
+            RewriteResult::Rewrite(s) if s == "ig read --plain file && echo done"
+        ));
+    }
+
+    // --- Phase A: pipelines, env prefix, absolute paths ---
+
+    #[test]
+    fn test_rewrite_rg_with_pipe() {
+        // `rg pat path | head -20` should rewrite the rg segment only;
+        // `head -20` stays since it's a stdin-based filter.
+        assert!(matches!(
+            classify_command("rg useState src | head -20"),
+            RewriteResult::Rewrite(s) if s == r#"IG_COMPACT=1 ig "useState" src | head -20"#
+        ));
+    }
+
+    #[test]
+    fn test_rewrite_grep_with_pipe() {
+        assert!(matches!(
+            classify_command("grep -rn foo src | wc -l"),
+            RewriteResult::Rewrite(s) if s == r#"IG_COMPACT=1 ig "foo" src | wc -l"#
+        ));
+    }
+
+    #[test]
+    fn test_rewrite_env_prefix() {
+        // `ENV=1 rg pat` → env preserved, bin rewritten
+        assert!(matches!(
+            classify_command("RUST_LOG=debug rg useState src"),
+            RewriteResult::Rewrite(s) if s == r#"RUST_LOG=debug IG_COMPACT=1 ig "useState" src"#
+        ));
+    }
+
+    #[test]
+    fn test_rewrite_multiple_env_prefix() {
+        assert!(matches!(
+            classify_command("A=1 B=2 rg pat src"),
+            RewriteResult::Rewrite(s) if s == r#"A=1 B=2 IG_COMPACT=1 ig "pat" src"#
+        ));
+    }
+
+    #[test]
+    fn test_rewrite_absolute_path_bin() {
+        // `/usr/bin/grep -r pat src` → bin normalized before matching
+        assert!(matches!(
+            classify_command("/usr/bin/grep -rn useState src/"),
+            RewriteResult::Rewrite(s) if s == r#"IG_COMPACT=1 ig "useState" src/"#
+        ));
+        assert!(matches!(
+            classify_command("/opt/homebrew/bin/rg pat src"),
+            RewriteResult::Rewrite(s) if s == r#"IG_COMPACT=1 ig "pat" src"#
+        ));
+    }
+
+    #[test]
+    fn test_rewrite_compound_semicolon() {
+        // `;` sequences each segment independently
+        assert!(matches!(
+            classify_command("rg foo src ; ls -la src"),
+            RewriteResult::Rewrite(s) if s == r#"IG_COMPACT=1 ig "foo" src; ig ls src"#
+        ));
+    }
+
+    #[test]
+    fn test_rewrite_compound_or() {
+        assert!(matches!(
+            classify_command("cargo test || echo fail"),
+            RewriteResult::Rewrite(s) if s == "ig run cargo test || echo fail"
+        ));
+    }
+
+    #[test]
+    fn test_double_pipe_not_split_like_single() {
+        // `foo || bar`: logical OR, each segment rewritten independently
+        assert!(matches!(
+            classify_command("ls -la src || ls -la ."),
+            RewriteResult::Rewrite(s) if s == "ig ls src || ig ls ."
+        ));
+    }
+
+    #[test]
+    fn test_quotes_with_pipe_char_inside() {
+        // Pipe character inside quotes must not split
+        let segs = split_top_level(r#"rg "a|b" src"#);
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].text, r#"rg "a|b" src"#);
+    }
+
+    #[test]
+    fn test_strip_absolute_path_fn() {
+        assert_eq!(strip_absolute_path("/usr/bin/grep"), "grep");
+        assert_eq!(strip_absolute_path("grep"), "grep");
+        assert_eq!(strip_absolute_path("./local/bin"), "./local/bin");
+    }
+
+    #[test]
+    fn test_rewrite_git_global_opts() {
+        assert!(matches!(
+            classify_command("git -C /tmp/repo status"),
+            RewriteResult::Rewrite(s) if s == "ig git status"
+        ));
+        assert!(matches!(
+            classify_command("git -C /tmp/repo log --oneline"),
+            RewriteResult::Rewrite(s) if s == "ig git log --oneline"
+        ));
+        assert!(matches!(
+            classify_command("git --no-pager diff"),
+            RewriteResult::Rewrite(s) if s == "ig git diff"
+        ));
+        assert!(matches!(
+            classify_command("git --git-dir=/tmp/.git status"),
+            RewriteResult::Rewrite(s) if s == "ig git status"
+        ));
+        // Global opts before a destructive subcommand stay passthrough
+        assert!(matches!(
+            classify_command("git -C /tmp/repo commit -m test"),
             RewriteResult::Passthrough
         ));
+    }
+
+    #[test]
+    fn test_rewrite_ls_glob_passthrough() {
+        // Glob in path is expanded by shell at exec time → `ig ls` would get
+        // multiple args and fail. Passthrough to real ls.
+        assert!(matches!(
+            classify_command("ls /tmp/session-*.jsonl"),
+            RewriteResult::Passthrough
+        ));
+        assert!(matches!(
+            classify_command("ls src/*.rs"),
+            RewriteResult::Passthrough
+        ));
+    }
+
+    #[test]
+    fn test_split_env_prefix_fn() {
+        let (p, r) = split_env_prefix("RUST_LOG=debug cargo test");
+        assert_eq!(p, "RUST_LOG=debug ");
+        assert_eq!(r, "cargo test");
+
+        let (p, r) = split_env_prefix("sudo A=1 grep -r foo src");
+        assert_eq!(p, "sudo A=1 ");
+        assert_eq!(r, "grep -r foo src");
+
+        let (p, r) = split_env_prefix("just a command");
+        assert_eq!(p, "");
+        assert_eq!(r, "just a command");
     }
 
     #[test]

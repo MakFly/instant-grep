@@ -15,6 +15,9 @@ pub struct CompiledFilter {
     pub tail: Option<usize>,
     pub max_lines: Option<usize>,
     pub on_empty: Option<String>,
+    /// Collapse N consecutive identical lines into `<line>  (×N)`.
+    /// Applied early (after strip_ansi) so downstream stages see deduped output.
+    pub dedup_consecutive: bool,
 }
 
 impl CompiledFilter {
@@ -31,6 +34,11 @@ pub fn apply_filter(filter: &CompiledFilter, raw: &str) -> String {
     // Stage 1: strip ANSI escape codes
     if filter.strip_ansi {
         output = strip_ansi_codes(&output);
+    }
+
+    // Stage 1b: collapse consecutive identical lines
+    if filter.dedup_consecutive {
+        output = dedup_consecutive_lines(&output);
     }
 
     // Stage 2: regex replacements (line-by-line)
@@ -182,6 +190,42 @@ fn cap_lines(s: &str, n: usize) -> String {
     )
 }
 
+/// Collapse N consecutive identical lines into `<line>  (×N)`. Preserves order.
+fn dedup_consecutive_lines(s: &str) -> String {
+    let mut result: Vec<String> = Vec::new();
+    let mut prev: Option<&str> = None;
+    let mut count: usize = 0;
+
+    for line in s.lines() {
+        match prev {
+            Some(p) if p == line => {
+                count += 1;
+            }
+            _ => {
+                if let Some(p) = prev {
+                    if count > 1 {
+                        result.push(format!("{}  (×{})", p, count));
+                    } else {
+                        result.push(p.to_string());
+                    }
+                }
+                prev = Some(line);
+                count = 1;
+            }
+        }
+    }
+
+    if let Some(p) = prev {
+        if count > 1 {
+            result.push(format!("{}  (×{})", p, count));
+        } else {
+            result.push(p.to_string());
+        }
+    }
+
+    result.join("\n")
+}
+
 /// Collapse multiple consecutive blank lines into a single blank line.
 fn collapse_blank_lines(s: &str) -> String {
     let mut result = Vec::new();
@@ -206,6 +250,27 @@ fn collapse_blank_lines(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_dedup_consecutive_basic() {
+        let input = "foo\nfoo\nfoo\nbar\nbar\nbaz";
+        let result = dedup_consecutive_lines(input);
+        assert_eq!(result, "foo  (×3)\nbar  (×2)\nbaz");
+    }
+
+    #[test]
+    fn test_dedup_consecutive_no_dupes() {
+        let input = "a\nb\nc";
+        assert_eq!(dedup_consecutive_lines(input), "a\nb\nc");
+    }
+
+    #[test]
+    fn test_dedup_consecutive_resets_on_different() {
+        // Identical lines separated by a different line are NOT collapsed together
+        let input = "foo\nfoo\nbar\nfoo\nfoo";
+        let result = dedup_consecutive_lines(input);
+        assert_eq!(result, "foo  (×2)\nbar\nfoo  (×2)");
+    }
 
     #[test]
     fn test_strip_ansi_codes() {
@@ -316,6 +381,7 @@ mod tests {
             tail: None,
             max_lines: None,
             on_empty: Some("All tests passed".to_string()),
+            dedup_consecutive: false,
         };
 
         assert!(filter.matches("cargo test --release"));
@@ -341,6 +407,7 @@ mod tests {
             tail: None,
             max_lines: None,
             on_empty: Some("All tests passed".to_string()),
+            dedup_consecutive: false,
         };
 
         let result = apply_filter(&filter, "test foo ... ok\ntest bar ... ok");

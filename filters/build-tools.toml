@@ -1,0 +1,40 @@
+[[filters]]
+name = "make"
+match = "^make"
+strip_ansi = true
+keep_lines = "(Error |error:|warning:|FAILED|failed|^make.*\\*\\*\\*|Entering|Leaving)"
+max_lines = 80
+on_empty = "Make target succeeded"
+
+[[filters]]
+name = "mvn"
+match = "^mvn"
+strip_ansi = true
+keep_lines = "(\\[ERROR\\]|\\[WARNING\\]|BUILD SUCCESS|BUILD FAILURE|Tests run:|Total time:|Finished at:)"
+truncate_at = 200
+max_lines = 80
+on_empty = "Maven build succeeded"
+
+[[filters]]
+name = "bundle"
+match = "^bundle"
+strip_ansi = true
+keep_lines = "(Installing|Fetching|Using|Bundle complete|error|Errno|Could not|Gem::)"
+max_lines = 40
+on_empty = "Bundle operation succeeded"
+
+[[filters]]
+name = "swift-build"
+match = "^swift (build|test|run)"
+strip_ansi = true
+keep_lines = "(error:|warning:|Build complete!|Test Suite|passed|failed|FAILED)"
+max_lines = 80
+on_empty = "Swift build succeeded"
+
+[[filters]]
+name = "mix"
+match = "^mix"
+strip_ansi = true
+keep_lines = "(==> |Generated |Compiling |error|warning|Finished in|test[s]? passed|failure|Elixir)"
+max_lines = 80
+on_empty = "Mix task succeeded"

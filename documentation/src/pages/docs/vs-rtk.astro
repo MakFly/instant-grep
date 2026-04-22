@@ -1,0 +1,251 @@
+---
+import DocsLayout from "@/layouts/docs.astro"
+
+const heroStats = [
+  { value: "4.1x", label: "More compact than RTK (real session)" },
+  { value: "88.1%", label: "Token savings (vs 51.4% RTK)" },
+  { value: "57,579", label: "Tokens saved per session vs RTK" },
+  { value: "~104", label: "Opus turns saved per month" },
+]
+---
+
+<DocsLayout title="ig vs RTK" description="Head-to-head comparison between ig and RTK -- 100 real commands, 30-command agent session, every number measured with wc -c.">
+  <div class="max-w-none">
+    <!-- Page header -->
+    <div class="mb-10">
+      <div class="flex items-center gap-2 text-xs font-mono uppercase tracking-widest mb-3 text-muted-foreground">
+        <span>Head-to-Head Comparison</span>
+      </div>
+      <h1 class="text-3xl font-semibold mb-4">
+        ig vs RTK -- Head to Head
+      </h1>
+      <p class="text-muted-foreground text-lg leading-relaxed">
+        100 real commands. 30-command agent session. Every number measured with <code class="font-mono text-sm">wc -c</code>.
+      </p>
+    </div>
+
+    <!-- Section 1: The Verdict (hero stats) -->
+    <section class="mb-12">
+      <h2 class="text-xl font-semibold mb-4">The Verdict</h2>
+
+      <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
+        {heroStats.map((stat) => (
+          <div class="text-center p-5 rounded-lg border">
+            <div class="text-2xl font-semibold mb-1">{stat.value}</div>
+            <div class="text-xs text-muted-foreground">{stat.label}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <!-- Section 2: Real Session Simulation -->
+    <section class="mb-12">
+      <h2 class="text-xl font-semibold mb-4">Real Session Simulation</h2>
+      <p class="text-sm text-muted-foreground mb-5">
+        We simulated a real Claude Code agent session: "Add a Stripe webhook for failed payments" on a 1,552-file Laravel project.
+        30 tool calls, same task, measured both tools.
+      </p>
+
+      <div class="overflow-x-auto border rounded-lg overflow-hidden">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="bg-muted">
+              <th class="text-left py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider"></th>
+              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">Raw</th>
+              <th class="text-right py-3 px-4 text-xs font-semibold font-normal uppercase tracking-wider">ig</th>
+              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">RTK</th>
+            </tr>
+          </thead>
+          <tbody class="text-xs">
+            <tr class="border-t hover:bg-muted/50">
+              <td class="py-3 px-4 font-semibold">Bytes</td>
+              <td class="py-3 px-4 text-right text-muted-foreground">612K</td>
+              <td class="py-3 px-4 text-right font-semibold">73K</td>
+              <td class="py-3 px-4 text-right text-muted-foreground">298K</td>
+            </tr>
+            <tr class="border-t hover:bg-muted/50">
+              <td class="py-3 px-4 font-semibold">Tokens</td>
+              <td class="py-3 px-4 text-right text-muted-foreground">157,000</td>
+              <td class="py-3 px-4 text-right font-semibold">19,000</td>
+              <td class="py-3 px-4 text-right text-muted-foreground">76,000</td>
+            </tr>
+            <tr class="border-t hover:bg-muted/50">
+              <td class="py-3 px-4 font-semibold">Savings</td>
+              <td class="py-3 px-4 text-right text-muted-foreground">--</td>
+              <td class="py-3 px-4 text-right font-semibold">88.1%</td>
+              <td class="py-3 px-4 text-right text-muted-foreground">51.4%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Section 3: 100-Command Benchmark -->
+    <section class="mb-12">
+      <h2 class="text-xl font-semibold mb-4">100-Command Benchmark</h2>
+      <p class="text-sm text-muted-foreground mb-5">
+        100 commands across 7 categories, measured on a 1,552-file Laravel project.
+      </p>
+
+      <div class="overflow-x-auto border rounded-lg overflow-hidden">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="bg-muted">
+              <th class="text-left py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">Category</th>
+              <th class="text-right py-3 px-4 text-xs font-normal uppercase tracking-wider">ig</th>
+              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">RTK</th>
+              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">Winner</th>
+            </tr>
+          </thead>
+          <tbody class="text-xs">
+            {[
+              { category: "Search (25)", ig: "122K", rtk: "254K", winner: "ig (2.1x)", igWins: true },
+              { category: "Read -s (10)", ig: "28K", rtk: "248K", winner: "ig (8.8x)", igWins: true },
+              { category: "Read budget (10)", ig: "5K", rtk: "11K", winner: "ig (2.2x)", igWins: true },
+              { category: "Read aggressive (10)", ig: "39K", rtk: "11K", winner: "RTK (3.5x)", igWins: false },
+              { category: "Files (15)", ig: "2.2K", rtk: "2.5K", winner: "ig", igWins: true },
+              { category: "Git (15)", ig: "32K", rtk: "32K", winner: "tie", igWins: null },
+              { category: "Misc (15)", ig: "80K", rtk: "94K", winner: "ig", igWins: true },
+            ].map((row) => (
+              <tr class="border-t hover:bg-muted/50">
+                <td class="py-3 px-4">{row.category}</td>
+                <td class="py-3 px-4 text-right font-semibold">{row.ig}</td>
+                <td class="py-3 px-4 text-right text-muted-foreground">{row.rtk}</td>
+                <td class={`py-3 px-4 text-right font-semibold ${row.igWins === true ? "" : "text-muted-foreground"}`}>
+                  {row.winner}
+                </td>
+              </tr>
+            ))}
+            <tr class="border-t-2 bg-muted">
+              <td class="py-3 px-4 font-semibold">TOTAL</td>
+              <td class="py-3 px-4 text-right font-semibold">329K</td>
+              <td class="py-3 px-4 text-right font-semibold text-muted-foreground">658K</td>
+              <td class="py-3 px-4 text-right font-semibold">ig (2.0x)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Section 4: Feature Comparison -->
+    <section class="mb-12">
+      <h2 class="text-xl font-semibold mb-4">Feature Comparison</h2>
+
+      <div class="overflow-x-auto border rounded-lg overflow-hidden">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="bg-muted">
+              <th class="text-left py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">Feature</th>
+              <th class="text-center py-3 px-4 text-xs font-normal uppercase tracking-wider">ig</th>
+              <th class="text-center py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">RTK</th>
+            </tr>
+          </thead>
+          <tbody class="text-xs">
+            {[
+              { feature: "Trigram-indexed search", ig: "Yes", rtk: "No (wraps rg)", igBetter: true },
+              { feature: "Sub-ms daemon", ig: "Yes", rtk: "No", igBetter: true },
+              { feature: "IDF-weighted ngrams", ig: "Yes", rtk: "No", igBetter: true },
+              { feature: "Bloom + locMask (3.5-gram)", ig: "Yes", rtk: "No", igBetter: true },
+              { feature: "Pre-computed filedata", ig: "Yes", rtk: "No", igBetter: true },
+              { feature: "Budget mode (entropy)", ig: "Yes", rtk: "No", igBetter: true },
+              { feature: "Relevance boost (-r)", ig: "Yes", rtk: "No", igBetter: true },
+              { feature: "Delta reads (git changes)", ig: "Yes", rtk: "No", igBetter: true },
+              { feature: "Token savings dashboard", ig: "Yes (ig gain)", rtk: "Yes (rtk gain)", igBetter: null },
+              { feature: "Git compression", ig: "Yes", rtk: "Yes", igBetter: null },
+              { feature: "ls/tree compression", ig: "Yes", rtk: "Yes", igBetter: null },
+              { feature: "File reading modes", ig: "4 modes", rtk: "3 modes", igBetter: true },
+              { feature: "Pipelines in rewrite (v1.9.0)", ig: "Yes", rtk: "Yes", igBetter: null },
+              { feature: "Env/sudo prefix stripping (v1.9.0)", ig: "Yes", rtk: "Yes", igBetter: null },
+              { feature: "Absolute path normalization (v1.9.0)", ig: "Yes", rtk: "Yes", igBetter: null },
+              { feature: "Git global opts (-C, --git-dir) (v1.9.0)", ig: "Yes", rtk: "Yes", igBetter: null },
+              { feature: "Dedup consecutive output (v1.9.0)", ig: "Yes", rtk: "Yes", igBetter: null },
+              { feature: "Rewritten command categories", ig: "91 bins", rtk: "72 rules", igBetter: true },
+            ].map((row) => (
+              <tr class="border-t hover:bg-muted/50">
+                <td class="py-3 px-4">{row.feature}</td>
+                <td class={`py-3 px-4 text-center font-semibold`}>{row.ig}</td>
+                <td class="py-3 px-4 text-center text-muted-foreground">{row.rtk}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Section 5: ig gain Dashboard -->
+    <section class="mb-12">
+      <h2 class="text-xl font-semibold mb-4">ig gain Dashboard</h2>
+      <p class="text-sm text-muted-foreground mb-5">
+        Real output from <code class="font-mono">ig gain</code> -- cumulative token savings across a live session.
+      </p>
+
+      <div class="rounded-lg border overflow-hidden">
+        <div class="flex items-center gap-1.5 px-4 py-2.5 border-b bg-muted">
+          <div class="w-2.5 h-2.5 rounded-full bg-[#FF5F57]"></div>
+          <div class="w-2.5 h-2.5 rounded-full bg-[#FFBD2E]"></div>
+          <div class="w-2.5 h-2.5 rounded-full bg-[#28C840]"></div>
+          <span class="text-xs text-muted-foreground font-mono ml-2">ig gain</span>
+        </div>
+        <pre class="p-5 text-xs font-mono leading-relaxed overflow-x-auto"><span class="font-bold" style="color: oklch(0.8 0 0)">ig Token Savings</span>
+<span style="color: oklch(0.4 0 0)">================================================================</span>
+
+<span style="color: oklch(0.6 0 0)">Total commands:</span>    <span class="font-bold" style="color: oklch(0.9 0 0)">3,444</span>
+<span style="color: oklch(0.6 0 0)">Input bytes:</span>       <span class="font-bold" style="color: oklch(0.9 0 0)">21.5M</span>
+<span style="color: oklch(0.6 0 0)">Output bytes:</span>      <span class="font-bold" style="color: oklch(0.9 0 0)">7.7M</span>
+<span style="color: oklch(0.6 0 0)">Bytes saved:</span>       <span class="font-bold" style="color: oklch(0.85 0 0)">13.8M (64.3%)</span>
+<span style="color: oklch(0.6 0 0)">Efficiency meter:</span>  <span style="color: oklch(0.7 0 0)">===============</span><span style="color: oklch(0.3 0 0)">---------</span>  <span class="font-bold" style="color: oklch(0.85 0 0)">64.3%</span>
+
+<span style="color: oklch(0.5 0 0)">By Command</span>
+<span style="color: oklch(0.3 0 0)">----------------------------------------------------------------</span>
+<span style="color: oklch(0.4 0 0)">  #   Command                  Count    Saved   Avg%</span>
+<span style="color: oklch(0.3 0 0)">----------------------------------------------------------------</span>
+<span style="color: oklch(0.6 0 0)">   1. ig git                     654     6.8M</span>  <span class="font-bold" style="color: oklch(0.85 0 0)">93.7%</span>  <span style="color: oklch(0.7 0 0)">==========</span>
+<span style="color: oklch(0.6 0 0)">   2. ig read                    777     6.7M</span>  <span class="font-bold" style="color: oklch(0.85 0 0)">52.9%</span>  <span style="color: oklch(0.7 0 0)">=========</span>
+<span style="color: oklch(0.6 0 0)">   3. ig ls                    1,951     1.1M</span>  <span class="font-bold" style="color: oklch(0.85 0 0)">76.0%</span>  <span style="color: oklch(0.7 0 0)">=</span></pre>
+      </div>
+    </section>
+
+    <!-- Section 6: Monthly Projection -->
+    <section class="mb-12">
+      <h2 class="text-xl font-semibold mb-4">Monthly Projection</h2>
+      <p class="text-sm text-muted-foreground mb-5">
+        10 sessions/day, Max 20x tier ($200/mo):
+      </p>
+
+      <div class="overflow-x-auto border rounded-lg overflow-hidden">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="bg-muted">
+              <th class="text-left py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider"></th>
+              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">Raw</th>
+              <th class="text-right py-3 px-4 text-xs font-normal uppercase tracking-wider">ig</th>
+              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">RTK</th>
+            </tr>
+          </thead>
+          <tbody class="text-xs">
+            <tr class="border-t hover:bg-muted/50">
+              <td class="py-3 px-4 font-semibold">Tokens/month</td>
+              <td class="py-3 px-4 text-right text-muted-foreground">207M</td>
+              <td class="py-3 px-4 text-right font-semibold">42M</td>
+              <td class="py-3 px-4 text-right text-muted-foreground">111M</td>
+            </tr>
+            <tr class="border-t hover:bg-muted/50">
+              <td class="py-3 px-4 font-semibold">Opus turns</td>
+              <td class="py-3 px-4 text-right text-muted-foreground">--</td>
+              <td class="py-3 px-4 text-right font-semibold">~104</td>
+              <td class="py-3 px-4 text-right text-muted-foreground">~24</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-5 p-4 rounded-lg border">
+        <p class="text-sm text-muted-foreground leading-relaxed">
+          ig's trigram index, IDF-weighted n-grams, and multi-mode file reading combine for
+          <span class="font-semibold">4.1x</span> more compact output than RTK in a real agent session --
+          freeing up <span class="font-semibold">~104 Opus turns/month</span> for actual reasoning.
+        </p>
+      </div>
+    </section>
+  </div>
+</DocsLayout>
