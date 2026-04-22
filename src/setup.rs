@@ -68,9 +68,33 @@ fn write_if_not_dry(path: &Path, content: &[u8], dry_run: bool) -> Result<(), St
 
 fn install_hook_file(hooks_dir: &Path, name: &str, content: &str, dry_run: bool) -> ConfigResult {
     let hook_path = hooks_dir.join(name);
-    if hook_path.exists() {
-        return ConfigResult::AlreadyDone(format!("{} already installed", name));
+
+    // Compare existing content (if any) against shipped content.
+    // - Identical → AlreadyDone (no-op)
+    // - Different → back up to `<name>.bak-<timestamp>` and overwrite
+    // - Missing → install fresh
+    let existing = fs::read_to_string(&hook_path).ok();
+    match &existing {
+        Some(s) if s == content => {
+            return ConfigResult::AlreadyDone(format!("{} already up-to-date", name));
+        }
+        Some(_) if !dry_run => {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let backup = hooks_dir.join(format!("{}.bak-{}", name, ts));
+            let _ = fs::rename(&hook_path, &backup);
+        }
+        _ => {}
     }
+
+    let action = if existing.is_some() {
+        "Updated"
+    } else {
+        "Installed"
+    };
+
     match write_if_not_dry(&hook_path, content.as_bytes(), dry_run) {
         Ok(_) => {
             if !dry_run {
@@ -80,7 +104,7 @@ fn install_hook_file(hooks_dir: &Path, name: &str, content: &str, dry_run: bool)
                     let _ = fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755));
                 }
             }
-            ConfigResult::Configured(format!("Installed {}", name))
+            ConfigResult::Configured(format!("{} {}", action, name))
         }
         Err(e) => ConfigResult::Error(format!("Could not install {}: {}", name, e)),
     }
@@ -133,19 +157,35 @@ fn ensure_hook_registered(
         None => return false,
     };
 
-    // Check if already present
-    let already = hooks.iter().any(|h| {
+    // Find an existing entry by marker.
+    // - If marker matches AND command is byte-identical → no-op (already ok).
+    // - If marker matches but command differs (new binary shipped a fixed
+    //   one-liner, see v1.9.1 CLAUDE_BASH_COMMAND fallback) → overwrite.
+    // - No match → append fresh.
+    let existing_idx = hooks.iter().position(|h| {
         h.get("command")
             .and_then(|c| c.as_str())
             .unwrap_or("")
             .contains(marker)
     });
 
-    if already {
-        return false;
+    if let Some(idx) = existing_idx {
+        let current_cmd = hooks[idx]
+            .get("command")
+            .and_then(|c| c.as_str())
+            .unwrap_or("");
+        if current_cmd == hook_cmd {
+            return false; // identical, no update needed
+        }
+        // Update in place, preserving other fields (e.g. `type`, `timeout`).
+        hooks[idx]["command"] = serde_json::json!(hook_cmd);
+        if let Some(t) = timeout {
+            hooks[idx]["timeout"] = serde_json::json!(t);
+        }
+        return true;
     }
 
-    // Add the hook
+    // Add a new hook entry
     let mut hook_obj = serde_json::json!({"type": "command", "command": hook_cmd});
     if let Some(t) = timeout {
         hook_obj["timeout"] = serde_json::json!(t);
@@ -1569,16 +1609,40 @@ mod tests {
     }
 
     #[test]
-    fn test_install_hook_file_idempotent() {
+    fn test_install_hook_file_identical_is_noop() {
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("myhook.sh"), "existing").unwrap();
-        let result = install_hook_file(dir.path(), "myhook.sh", "new content", false);
-        assert!(matches!(result, ConfigResult::AlreadyDone(_)));
-        // Content should be unchanged
+        fs::write(dir.path().join("myhook.sh"), "same content").unwrap();
+        let result = install_hook_file(dir.path(), "myhook.sh", "same content", false);
+        assert!(
+            matches!(result, ConfigResult::AlreadyDone(_)),
+            "identical content should be AlreadyDone"
+        );
         assert_eq!(
             fs::read_to_string(dir.path().join("myhook.sh")).unwrap(),
-            "existing"
+            "same content"
         );
+    }
+
+    #[test]
+    fn test_install_hook_file_updates_when_content_differs() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("myhook.sh"), "old content").unwrap();
+        let result = install_hook_file(dir.path(), "myhook.sh", "new content", false);
+        assert!(
+            matches!(result, ConfigResult::Configured(_)),
+            "changed content should be Configured (updated)"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join("myhook.sh")).unwrap(),
+            "new content"
+        );
+        // A backup should exist alongside the updated file.
+        let backups: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().starts_with("myhook.sh.bak-"))
+            .collect();
+        assert_eq!(backups.len(), 1, "expected one backup file");
     }
 
     #[test]
@@ -1611,21 +1675,56 @@ mod tests {
     }
 
     #[test]
-    fn test_ensure_hook_registered_idempotent() {
+    fn test_ensure_hook_registered_identical_is_noop() {
+        // Same marker AND byte-identical command → no-op, returns false.
         let mut parsed = serde_json::json!({
             "hooks": {
                 "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo hello"}]}]
             }
         });
-        let added = ensure_hook_registered(
+        let changed = ensure_hook_registered(
             &mut parsed,
             "PreToolUse",
             "Bash",
-            "echo hello again",
+            "echo hello",
             "hello",
             None,
         );
-        assert!(!added, "should not add duplicate (marker already present)");
+        assert!(!changed, "identical command should be no-op");
+    }
+
+    #[test]
+    fn test_ensure_hook_registered_updates_when_command_differs() {
+        // Same marker BUT different command (e.g. v1.9.1 fixed one-liner
+        // replaces v1.9.0 broken one) → update in place, returns true.
+        let mut parsed = serde_json::json!({
+            "hooks": {
+                "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo hello OLD"}]}]
+            }
+        });
+        let changed = ensure_hook_registered(
+            &mut parsed,
+            "PreToolUse",
+            "Bash",
+            "echo hello NEW",
+            "hello",
+            None,
+        );
+        assert!(changed, "changed command should trigger an update");
+        assert_eq!(
+            parsed["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+                .as_str()
+                .unwrap(),
+            "echo hello NEW"
+        );
+        // Only one entry — didn't duplicate.
+        assert_eq!(
+            parsed["hooks"]["PreToolUse"][0]["hooks"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]

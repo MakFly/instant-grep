@@ -2,6 +2,27 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.9.2] — 2026-04-23
+
+### Fixed — `ig setup` / `ig update` now actually propagate hook changes
+
+Prior to 1.9.2, `ig setup` was fully idempotent but **non-upgrading**: once a hook file or a settings.json entry existed, it was never touched again, even when a newer binary shipped a fixed version of the same hook. In practice this meant users running `ig update` from 1.9.0 → 1.9.1 kept the broken `$CLAUDE_BASH_COMMAND`-only hook on disk.
+
+Two call sites were fixed in `src/setup.rs`:
+
+- **`install_hook_file`** (hook `.sh` files in `~/.claude/hooks/`): now compares shipped content against what's on disk. Identical → `AlreadyDone`. Different → rename existing to `<name>.bak-<unix-ts>` and write the new one. Missing → install fresh. Message reports `Installed` vs `Updated` explicitly.
+- **`ensure_hook_registered`** (inline one-liners in `~/.claude/settings.json`): finds entries by marker, then compares the full command string. Identical → no-op. Different (e.g. the destructive-git blocker gained a `CLAUDE_BASH_COMMAND / stdin JSON` dual source in 1.9.1) → update in place, preserving `type` and `timeout`, no duplicates.
+
+Both `ig setup` invocations (standalone and post-update) now properly upgrade hooks end-to-end. A dry-run still prints what would change without touching disk.
+
+4 new tests in `src/setup.rs`:
+- `test_install_hook_file_identical_is_noop`
+- `test_install_hook_file_updates_when_content_differs` (also verifies a `.bak-<ts>` backup is created)
+- `test_ensure_hook_registered_identical_is_noop`
+- `test_ensure_hook_registered_updates_when_command_differs` (also asserts no duplicate entry)
+
+Test totals: **418** (369 bin + 49 goldens), up from 416 in 1.9.1.
+
 ## [1.9.1] — 2026-04-23
 
 ### Fixed
