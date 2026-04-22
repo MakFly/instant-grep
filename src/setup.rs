@@ -1640,7 +1640,11 @@ mod tests {
         let backups: Vec<_> = fs::read_dir(dir.path())
             .unwrap()
             .filter_map(|e| e.ok())
-            .filter(|e| e.file_name().to_string_lossy().starts_with("myhook.sh.bak-"))
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("myhook.sh.bak-")
+            })
             .collect();
         assert_eq!(backups.len(), 1, "expected one backup file");
     }
