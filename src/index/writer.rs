@@ -89,6 +89,11 @@ pub fn build_index(
     generate_tree(&root, &ig);
     crate::pack::generate_context_quiet(&root, &ig);
 
+    // Build the PMI co-occurrence table for semantic expansion.
+    // Opt-out via `IG_SEMANTIC=0`. Failures here are non-fatal: the trigram
+    // index is what users rely on; semantic expansion is a bonus.
+    let _ = crate::semantic::cooccur::build_for_root(&root, use_default_excludes, max_file_size);
+
     Ok(result)
 }
 

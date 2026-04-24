@@ -87,6 +87,13 @@ pub struct Cli {
     /// when the raw match count would blow the context budget.
     #[arg(long, global = true, value_name = "N")]
     pub top: Option<usize>,
+
+    /// Expand the query with learned co-occurring tokens (PMI).
+    /// `ig --semantic error` also finds lines mentioning `catch`, `throw`,
+    /// `Exception`, etc. — synonyms learned from THIS repo, no ML model.
+    /// Requires a fresh index (`ig index`).
+    #[arg(long, global = true)]
+    pub semantic: bool,
 }
 
 #[derive(Subcommand)]

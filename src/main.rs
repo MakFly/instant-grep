@@ -20,6 +20,7 @@ mod rewrite;
 mod runner;
 mod scoring;
 mod search;
+mod semantic;
 mod setup;
 mod smart;
 mod symbols;
@@ -73,6 +74,7 @@ fn main() -> Result<()> {
     let no_default_excludes = cli.no_default_excludes;
     let max_file_size = cli.max_file_size;
     let top = cli.top;
+    let semantic = cli.semantic;
 
     match cli.command {
         // Explicit subcommands
@@ -97,6 +99,7 @@ fn main() -> Result<()> {
                 no_default_excludes,
                 max_file_size,
                 top,
+                semantic,
             })?;
         }
 
@@ -763,6 +766,7 @@ fn main() -> Result<()> {
                     no_default_excludes,
                     max_file_size,
                     top,
+                    semantic,
                 })?;
             } else {
                 // No pattern, no subcommand — show help
@@ -796,6 +800,15 @@ struct SearchOpts<'a> {
     no_default_excludes: bool,
     max_file_size: Option<u64>,
     top: Option<usize>,
+    semantic: bool,
+}
+
+/// Does `s` look like a plain identifier — no regex metacharacters?
+/// Safe to splice into an alternation.
+fn is_plain_word(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
 }
 
 /// Transform pattern based on -w and -F flags.
@@ -821,8 +834,43 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
 
     // Resolve paths: detect single-file, directory prefixes, or default to cwd
     let (root, path_filters) = resolve_root_and_filters(opts.paths);
-    let pattern = prepare_pattern(opts.pattern, opts.word_regexp, opts.fixed_strings);
-    let pattern = pattern.as_str();
+
+    // Base pattern from -w / -F flags.
+    let base_pattern = prepare_pattern(opts.pattern, opts.word_regexp, opts.fixed_strings);
+
+    // Optional semantic expansion: rewrite single-word literal queries as
+    // `\b(pattern|neigh1|neigh2|…)\b` using learned PMI co-occurrences.
+    // Only kicks in when the user asked for --semantic AND the pattern is a
+    // plain identifier (no regex metacharacters) — otherwise we'd corrupt it.
+    let expanded_pattern = if opts.semantic && is_plain_word(opts.pattern) {
+        let ig = ig_dir(&root);
+        match semantic::cooccur::CooccurrenceIndex::load(&ig) {
+            Some(idx) => match idx.expand(opts.pattern, 6) {
+                Some(neigh) if !neigh.is_empty() => {
+                    let terms: Vec<String> = std::iter::once(opts.pattern.to_string())
+                        .chain(neigh)
+                        .map(|t| regex::escape(&t))
+                        .collect();
+                    eprintln!(
+                        "(semantic: expanded '{}' → {})",
+                        opts.pattern,
+                        terms[1..].join(", ")
+                    );
+                    Some(format!(r"\b({})\b", terms.join("|")))
+                }
+                _ => None,
+            },
+            None => {
+                eprintln!(
+                    "(semantic: no cooccurrence index — run `ig index` first; falling back to literal search)"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let pattern = expanded_pattern.as_deref().unwrap_or(base_pattern.as_str());
     let (before, after) = match opts.context {
         Some(c) => (c, c),
         None => (opts.before_context, opts.after_context),
