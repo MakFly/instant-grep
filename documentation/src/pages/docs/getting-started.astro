@@ -11,6 +11,17 @@ import { Code } from "astro:components"
     No daemons to set up manually. Just build and go.
   </p>
 
+  <div class="docs-callout">
+    <div>
+      <p><strong>New in v1.10.0:</strong></p>
+      <ul>
+        <li><code>ig --top N "pattern"</code> — BM25 ranking returns the N most relevant files instead of the first N found on disk. See <a href="/docs/cli#bm25">CLI reference</a>.</li>
+        <li><code>ig --semantic "error"</code> — PMI-learned query expansion (no ML model, synonyms learned from your repo during indexing). See <a href="/docs/cli#semantic">CLI reference</a>.</li>
+        <li>Auto-compact output when piped to an agent + dir-aggregate <code>ig smart &lt;dir&gt;</code> and <code>ig files</code>. See <a href="/docs/vs-rtk">vs rtk bench</a>: ig now beats rtk on total bytes and total wall time.</li>
+      </ul>
+    </div>
+  </div>
+
   <h2>Prerequisites</h2>
   <ul>
     <li>Rust toolchain (stable) — <code>rustup toolchain install stable</code></li>

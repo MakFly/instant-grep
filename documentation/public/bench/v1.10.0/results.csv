@@ -1,0 +1,116 @@
+id,domain,label,ig_bytes,ig_ms,ig_exit,rtk_bytes,rtk_ms,rtk_exit,winner_bytes,winner_time
+001,1-literal,common: 'function',13524,39,0,14277,37,0,ig,rtk
+002,1-literal,common: 'TODO',5038,7,0,5035,25,0,rtk,ig
+003,1-literal,common: 'import',15398,34,0,16244,36,0,ig,ig
+004,1-literal,rare: 'iautos',15441,11,0,15047,27,0,rtk,ig
+005,1-literal,two-word: 'export default',20056,11,0,19403,26,0,rtk,ig
+006,1-literal,react: 'useState',14640,11,0,15479,27,0,ig,ig
+007,1-literal,err: 'Exception',13146,12,0,13084,32,0,rtk,ig
+008,1-literal,react: 'className',14284,23,0,12850,52,0,rtk,ig
+009,1-literal,async function,15041,12,0,15369,28,0,ig,ig
+010,1-literal,unicode 'é',13413,39,0,13803,181,0,ig,ig
+011,2-regex,^import,18127,31,0,12693,34,0,rtk,ig
+012,2-regex,[A-Z][a-z]+Error,14761,15,0,14479,27,0,rtk,ig
+013,2-regex,(get|post|put),15666,40,0,12883,115,0,rtk,ig
+014,2-regex,export.*function,14643,40,0,15320,31,0,ig,rtk
+015,2-regex,vX.Y,4824,13,0,5729,28,0,ig,ig
+016,2-regex,email,15183,80,0,14068,28,0,rtk,rtk
+017,2-regex,url,15972,17,0,15716,36,0,rtk,ig
+018,2-regex,const CONST =,14043,31,0,14526,28,0,ig,rtk
+019,2-regex,api route,14604,11,0,14430,27,0,rtk,ig
+020,2-regex,arrow fn,12125,30,0,11697,29,0,rtk,rtk
+021,3-flags,-i 'todo',138,6,0,6051,28,0,ig,ig
+022,3-flags,-l 'useState' (files only),14309,11,0,18,26,0,rtk,ig
+023,3-flags,type ts 'interface',6686,8,0,6940,20,0,ig,ig
+024,3-flags,type tsx 'return',9894,20,0,55,9,2,rtk,rtk
+025,3-flags,-w 'id',15756,42,0,14653,183,0,rtk,ig
+026,3-flags,-F 'const x =',311,6,0,317,25,0,ig,ig
+027,3-flags,-C1 'export default',8257,12,0,17589,27,0,ig,ig
+028,3-flags,-A2 'throw new',8666,10,0,17206,26,0,ig,ig
+029,3-flags,-B1 'async',11593,17,0,14744,30,0,ig,ig
+030,3-flags,glob *.json 'name',6993,11,0,10293,174,0,ig,ig
+031,4-list,ls root,30,4,0,8,9,0,rtk,ig
+032,4-list,ls apps,107,4,0,8,9,0,rtk,ig
+033,4-list,ls apps/api,592,4,0,8,11,0,rtk,ig
+034,4-list,ls apps/web,577,4,0,8,11,0,rtk,ig
+035,4-list,ls apps/pwa-backoffice,287,4,0,8,10,0,rtk,ig
+036,4-list,ls apps/chat,0,4,0,8,10,0,ig,ig
+037,4-list,ls apps/packages,93,4,0,8,10,0,rtk,ig
+038,4-list,files (flat listing),148,51,0,885,9,0,ig,rtk
+039,4-list,files *.ts,105,38,0,40,9,0,rtk,rtk
+040,4-list,files *.tsx,106,37,0,14,9,0,rtk,rtk
+041,5-read,read #1 test_memleaks.py,18369,6,0,15411,8,0,rtk,ig
+042,5-read,read #2 api-b2b-content.tsx,36874,6,0,30916,8,0,rtk,ig
+043,5-read,read #3 proxy.ts,13293,5,0,11211,7,0,rtk,ig
+044,5-read,read #4 rules.py,72406,8,0,62938,8,0,rtk,tie
+045,5-read,read #5 __init__.py,15048,5,0,12462,8,0,rtk,ig
+046,5-read,read #6 _elementwise.py,37942,6,0,33136,8,0,rtk,ig
+047,5-read,read #7 protocol.py,73442,7,0,63632,7,0,rtk,tie
+048,5-read,read #8 generic.py,30118,7,0,25738,8,0,rtk,ig
+049,5-read,read #9 utils.py,26280,5,0,22806,9,0,rtk,ig
+050,5-read,read #10 __init__.py,14239,5,0,12067,8,0,rtk,ig
+051,6-sig,sig #1 convert.py,2393,5,0,2467,9,0,ig,ig
+052,6-sig,sig #2 _browser_context.py,4593,5,0,5642,9,0,ig,ig
+053,6-sig,sig #3 database.py,4092,5,0,5583,9,0,ig,ig
+054,6-sig,sig #4 plugins.py,417,4,0,336,9,0,rtk,ig
+055,6-sig,sig #5 test_edge_augmentation.py,1224,4,0,1649,9,0,ig,ig
+056,6-sig,sig #6 _envs.py,1255,5,0,1396,9,0,ig,ig
+057,6-sig,sig #7 typing.py,3193,5,0,3720,9,0,ig,ig
+058,6-sig,sig #8 test_arrayprint.py,3819,5,0,5140,9,0,ig,ig
+059,6-sig,sig #9 pytest_plugin.py,1837,5,0,2094,9,0,ig,ig
+060,6-sig,sig #10 creation.py,1090,5,0,1327,9,0,ig,ig
+061,7-git,status,81,8,0,122,14,0,ig,ig
+062,7-git,log -n 10,1123,8,0,3278,12,0,ig,ig
+063,7-git,log -n 50,4971,13,0,14774,13,0,ig,tie
+064,7-git,log --oneline -n 100,6781,12,0,6782,12,0,ig,tie
+065,7-git,diff HEAD~1,7583,13,0,13638,17,0,ig,ig
+066,7-git,show HEAD,5953,12,0,13294,21,0,ig,ig
+067,7-git,show HEAD --stat,3080,10,0,3080,11,0,tie,ig
+068,7-git,branch -a,114,5,0,61,10,0,rtk,ig
+069,7-git,log -n 5 --name-only,792,9,0,1018,12,0,ig,ig
+070,7-git,diff --stat HEAD~3,1120,13,0,559,14,0,rtk,ig
+071,8-varied,handleSubmit,9598,8,0,9713,28,0,ig,ig
+072,8-varied,get_user_by_id,31,6,0,31,29,1,tie,ig
+073,8-varied,data-testid,672,7,0,694,33,0,ig,ig
+074,8-varied,json key '"name":',10254,11,0,10622,175,0,ig,ig
+075,8-varied,number 3.14159,24,7,0,24,31,1,tie,ig
+076,8-varied,'>=',15825,11,0,14742,25,0,rtk,ig
+077,8-varied,tag '<div',12835,20,0,11236,33,0,rtk,ig
+078,8-varied,'// TODO',4328,7,0,4244,26,0,rtk,ig
+079,8-varied,'// FIXME',25,6,0,25,26,1,tie,ig
+080,8-varied,"error",14031,9,0,13423,25,0,rtk,ig
+081,9-smart,smart #1 chat-view.tsx,84,7,0,120,5,0,ig,rtk
+082,9-smart,smart #2 page.tsx,184,7,0,115,5,0,rtk,rtk
+083,9-smart,smart #3 layout-instrument.tsx,99,10,0,78,5,0,rtk,rtk
+084,9-smart,smart #4 fetch-gov-data.ts,314,7,0,110,6,0,rtk,rtk
+085,9-smart,smart #5 AdvancedFeaturesSection.tsx,111,7,0,142,5,0,ig,rtk
+086,9-smart,smart apps/api,345,22,0,107,4,1,rtk,rtk
+087,9-smart,smart apps/web,332,32,0,107,4,1,rtk,rtk
+088,9-smart,smart apps/chat,73,6,0,108,5,1,ig,rtk
+089,9-smart,smart apps/pwa-backoffice,228,10,0,118,4,1,rtk,rtk
+090,9-smart,smart packages,72,5,0,117,4,1,ig,rtk
+091,10-misc,ls -la apps,107,8,0,8,13,0,rtk,ig
+092,10-misc,tree apps (rtk tree),107,4,0,178,4,1,ig,tie
+093,10-misc,find *.ts top-level,105,36,0,40,9,0,rtk,rtk
+094,10-misc,cat package.json,125,4,1,100,4,1,rtk,tie
+095,10-misc,json package.json,46,4,1,121,4,1,ig,tie
+096,10-misc,json apps/api/package.json,1109,4,0,981,8,0,rtk,ig
+097,10-misc,smart apps (dir summary),447,61,0,103,4,1,rtk,rtk
+098,10-misc,smart packages,72,6,0,0,4,1,rtk,rtk
+099,10-misc,read README.md (repo),24951,5,0,21873,8,0,rtk,ig
+100,10-misc,read CHANGELOG.md (repo),9954,5,0,9288,8,0,rtk,ig
+101,11-top,top10 'function',6274,47,0,14277,41,0,ig,rtk
+102,11-top,top5  'useState',2988,12,0,15479,28,0,ig,ig
+103,11-top,top10 'className',6619,25,0,12850,46,0,ig,ig
+104,11-top,top5  'import',3237,38,0,16244,37,0,ig,rtk
+105,11-top,top10 'export default',743,12,0,19403,27,0,ig,ig
+106,11-top,top5  '<div',3388,21,0,11236,36,0,ig,ig
+107,11-top,top10 'return',4641,48,0,21340,43,0,ig,rtk
+108,11-top,top5  'async function',2481,13,0,15369,27,0,ig,ig
+109,11-top,top10 'interface',3436,12,0,15040,28,0,ig,ig
+110,11-top,top5  'throw new',3337,11,0,18420,27,0,ig,ig
+111,12-sem,semantic 'error' top5,2664,33,0,13777,32,0,ig,rtk
+112,12-sem,semantic 'throw' top5,3368,28,0,17717,27,0,ig,rtk
+113,12-sem,semantic 'payment' top5,2914,26,0,14569,26,0,ig,tie
+114,12-sem,semantic 'auth' top5,3421,31,0,15092,75,0,ig,ig
+115,12-sem,semantic 'config' top5,3448,25,0,15205,34,0,ig,ig

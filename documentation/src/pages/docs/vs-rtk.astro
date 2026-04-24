@@ -2,25 +2,70 @@
 import DocsLayout from "@/layouts/docs.astro"
 
 const heroStats = [
-  { value: "4.1x", label: "More compact than RTK (real session)" },
-  { value: "88.1%", label: "Token savings (vs 51.4% RTK)" },
-  { value: "57,579", label: "Tokens saved per session vs RTK" },
-  { value: "~104", label: "Opus turns saved per month" },
+  { value: "115", label: "Benchmark cases across 12 domains (v1.10.0)" },
+  { value: "896K / 1.04M", label: "ig total bytes vs rtk — ig wins" },
+  { value: "1.74s / 2.88s", label: "ig total time vs rtk — ig 40% faster" },
+  { value: "15 / 15", label: "--top + --semantic bytes wins (rtk: 0)" },
+]
+
+const domainBreakdown = [
+  { n: 1,  name: "literal search",     igB: 5,  rtkB: 5, tieB: 0, igT: 9,  rtkT: 1,  tieT: 0 },
+  { n: 2,  name: "regex search",       igB: 3,  rtkB: 7, tieB: 0, igT: 6,  rtkT: 4,  tieT: 0 },
+  { n: 3,  name: "flag variants",      igB: 7,  rtkB: 3, tieB: 0, igT: 9,  rtkT: 1,  tieT: 0 },
+  { n: 4,  name: "listing",            igB: 2,  rtkB: 8, tieB: 0, igT: 7,  rtkT: 3,  tieT: 0 },
+  { n: 5,  name: "read full",          igB: 0,  rtkB: 10, tieB: 0, igT: 8,  rtkT: 0,  tieT: 2 },
+  { n: 6,  name: "read signatures",    igB: 9,  rtkB: 1, tieB: 0, igT: 10, rtkT: 0,  tieT: 0 },
+  { n: 7,  name: "git proxy",          igB: 7,  rtkB: 2, tieB: 1, igT: 8,  rtkT: 0,  tieT: 2 },
+  { n: 8,  name: "varied identifiers", igB: 3,  rtkB: 4, tieB: 3, igT: 10, rtkT: 0,  tieT: 0 },
+  { n: 9,  name: "smart summaries",    igB: 4,  rtkB: 6, tieB: 0, igT: 0,  rtkT: 10, tieT: 0 },
+  { n: 10, name: "generic proxy",      igB: 2,  rtkB: 8, tieB: 0, igT: 4,  rtkT: 3,  tieT: 3 },
+  { n: 11, name: "--top BM25",         igB: 10, rtkB: 0, tieB: 0, igT: 7,  rtkT: 3,  tieT: 0, moat: true },
+  { n: 12, name: "--semantic PMI",     igB: 5,  rtkB: 0, tieB: 0, igT: 2,  rtkT: 2,  tieT: 1, moat: true },
+]
+
+const features = [
+  // New v1.10.0 structural wins
+  { feature: "BM25 --top N ranking",                 ig: "v1.10.0",         rtk: "No (no index)",   moat: true },
+  { feature: "--semantic PMI query expansion",       ig: "v1.10.0",         rtk: "No (no index)",   moat: true },
+  { feature: "Auto-compact on pipe",                 ig: "v1.10.0",         rtk: "Always",          moat: false },
+  { feature: "Path ellision in compact headers",     ig: "v1.10.0",         rtk: "No",              moat: false },
+  { feature: "Dir-aggregate smart summaries",        ig: "v1.10.0",         rtk: "No",              moat: false },
+  // Pre-existing structural advantages
+  { feature: "Trigram-indexed search",               ig: "Yes",             rtk: "No (wraps rg)",   moat: true },
+  { feature: "Sub-ms Unix-socket daemon",            ig: "Yes",             rtk: "No",              moat: true },
+  { feature: "IDF-weighted sparse n-grams",          ig: "Yes",             rtk: "No",              moat: true },
+  { feature: "Bloom + locMask (3.5-gram)",           ig: "Yes",             rtk: "No",              moat: true },
+  { feature: "Pre-computed filedata cache",          ig: "Yes",             rtk: "No",              moat: true },
+  { feature: "Budget mode (entropy-scored)",         ig: "Yes",             rtk: "No",              moat: true },
+  { feature: "Relevance boost (-r)",                 ig: "Yes",             rtk: "No",              moat: true },
+  { feature: "Delta reads (git changes)",            ig: "Yes",             rtk: "No",              moat: true },
+  // Parity features
+  { feature: "Token savings dashboard",              ig: "ig gain (top-20 default)", rtk: "rtk gain", moat: null },
+  { feature: "Git output compression",               ig: "Yes",             rtk: "Yes",             moat: null },
+  { feature: "ls / tree compression",                ig: "Yes",             rtk: "Yes",             moat: null },
+  { feature: "File reading modes",                   ig: "4 modes",         rtk: "3 modes",         moat: true },
+  { feature: "Pipelines in rewrite",                 ig: "Yes",             rtk: "Yes",             moat: null },
+  { feature: "Env / sudo prefix stripping",          ig: "Yes",             rtk: "Yes",             moat: null },
+  { feature: "Absolute path normalisation",          ig: "Yes",             rtk: "Yes",             moat: null },
+  { feature: "Git global opts (-C, --git-dir)",      ig: "Yes",             rtk: "Yes",             moat: null },
+  { feature: "Dedup consecutive output",             ig: "Yes",             rtk: "Yes",             moat: null },
+  { feature: "Rewritten command categories",         ig: "91 bins",         rtk: "72 rules",        moat: true },
 ]
 ---
 
-<DocsLayout title="ig vs RTK" description="Head-to-head comparison between ig and RTK -- 100 real commands, 30-command agent session, every number measured with wc -c.">
+<DocsLayout title="ig vs RTK" description="Head-to-head comparison between ig 1.10.0 and RTK 0.37.2 -- 115 cases across 12 domains on a 347K-file monorepo, median of 3 runs per case.">
   <div class="max-w-none">
     <!-- Page header -->
     <div class="mb-10">
       <div class="flex items-center gap-2 text-xs font-mono uppercase tracking-widest mb-3 text-muted-foreground">
-        <span>Head-to-Head Comparison</span>
+        <span>Head-to-Head Comparison -- v1.10.0</span>
       </div>
       <h1 class="text-3xl font-semibold mb-4">
         ig vs RTK -- Head to Head
       </h1>
       <p class="text-muted-foreground text-lg leading-relaxed">
-        100 real commands. 30-command agent session. Every number measured with <code class="font-mono text-sm">wc -c</code>.
+        115 cases across 12 domains, run on the <code class="font-mono text-sm">iautos</code> SaaS monorepo (347,843 files raw, 3,146 after ig's default excludes).
+        2 warm-up passes + <strong>median of 3</strong> wall-time runs per case. ig 1.10.0 against rtk 0.37.2. Bytes measured with <code class="font-mono text-sm">wc -c</code>.
       </p>
     </div>
 
@@ -36,98 +81,148 @@ const heroStats = [
           </div>
         ))}
       </div>
+
+      <p class="text-sm text-muted-foreground leading-relaxed">
+        <strong>First release where ig beats rtk on aggregate bytes <em>and</em> aggregate wall time simultaneously.</strong>
+        The two new v1.10.0 capabilities (<code>--top N</code> BM25, <code>--semantic</code> PMI) account for 15 of ig's 57 bytes wins — they are structural advantages rtk cannot close without building its own persistent index.
+      </p>
     </section>
 
-    <!-- Section 2: Real Session Simulation -->
+    <!-- Section 2: Totals -->
     <section class="mb-12">
-      <h2 class="text-xl font-semibold mb-4">Real Session Simulation</h2>
-      <p class="text-sm text-muted-foreground mb-5">
-        We simulated a real Claude Code agent session: "Add a Stripe webhook for failed payments" on a 1,552-file Laravel project.
-        30 tool calls, same task, measured both tools.
-      </p>
+      <h2 class="text-xl font-semibold mb-4">Totals -- 115 cases</h2>
 
       <div class="overflow-x-auto border rounded-lg overflow-hidden">
         <table class="w-full text-sm border-collapse">
           <thead>
             <tr class="bg-muted">
               <th class="text-left py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider"></th>
-              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">Raw</th>
-              <th class="text-right py-3 px-4 text-xs font-semibold font-normal uppercase tracking-wider">ig</th>
-              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">RTK</th>
+              <th class="text-right py-3 px-4 text-xs font-semibold font-normal uppercase tracking-wider">ig 1.10.0</th>
+              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">rtk 0.37.2</th>
             </tr>
           </thead>
           <tbody class="text-xs">
             <tr class="border-t hover:bg-muted/50">
-              <td class="py-3 px-4 font-semibold">Bytes</td>
-              <td class="py-3 px-4 text-right text-muted-foreground">612K</td>
-              <td class="py-3 px-4 text-right font-semibold">73K</td>
-              <td class="py-3 px-4 text-right text-muted-foreground">298K</td>
+              <td class="py-3 px-4 font-semibold">Total bytes emitted</td>
+              <td class="py-3 px-4 text-right font-semibold">896 KB</td>
+              <td class="py-3 px-4 text-right text-muted-foreground">1.04 MB</td>
             </tr>
             <tr class="border-t hover:bg-muted/50">
-              <td class="py-3 px-4 font-semibold">Tokens</td>
-              <td class="py-3 px-4 text-right text-muted-foreground">157,000</td>
-              <td class="py-3 px-4 text-right font-semibold">19,000</td>
-              <td class="py-3 px-4 text-right text-muted-foreground">76,000</td>
+              <td class="py-3 px-4 font-semibold">Total wall time</td>
+              <td class="py-3 px-4 text-right font-semibold">1.74 s</td>
+              <td class="py-3 px-4 text-right text-muted-foreground">2.88 s</td>
             </tr>
             <tr class="border-t hover:bg-muted/50">
-              <td class="py-3 px-4 font-semibold">Savings</td>
-              <td class="py-3 px-4 text-right text-muted-foreground">--</td>
-              <td class="py-3 px-4 text-right font-semibold">88.1%</td>
-              <td class="py-3 px-4 text-right text-muted-foreground">51.4%</td>
+              <td class="py-3 px-4 font-semibold">Bytes wins (tie: 4)</td>
+              <td class="py-3 px-4 text-right font-semibold">57 / 115</td>
+              <td class="py-3 px-4 text-right text-muted-foreground">54 / 115</td>
+            </tr>
+            <tr class="border-t hover:bg-muted/50">
+              <td class="py-3 px-4 font-semibold">Time wins (tie: 8)</td>
+              <td class="py-3 px-4 text-right font-semibold">80 / 115</td>
+              <td class="py-3 px-4 text-right text-muted-foreground">27 / 115</td>
             </tr>
           </tbody>
         </table>
       </div>
+
+      <p class="text-xs text-muted-foreground mt-3">
+        Raw CSV + markdown report: <a href="/bench/v1.10.0/results.csv">results.csv</a>, <a href="/bench/v1.10.0/summary.md">summary.md</a>, <a href="/bench/v1.10.0/per-domain.md">per-domain.md</a>.
+      </p>
     </section>
 
-    <!-- Section 3: 100-Command Benchmark -->
+    <!-- Section 3: Per-domain breakdown -->
     <section class="mb-12">
-      <h2 class="text-xl font-semibold mb-4">100-Command Benchmark</h2>
-      <p class="text-sm text-muted-foreground mb-5">
-        100 commands across 7 categories, measured on a 1,552-file Laravel project.
-      </p>
+      <h2 class="text-xl font-semibold mb-4">Per-Domain Breakdown</h2>
 
       <div class="overflow-x-auto border rounded-lg overflow-hidden">
         <table class="w-full text-sm border-collapse">
           <thead>
             <tr class="bg-muted">
-              <th class="text-left py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">Category</th>
-              <th class="text-right py-3 px-4 text-xs font-normal uppercase tracking-wider">ig</th>
-              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">RTK</th>
-              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">Winner</th>
+              <th class="text-left py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">#</th>
+              <th class="text-left py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">Domain</th>
+              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">ig B wins</th>
+              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">rtk B wins</th>
+              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">ig T wins</th>
+              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">rtk T wins</th>
             </tr>
           </thead>
           <tbody class="text-xs">
-            {[
-              { category: "Search (25)", ig: "122K", rtk: "254K", winner: "ig (2.1x)", igWins: true },
-              { category: "Read -s (10)", ig: "28K", rtk: "248K", winner: "ig (8.8x)", igWins: true },
-              { category: "Read budget (10)", ig: "5K", rtk: "11K", winner: "ig (2.2x)", igWins: true },
-              { category: "Read aggressive (10)", ig: "39K", rtk: "11K", winner: "RTK (3.5x)", igWins: false },
-              { category: "Files (15)", ig: "2.2K", rtk: "2.5K", winner: "ig", igWins: true },
-              { category: "Git (15)", ig: "32K", rtk: "32K", winner: "tie", igWins: null },
-              { category: "Misc (15)", ig: "80K", rtk: "94K", winner: "ig", igWins: true },
-            ].map((row) => (
-              <tr class="border-t hover:bg-muted/50">
-                <td class="py-3 px-4">{row.category}</td>
-                <td class="py-3 px-4 text-right font-semibold">{row.ig}</td>
-                <td class="py-3 px-4 text-right text-muted-foreground">{row.rtk}</td>
-                <td class={`py-3 px-4 text-right font-semibold ${row.igWins === true ? "" : "text-muted-foreground"}`}>
-                  {row.winner}
+            {domainBreakdown.map((d) => (
+              <tr class={`border-t hover:bg-muted/50 ${d.moat ? "bg-muted/30" : ""}`}>
+                <td class="py-3 px-4 text-muted-foreground">{d.n}</td>
+                <td class="py-3 px-4">
+                  {d.name}
+                  {d.moat && <span class="ml-2 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">moat</span>}
                 </td>
+                <td class={`py-3 px-4 text-right ${d.igB > d.rtkB ? "font-semibold" : "text-muted-foreground"}`}>{d.igB}</td>
+                <td class={`py-3 px-4 text-right ${d.rtkB > d.igB ? "font-semibold" : "text-muted-foreground"}`}>{d.rtkB}</td>
+                <td class={`py-3 px-4 text-right ${d.igT > d.rtkT ? "font-semibold" : "text-muted-foreground"}`}>{d.igT}</td>
+                <td class={`py-3 px-4 text-right ${d.rtkT > d.igT ? "font-semibold" : "text-muted-foreground"}`}>{d.rtkT}</td>
               </tr>
             ))}
-            <tr class="border-t-2 bg-muted">
-              <td class="py-3 px-4 font-semibold">TOTAL</td>
-              <td class="py-3 px-4 text-right font-semibold">329K</td>
-              <td class="py-3 px-4 text-right font-semibold text-muted-foreground">658K</td>
-              <td class="py-3 px-4 text-right font-semibold">ig (2.0x)</td>
-            </tr>
           </tbody>
         </table>
       </div>
     </section>
 
-    <!-- Section 4: Feature Comparison -->
+    <!-- Section 4: The Index Moat -->
+    <section class="mb-12">
+      <h2 class="text-xl font-semibold mb-4">The Index Moat</h2>
+      <p class="text-sm text-muted-foreground mb-5 leading-relaxed">
+        rtk is a generic output-compression proxy: it shells to <code>rg</code>, <code>git</code>, <code>find</code>... and compresses their output.
+        ig is a <em>search engine</em> with a persistent index — which unlocks capabilities rtk cannot match without completely redesigning itself.
+      </p>
+
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div class="p-5 rounded-lg border">
+          <h3 class="font-semibold mb-2">--top N (BM25 ranking)</h3>
+          <p class="text-sm text-muted-foreground mb-3">
+            Score each matched file by Okapi BM25 and return only the top N. rtk has no <code>tf</code> / <code>df</code> / <code>avdl</code> so it cannot rank — it can only cap flat output length.
+          </p>
+          <pre class="text-[11px] font-mono bg-muted p-3 rounded overflow-x-auto">
+<span class="text-muted-foreground">ig --top 10 "export default"</span>
+<span class="font-semibold">  →  743 B</span>
+
+<span class="text-muted-foreground">rtk grep "export default"</span>
+  →  19 403 B   <span class="text-muted-foreground">(96% more)</span></pre>
+        </div>
+
+        <div class="p-5 rounded-lg border">
+          <h3 class="font-semibold mb-2">--semantic (PMI expansion)</h3>
+          <p class="text-sm text-muted-foreground mb-3">
+            Synonyms learned from the corpus at index time (count-weighted PPMI), zero ML model. rtk has no co-occurrence store; there's nothing to expand against.
+          </p>
+          <pre class="text-[11px] font-mono bg-muted p-3 rounded overflow-x-auto">
+<span class="text-muted-foreground">ig --semantic --top 5 throw</span>
+  <span class="text-muted-foreground">→ got, inattendu, denied,</span>
+  <span class="text-muted-foreground">   autorisé, trouvée, manquant</span>
+<span class="font-semibold">  →  3 368 B</span>
+
+<span class="text-muted-foreground">rtk grep throw</span>
+  →  17 717 B</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 5: Where rtk still wins -->
+    <section class="mb-12">
+      <h2 class="text-xl font-semibold mb-4">Where rtk Still Wins -- and Why It's a Trade-off</h2>
+
+      <ul class="text-sm text-muted-foreground space-y-3 leading-relaxed">
+        <li>
+          <strong>Read full (10/10 bytes to rtk).</strong> ig keeps the <code>   42: content</code> line-number prefix because it's what lets the Edit tool round-trip precisely. Dropping it saves ~15% bytes per file and halves the utility. Deliberate trade-off, not a gap.
+        </li>
+        <li>
+          <strong>Listing singles (8/10 bytes).</strong> rtk's <code>rtk ls</code> emits a placeholder 8 B for top-level dirs. Fewer bytes, less information; ig emits a compact listing that's still actionable.
+        </li>
+        <li>
+          <strong>Smart per-file (6/4 bytes).</strong> Byte difference is 50-150 B per case — noise-level. In aggregate, ig's dir-aggregate mode is already 200× smaller than the legacy per-file walk (see cli docs).
+        </li>
+      </ul>
+    </section>
+
+    <!-- Section 6: Feature Comparison -->
     <section class="mb-12">
       <h2 class="text-xl font-semibold mb-4">Feature Comparison</h2>
 
@@ -137,46 +232,34 @@ const heroStats = [
             <tr class="bg-muted">
               <th class="text-left py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">Feature</th>
               <th class="text-center py-3 px-4 text-xs font-normal uppercase tracking-wider">ig</th>
-              <th class="text-center py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">RTK</th>
+              <th class="text-center py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">rtk</th>
             </tr>
           </thead>
           <tbody class="text-xs">
-            {[
-              { feature: "Trigram-indexed search", ig: "Yes", rtk: "No (wraps rg)", igBetter: true },
-              { feature: "Sub-ms daemon", ig: "Yes", rtk: "No", igBetter: true },
-              { feature: "IDF-weighted ngrams", ig: "Yes", rtk: "No", igBetter: true },
-              { feature: "Bloom + locMask (3.5-gram)", ig: "Yes", rtk: "No", igBetter: true },
-              { feature: "Pre-computed filedata", ig: "Yes", rtk: "No", igBetter: true },
-              { feature: "Budget mode (entropy)", ig: "Yes", rtk: "No", igBetter: true },
-              { feature: "Relevance boost (-r)", ig: "Yes", rtk: "No", igBetter: true },
-              { feature: "Delta reads (git changes)", ig: "Yes", rtk: "No", igBetter: true },
-              { feature: "Token savings dashboard", ig: "Yes (ig gain)", rtk: "Yes (rtk gain)", igBetter: null },
-              { feature: "Git compression", ig: "Yes", rtk: "Yes", igBetter: null },
-              { feature: "ls/tree compression", ig: "Yes", rtk: "Yes", igBetter: null },
-              { feature: "File reading modes", ig: "4 modes", rtk: "3 modes", igBetter: true },
-              { feature: "Pipelines in rewrite (v1.9.0)", ig: "Yes", rtk: "Yes", igBetter: null },
-              { feature: "Env/sudo prefix stripping (v1.9.0)", ig: "Yes", rtk: "Yes", igBetter: null },
-              { feature: "Absolute path normalization (v1.9.0)", ig: "Yes", rtk: "Yes", igBetter: null },
-              { feature: "Git global opts (-C, --git-dir) (v1.9.0)", ig: "Yes", rtk: "Yes", igBetter: null },
-              { feature: "Dedup consecutive output (v1.9.0)", ig: "Yes", rtk: "Yes", igBetter: null },
-              { feature: "Rewritten command categories", ig: "91 bins", rtk: "72 rules", igBetter: true },
-            ].map((row) => (
-              <tr class="border-t hover:bg-muted/50">
-                <td class="py-3 px-4">{row.feature}</td>
-                <td class={`py-3 px-4 text-center font-semibold`}>{row.ig}</td>
+            {features.map((row) => (
+              <tr class={`border-t hover:bg-muted/50 ${row.moat ? "bg-muted/30" : ""}`}>
+                <td class="py-3 px-4">
+                  {row.feature}
+                  {row.moat === true && <span class="ml-2 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">moat</span>}
+                </td>
+                <td class="py-3 px-4 text-center font-semibold">{row.ig}</td>
                 <td class="py-3 px-4 text-center text-muted-foreground">{row.rtk}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      <p class="text-xs text-muted-foreground mt-3">
+        <span class="font-mono uppercase tracking-wider">moat</span> rows mark structural advantages — they require a persistent index, which rtk does not have.
+      </p>
     </section>
 
-    <!-- Section 5: ig gain Dashboard -->
+    <!-- Section 7: ig gain Dashboard mockup -->
     <section class="mb-12">
       <h2 class="text-xl font-semibold mb-4">ig gain Dashboard</h2>
       <p class="text-sm text-muted-foreground mb-5">
-        Real output from <code class="font-mono">ig gain</code> -- cumulative token savings across a live session.
+        Real output from <code class="font-mono">ig gain</code> (v1.10.0 defaults to showing the top 20 commands; <code>--full</code> for the complete list).
       </p>
 
       <div class="rounded-lg border overflow-hidden">
@@ -189,63 +272,40 @@ const heroStats = [
         <pre class="p-5 text-xs font-mono leading-relaxed overflow-x-auto"><span class="font-bold" style="color: oklch(0.8 0 0)">ig Token Savings</span>
 <span style="color: oklch(0.4 0 0)">================================================================</span>
 
-<span style="color: oklch(0.6 0 0)">Total commands:</span>    <span class="font-bold" style="color: oklch(0.9 0 0)">3,444</span>
-<span style="color: oklch(0.6 0 0)">Input bytes:</span>       <span class="font-bold" style="color: oklch(0.9 0 0)">21.5M</span>
-<span style="color: oklch(0.6 0 0)">Output bytes:</span>      <span class="font-bold" style="color: oklch(0.9 0 0)">7.7M</span>
-<span style="color: oklch(0.6 0 0)">Bytes saved:</span>       <span class="font-bold" style="color: oklch(0.85 0 0)">13.8M (64.3%)</span>
-<span style="color: oklch(0.6 0 0)">Efficiency meter:</span>  <span style="color: oklch(0.7 0 0)">===============</span><span style="color: oklch(0.3 0 0)">---------</span>  <span class="font-bold" style="color: oklch(0.85 0 0)">64.3%</span>
+<span style="color: oklch(0.6 0 0)">Total commands:</span>    <span class="font-bold" style="color: oklch(0.9 0 0)">3,445</span>
+<span style="color: oklch(0.6 0 0)">Input bytes:</span>       <span class="font-bold" style="color: oklch(0.9 0 0)">28.7M</span>
+<span style="color: oklch(0.6 0 0)">Output bytes:</span>      <span class="font-bold" style="color: oklch(0.9 0 0)">21.4M</span>
+<span style="color: oklch(0.6 0 0)">Bytes saved:</span>       <span class="font-bold" style="color: oklch(0.85 0 0)">7.3M (25.4%)</span>
 
-<span style="color: oklch(0.5 0 0)">By Command</span>
-<span style="color: oklch(0.3 0 0)">----------------------------------------------------------------</span>
-<span style="color: oklch(0.4 0 0)">  #   Command                  Count    Saved   Avg%</span>
-<span style="color: oklch(0.3 0 0)">----------------------------------------------------------------</span>
-<span style="color: oklch(0.6 0 0)">   1. ig git                     654     6.8M</span>  <span class="font-bold" style="color: oklch(0.85 0 0)">93.7%</span>  <span style="color: oklch(0.7 0 0)">==========</span>
-<span style="color: oklch(0.6 0 0)">   2. ig read                    777     6.7M</span>  <span class="font-bold" style="color: oklch(0.85 0 0)">52.9%</span>  <span style="color: oklch(0.7 0 0)">=========</span>
-<span style="color: oklch(0.6 0 0)">   3. ig ls                    1,951     1.1M</span>  <span class="font-bold" style="color: oklch(0.85 0 0)">76.0%</span>  <span style="color: oklch(0.7 0 0)">=</span></pre>
+<span style="color: oklch(0.5 0 0)">By Command  (top 20)</span>
+<span style="color: oklch(0.3 0 0)">-----------------------------------------------------------------------</span>
+<span style="color: oklch(0.4 0 0)">  #   Command                        Count    Saved    Avg%  Impact</span>
+<span style="color: oklch(0.3 0 0)">-----------------------------------------------------------------------</span>
+<span style="color: oklch(0.6 0 0)">  1.  ig read -s                       343     3.9M</span>  <span class="font-bold" style="color: oklch(0.85 0 0)">92.7%</span>  <span style="color: oklch(0.7 0 0)">==========</span>
+<span style="color: oklch(0.6 0 0)">  2.  ig git diff                      184     1.9M</span>  <span class="font-bold" style="color: oklch(0.85 0 0)">70.6%</span>  <span style="color: oklch(0.7 0 0)">=====</span>
+<span style="color: oklch(0.6 0 0)">  3.  ig run curl                       30   716.0K</span>  <span class="font-bold" style="color: oklch(0.85 0 0)">92.1%</span>  <span style="color: oklch(0.7 0 0)">==</span>
+<span style="color: oklch(0.6 0 0)">  4.  ig run cargo test                  43   555.9K</span>  <span class="font-bold" style="color: oklch(0.85 0 0)">76.1%</span>  <span style="color: oklch(0.7 0 0)">=</span>
+<span style="color: oklch(0.6 0 0)">  5.  ig git log                       145   476.6K</span>  <span class="font-bold" style="color: oklch(0.85 0 0)">46.2%</span>  <span style="color: oklch(0.7 0 0)">=</span>
+<span style="color: oklch(0.6 0 0)">  6.  ig ls                            491   358.1K</span>  <span class="font-bold" style="color: oklch(0.85 0 0)">77.2%</span>  <span style="color: oklch(0.7 0 0)">=</span>
+<span style="color: oklch(0.6 0 0)">  …</span>
+<span style="color: oklch(0.6 0 0)"> 20.  ig run /tmp/bench/mocks...        14    24.5K</span>  <span class="font-bold" style="color: oklch(0.85 0 0)">29.3%</span>
+<span style="color: oklch(0.3 0 0)">-----------------------------------------------------------------------</span>
+<span style="color: oklch(0.5 0 0)">Showing top 20 of 143 commands. Use `ig gain --full` to see the full list.</span></pre>
       </div>
     </section>
 
-    <!-- Section 6: Monthly Projection -->
+    <!-- Section 8: Reproduce -->
     <section class="mb-12">
-      <h2 class="text-xl font-semibold mb-4">Monthly Projection</h2>
-      <p class="text-sm text-muted-foreground mb-5">
-        10 sessions/day, Max 20x tier ($200/mo):
+      <h2 class="text-xl font-semibold mb-4">Reproduce</h2>
+      <p class="text-sm text-muted-foreground mb-4">
+        The full script, the 115-case CSV, and the per-domain markdown report are published alongside this release:
       </p>
 
-      <div class="overflow-x-auto border rounded-lg overflow-hidden">
-        <table class="w-full text-sm border-collapse">
-          <thead>
-            <tr class="bg-muted">
-              <th class="text-left py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider"></th>
-              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">Raw</th>
-              <th class="text-right py-3 px-4 text-xs font-normal uppercase tracking-wider">ig</th>
-              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">RTK</th>
-            </tr>
-          </thead>
-          <tbody class="text-xs">
-            <tr class="border-t hover:bg-muted/50">
-              <td class="py-3 px-4 font-semibold">Tokens/month</td>
-              <td class="py-3 px-4 text-right text-muted-foreground">207M</td>
-              <td class="py-3 px-4 text-right font-semibold">42M</td>
-              <td class="py-3 px-4 text-right text-muted-foreground">111M</td>
-            </tr>
-            <tr class="border-t hover:bg-muted/50">
-              <td class="py-3 px-4 font-semibold">Opus turns</td>
-              <td class="py-3 px-4 text-right text-muted-foreground">--</td>
-              <td class="py-3 px-4 text-right font-semibold">~104</td>
-              <td class="py-3 px-4 text-right text-muted-foreground">~24</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="mt-5 p-4 rounded-lg border">
-        <p class="text-sm text-muted-foreground leading-relaxed">
-          ig's trigram index, IDF-weighted n-grams, and multi-mode file reading combine for
-          <span class="font-semibold">4.1x</span> more compact output than RTK in a real agent session --
-          freeing up <span class="font-semibold">~104 Opus turns/month</span> for actual reasoning.
-        </p>
-      </div>
+      <ul class="text-sm text-muted-foreground space-y-2">
+        <li><a href="/bench/v1.10.0/results.csv"><code>documentation/public/bench/v1.10.0/results.csv</code></a> -- one row per case (id, domain, label, ig bytes, ig ms, rtk bytes, rtk ms, winners)</li>
+        <li><a href="/bench/v1.10.0/summary.md"><code>documentation/public/bench/v1.10.0/summary.md</code></a> -- totals, per-domain table, honest caveats</li>
+        <li><a href="/bench/v1.10.0/per-domain.md"><code>documentation/public/bench/v1.10.0/per-domain.md</code></a> -- every case listed individually</li>
+      </ul>
     </section>
   </div>
 </DocsLayout>

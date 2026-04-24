@@ -39,8 +39,12 @@ Index: yes
 
 | What | Result |
 |------|--------|
+| **ig vs rtk total bytes** (v1.10.0, 115 cases on a 347K-file monorepo) | **896 KB vs 1.04 MB** (ig wins) |
+| **ig vs rtk total time** (same 115 cases) | **1.74 s vs 2.88 s** (ig 40% faster) |
+| **BM25 `--top N` vs rtk** | **10/10 bytes wins**, 7/10 time wins (rtk has no index) |
+| **`--semantic` PMI vs rtk** | **5/5 bytes wins** — synonyms learned from your repo |
 | **Token savings** | **93.5% average** across 100 benchmarked commands |
-| **ig files --compact** | 269K → 896B (**-99.7%**) |
+| **ig files --compact** | 176K → 149B (**-99.9%**) on a 3K-file project |
 | **git status** | 422 bytes → 25 bytes (**-94%**) |
 | **git log** | 2,499 bytes → 484 bytes (**-81%**) |
 | **Search speed** | **23ms** on 1,609 files, **0.2ms** via daemon |
@@ -48,11 +52,11 @@ Index: yes
 | **Symbols extracted** | **4,834** from a Laravel project, **7,702** from a monorepo |
 | **Context reduction** | 12,841 bytes → 3,828 bytes per turn (**-70%**) |
 | **Agent setup** | 8 agents configured in **one command** |
-| **Rust tests** | **416 tests** (367 bin + 49 goldens) |
+| **Rust tests** | **434 tests** (385 bin + 49 goldens) |
 | **Integration tests** | **63/65 pass** (2 voluntary skips, 0 failures) |
 | **Commands rewritten** | **91 bins** across 42 TOML filters (v1.9.0) |
 
-> Every number on this page is measured with `wc -c` on real commands, on real projects (1,609-file Laravel app, 3,084-file monorepo). See the [interactive benchmark dashboard](benchmarks/index.html) for charts.
+> Every number on this page is measured with `wc -c` on real commands, on real projects (1,609-file Laravel app, 3,084-file monorepo, 347K-file iautos SaaS). See the [v1.10.0 benchmark artefacts](documentation/public/bench/v1.10.0/) for CSV + per-domain tables.
 
 ## Why
 
@@ -225,6 +229,8 @@ ig "useRouter" . --type ts        # filter by file type
 ig -C 3 "async fn" src/           # context lines
 ig "fetchData" . --json           # JSON output for agents
 ig "Result<T>" . --stats          # show performance stats
+ig --top 10 "pattern" .           # BM25 ranking, keep top 10 by relevance (v1.10.0)
+ig --semantic "error" .           # expand query with PMI-learned synonyms (v1.10.0)
 ```
 
 ### Compact search mode (v1.8.2+)
@@ -247,6 +253,44 @@ IG_LINE_MAX=80 IG_MAX_MATCHES_PER_FILE=5 IG_MAX_MATCHES_TOTAL=100 ig "pattern" s
 ```
 
 Typical gains on real projects: **−60 to −94%** on dense patterns (`rg 'public function' src/` on a Symfony codebase: 244 KB → 14 KB).
+
+### BM25 ranking — `--top N` (v1.10.0)
+
+Regex search returns every match in filesystem order. That's fine for a human skimming 20 hits — it's wasteful when there are 2 000 of them and only 5 actually matter. `--top N` scores each matched file with a textbook Okapi BM25 and keeps only the N highest-ranked:
+
+```bash
+$ ig --top 5 useState
+apps/.../create-conversational/vehicle-edit-step-dialog.tsx
+  3: import { useState, useMemo } from "react";
+ 73:   const [value, setValue] = useState(formData.saleMode);
+107:   const [brandId, setBrandId] = useState(formData.brand);
+…
+```
+
+Score = `idf · (tf · (k1 + 1)) / (tf + k1 · (1 − b + b · dl / avdl))` with `k1 = 1.5`, `b = 0.75`. `tf` is the match count per file, `dl` is the file byte-size, `avdl` is the mean across matches. Dense hits in short files rank first — the files where the concept is actually implemented, not the files that happen to mention it in a comment.
+
+On iautos: `ig --top 10 "export default"` returns **743 bytes** of curated hits; `rtk grep "export default"` returns a flat-compressed 19 KB dump. Not better compression — *better content*, because rtk has no index and cannot rank.
+
+### Semantic query expansion — `--semantic` (v1.10.0)
+
+Statistical synonym expansion, **no ML model, no download**. During `ig index`, a second pass tokenises every line, counts co-occurrences in a 5-line sliding window, and persists a PMI-ranked top-10 neighbour table to `.ig/cooccurrence.bin`. At query time, `ig --semantic error` rewrites the regex to `\b(error|catch|throw|exception|…)\b` and lets the trigram pre-filter do the heavy lifting:
+
+```bash
+$ ig --semantic --top 5 throw
+(semantic: expanded 'throw' → got, inattendu, denied, autorisé, trouvée, manquant)
+apps/packages/reader-api-vo/scripts/test-rest-e2e.ts
+ 44:   throw new Error("HTTP server did not become ready in time");
+…
+```
+
+The synonyms are **learned from your own codebase** — if you have `VehicleWantedError` or `iautosPaymentException`, they'll show up in the neighbour tables alongside the common vocabulary. Levy & Goldberg ([NeurIPS 2014](https://papers.nips.cc/paper_files/paper/2014/file/feab05aa91085b7a8012516bc3533958-Paper.pdf)) proved skip-gram word2vec with negative sampling implicitly factorises the shifted-PMI matrix, so direct PMI recovers most of the neighbourhood quality of a learned embedding at a fraction of the cost.
+
+Controls:
+- Disable build entirely: `IG_SEMANTIC=0 ig index`
+- Opt-out per query: just don't pass `--semantic`
+- Inspect: the stderr line `(semantic: expanded 'x' → …)` shows exactly what was added — no magic
+
+Expansion quality depends on how often a term co-occurs with others in your corpus: `throw`, `payment`, `auth`, `config` work well on iautos; rare terms may get a weak expansion or none at all.
 
 ### File intelligence
 
@@ -359,19 +403,46 @@ Since v1.7.0, ig is a **complete standalone solution** for AI agent token optimi
 | ls (5 listings) | 4.3K | 758B | **-83%** |
 | **Total (100 commands)** | **3.7 MB** | **241K** | **-93.5%** |
 
-### ig vs rtk (output-compression proxies)
+### ig vs rtk — full benchmark (v1.10.0)
 
-Benchmark on 19 commands (rust/cloud + mocked pytest/jest/kubectl/terraform/helm/ansible/npm/pnpm/ruff/eslint). Measurement: `cmd 2>&1 | wc -c` vs `ig run <cmd>` vs `rtk <cmd>`. See `/tmp/rtk-bench/REPORT.md` for full per-command table.
+**115 cases across 12 domains**, run on the `iautos` SaaS monorepo (347 843 files raw, 3 146 after ig's default excludes). Methodology: 2 warm-up passes + **median of 3** wall-time runs per case. Bytes are deterministic (one measurement). Full raw data in `documentation/public/bench/v1.10.0/`.
 
-| Metric | ig | rtk |
-|---|---|---|
-| Wins | **10 / 19** | 3 / 19 |
-| Ties | 6 / 19 | 6 / 19 |
-| Top wins for ig | `ls -laR` 89% · `cargo clippy` 100% · `git status` 88% · `eslint` 71% · `pnpm install` 87% |
-| Top wins for rtk | `helm list` 20% · `ansible-playbook` 39% |
-| Median wallclock | ~10ms | ~10ms (parity) |
+| Headline | ig 1.10.0 | rtk 0.37.2 |
+|---|---:|---:|
+| **Total bytes emitted** | **896 KB** | 1.04 MB |
+| **Total wall time** | **1.74 s** | 2.88 s |
+| **Bytes wins** | **57 / 115** | 54 / 115 *(tie 4)* |
+| **Time wins** | **80 / 115** | 27 / 115 *(tie 8)* |
 
-When ig's filters match (after the basename-normalization fix in 3aaa7f9), ig matches or beats rtk on most common commands. ig's dedicated subcommands (`ig ls`, `ig git`, `ig read`) compress harder than a generic output filter because they know the semantic structure of what they read.
+**ig wins on aggregate bytes and wall time simultaneously for the first time.**
+
+#### Per-domain breakdown
+
+| # | Domain | ig bytes wins | rtk bytes wins | ig time wins | rtk time wins |
+|---|---|---:|---:|---:|---:|
+| 1 | literal search | 5 | 5 | **9** | 1 |
+| 2 | regex search | 3 | **7** | **6** | 4 |
+| 3 | flag variants | **7** | 3 | **9** | 1 |
+| 4 | listing | 2 | **8** | **7** | 3 |
+| 5 | read full | 0 | **10** | **8** | 0 |
+| 6 | read signatures | **9** | 1 | **10** | 0 |
+| 7 | git proxy | **7** | 2 | **8** | 0 |
+| 8 | varied identifiers | 3 | 4 | **10** | 0 |
+| 9 | smart summaries | 4 | **6** | 0 | **10** |
+| 10 | generic proxy | 2 | **8** | 4 | 3 |
+| 11 | **`--top` BM25** | **10** | 0 | **7** | 3 |
+| 12 | **`--semantic` PMI** | **5** | 0 | 2 | 2 |
+
+#### Where rtk still wins — and why it's a trade-off, not a bug
+
+- **Read full (10/10 bytes to rtk)** — ig keeps the `   42: content` line-number prefix because it's what lets the Edit tool round-trip precisely. Dropping it saves ~15 % bytes per file and halves the utility. Deliberate.
+- **Listing / smart dir singles** — rtk's `rtk ls` emits a placeholder 8 B for top-level dirs. Fewer bytes, less information; we emit a compact listing that's still actionable.
+
+#### Where ig is categorically ahead — rtk cannot match without a persistent index
+
+- **`--top N` BM25 ranking** — 10 / 10 bytes wins. Example: `ig --top 10 "export default"` = 743 B; `rtk grep "export default"` = 19 403 B — same query, **−96 %**. rtk has no `tf` / `df` / `avdl` so it cannot rank; it can only flat-compress.
+- **`--semantic` PMI expansion** — 5 / 5 bytes wins. Example: `ig --semantic --top 5 throw` = 3 368 B with synonyms learned from the repo; `rtk grep throw` = 17 717 B of literal matches. Building a cooccurrence matrix would require rtk to ship its own index layer.
+- **Sub-ms daemon** — not in this run, but `ig daemon` serves queries at p50 = 0.7 ms through a Unix socket; rtk shells to ripgrep on every invocation.
 
 ### ig v1.4.0 vs ripgrep
 
@@ -476,12 +547,53 @@ Sparse grams:  3 keys →  4 candidate files (12x better)
 
 Memory-mapped. Streaming SPIMI pipeline (128MB budget). Overlay index for incremental updates.
 
+### BM25 ranking (v1.10.0)
+
+When `--top N` is set, the candidate file list from the trigram intersection is scored with Okapi BM25:
+
+```
+score(file) = idf · (tf · (k1 + 1)) / (tf + k1 · (1 − b + b · dl / avdl))
+            k1 = 1.5, b = 0.75
+            tf = match count in the file
+            dl = file byte size
+            avdl = mean dl across the result set
+```
+
+Scoring happens *after* the regex verification pass (so only real matches are considered) and adds one `stat(2)` per candidate. On the 115-case bench, `--top N` never takes more than 50 ms end-to-end, even for patterns that match in 300+ files.
+
+### Semantic layer — PMI, no ML model (v1.10.0)
+
+`--semantic` piggy-backs on a second index built alongside the trigram one:
+
+```
+ig index  ─┬─▶ trigram + filedata + symbols       (existing)
+            └─▶ cooccurrence.bin                    (new)
+
+ig --semantic <word> ─▶ lookup top-6 PMI neighbours
+                     ─▶ build regex \b(word|n1|…|n6)\b
+                     ─▶ normal trigram+regex search
+                     ─▶ optional BM25 rerank via --top
+```
+
+During index build, every line is tokenised (camelCase / snake_case / acronym-aware), and co-occurrences in a 5-line sliding window are counted. At finalisation we compute count-weighted PPMI per pair:
+
+```
+PMI(a, b)     = log( p(a, b) / (p(a) · p(b)) )
+score(a, b)   = PMI · log(count + 1)     (rejects rare-word coincidences)
+```
+
+…and persist the top-10 neighbours per token to `.ig/cooccurrence.bin` (bincode, ~1.5 MB on a 3K-file repo). Thresholds `MIN_PAIR_COUNT = 15` and `MIN_TOKEN_COUNT = 10` kill PMI's well-known low-frequency bias.
+
+Theoretical basis: Levy & Goldberg, [*Neural Word Embedding as Implicit Matrix Factorization*](https://papers.nips.cc/paper_files/paper/2014/file/feab05aa91085b7a8012516bc3533958-Paper.pdf) (NeurIPS 2014) — direct PMI is *the* objective that skip-gram word2vec with negative sampling implicitly optimises.
+
 ## Architecture
 
 ```
 ig
 ├── index/          — Sparse n-gram index (build + query + overlay)
 ├── search/         — Indexed + brute-force search
+│   └── rank.rs     — BM25 ranking (--top N, v1.10.0)
+├── semantic/       — PMI cooccurrence tokenizer + builder (v1.10.0)
 ├── query/          — Regex → NgramQuery conversion
 ├── git.rs          — Token-compressed git proxy
 ├── rewrite.rs      — Command rewriting engine (exit codes 0/1/2/3)
@@ -492,7 +604,7 @@ ig
 ├── scoring.rs      — Layered Semantic Compression (entropy × weight × relevance)
 ├── delta.rs        — Git-aware delta reads (changed lines + enclosing context)
 ├── read.rs         — Smart file reading (full + signatures)
-├── smart.rs        — 2-line file summaries
+├── smart.rs        — 2-line file summaries + dir-aggregate mode (v1.10.0)
 ├── symbols.rs      — Symbol definition extraction
 ├── pack.rs         — Project context generator
 ├── ls.rs           — Compact directory listing

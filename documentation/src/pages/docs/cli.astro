@@ -52,8 +52,53 @@ ig search [OPTIONS] <PATTERN> [PATH]  # also works`} lang="bash" theme="github-d
         <tr><td><code class="flag">--json</code></td><td></td><td>Output results as JSON (for AI agents)</td></tr>
         <tr><td><code class="flag">--stats</code></td><td></td><td>Print search statistics (candidates, time, etc.)</td></tr>
         <tr><td><code class="flag">--no-index</code></td><td></td><td>Skip index, grep files directly (slow but always fresh)</td></tr>
+        <tr><td><code class="flag">--top N</code></td><td></td><td><strong>v1.10.0</strong> — Keep only the top N files ranked by BM25 relevance</td></tr>
+        <tr><td><code class="flag">--semantic</code></td><td></td><td><strong>v1.10.0</strong> — Expand query with PMI-learned synonyms from the corpus</td></tr>
       </tbody>
     </table>
+
+    <h3 id="bm25">BM25 ranking — <code>--top N</code> <span class="badge">v1.10.0</span></h3>
+
+    <p>Regex search returns every match in filesystem order. <code>--top N</code> scores each matched file with Okapi BM25 and keeps only the N highest-ranked, so the agent sees the files that <em>implement</em> the concept — not the files that merely mention it in a comment.</p>
+
+    <div class="relative">
+      <div class="code-label">example</div>
+      <Code code={`$ ig --top 5 useState
+apps/.../create-conversational/vehicle-edit-step-dialog.tsx
+  3: import { useState, useMemo } from "react";
+ 73:   const [value, setValue] = useState(formData.saleMode);
+107:   const [brandId, setBrandId] = useState(formData.brand);
+ …
+(top-5 returns 3 KB instead of the 15 KB flat compressed output)`} lang="bash" theme="github-dark" />
+    </div>
+
+    <p>Formula: <code>score = idf · (tf · (k1+1)) / (tf + k1 · (1 − b + b · dl / avdl))</code> with <code>k1 = 1.5</code>, <code>b = 0.75</code>. <code>tf</code> is the match count, <code>dl</code> is the file byte-size, <code>avdl</code> is the mean across the result set. Overhead: one <code>stat(2)</code> per candidate, negligible.</p>
+
+    <h3 id="semantic">Semantic query expansion — <code>--semantic</code> <span class="badge">v1.10.0</span></h3>
+
+    <p>Learn synonyms from the corpus itself, no ML model, no download. During <code>ig index</code>, a second pass tokenises every line and counts co-occurrences in a 5-line sliding window; at finalisation we rank each token's top-10 neighbours by count-weighted PPMI and persist to <code>.ig/cooccurrence.bin</code> (~1.5 MB on a 3K-file repo).</p>
+
+    <div class="relative">
+      <div class="code-label">example</div>
+      <Code code={`$ ig --semantic --top 5 throw
+(semantic: expanded 'throw' → got, inattendu, denied, autorisé, trouvée, manquant)
+apps/packages/reader-api-vo/scripts/test-rest-e2e.ts
+ 44:   throw new Error("HTTP server did not become ready in time");
+114:     throw new Error(\`\${label} should be an array\`);
+ …
+# finds literal throws AND French exception messages, in one pass`} lang="bash" theme="github-dark" />
+    </div>
+
+    <p><strong>Theoretical basis:</strong> Levy &amp; Goldberg (<a href="https://papers.nips.cc/paper_files/paper/2014/file/feab05aa91085b7a8012516bc3533958-Paper.pdf">NeurIPS 2014</a>) proved skip-gram word2vec with negative sampling implicitly factorises the shifted-PMI matrix — direct PMI recovers most of the embedding neighbourhood quality at a fraction of the cost and with none of the model dependency.</p>
+
+    <p><strong>Controls:</strong></p>
+    <ul>
+      <li>Disable the second index pass entirely: <code>IG_SEMANTIC=0 ig index</code></li>
+      <li>Opt-out per query: just don't pass <code>--semantic</code></li>
+      <li>Inspect what was added: the stderr line <code>(semantic: expanded 'x' → …)</code> shows every term included</li>
+    </ul>
+
+    <p>Expansion quality depends on how often the term co-occurs with others in your corpus: <code>throw</code>, <code>payment</code>, <code>auth</code>, <code>config</code> work well; rare terms may get a weak or empty expansion.</p>
 
     <div class="relative">
       <div class="code-label">examples</div>
@@ -251,6 +296,19 @@ ig files --compact
 # Compact view filtered to PHP files
 ig files --compact -t php`} lang="bash" theme="github-dark" />
     </div>
+
+    <h3 id="files-auto-compact">Auto-compact on pipe <span class="badge">v1.10.0</span></h3>
+
+    <p>When stdout is a pipe and the listing has 40+ files, <code>ig files</code> emits a one-line aggregate instead of enumerating every path. A TTY or <code>IG_COMPACT=0</code> keeps the verbose listing.</p>
+
+    <div class="relative">
+      <div class="code-label">example</div>
+      <Code code={`$ ig files | head
+3201 files in 911 dirs · 972 tsx, 890 php, 790 ts, 80 mdx, 70 py, 47 json
+(compact view — set IG_COMPACT=0 or run in a TTY for the full listing)
+
+# iautos monorepo: 176 KB → 149 B (≈1180×)`} lang="bash" theme="github-dark" />
+    </div>
   </section>
 
   <!-- ig symbols -->
@@ -405,6 +463,21 @@ src/index/ngram.rs
   Sparse n-gram generation via hash_bigram + covering set selection.
   Core algorithm — port of danlark1/sparse_ngrams.`} lang="text" theme="github-dark" />
     </div>
+
+    <h3 id="smart-dir-aggregate">Directory aggregate mode <span class="badge">v1.10.0</span></h3>
+
+    <p>When the target is a directory and stdout is a pipe, <code>ig smart</code> emits a one-block structural summary instead of reading every file. The per-file mode was O(N files) — hitting 5+ seconds on a 1000-file subtree — and produced a wall of text an agent rarely needs in full. The aggregate is three lines, fast, and usually more useful for orienting in an unfamiliar codebase.</p>
+
+    <div class="relative">
+      <div class="code-label">example</div>
+      <Code code={`$ ig smart apps/api
+apps/api: 1042 files, 249 dirs · 890 php, 39 yaml, 31 twig, 29 sh, 10 md
+top: src/ (664), migrations/ (109), tests/ (103), config/ (42)
+key: composer.json, README.md, Makefile
+
+# 345 B / 19 ms — down from 69 KB / 5.3 s (≈200× smaller, ≈280× faster)
+# Force full per-file summary: IG_COMPACT=0 ig smart apps/api`} lang="bash" theme="github-dark" />
+    </div>
   </section>
 
   <!-- ig pack -->
@@ -468,9 +541,14 @@ ig gain --clear      # reset history`} lang="bash" theme="github-dark" />
         <tr><td><code class="flag">--since N</code></td><td></td><td>Days to scan for --discover (default: 30)</td></tr>
         <tr><td><code class="flag">--history</code></td><td></td><td>Per-command history with individual savings</td></tr>
         <tr><td><code class="flag">--json</code></td><td></td><td>Machine-readable JSON output</td></tr>
+        <tr><td><code class="flag">--full</code></td><td></td><td><strong>v1.10.0</strong> — Show the full <code>By Command</code> table instead of the top 20</td></tr>
         <tr><td><code class="flag">--clear</code></td><td></td><td>Reset history</td></tr>
       </tbody>
     </table>
+
+    <p class="text-sm text-muted-foreground mt-2">
+      <strong>v1.10.0:</strong> the default dashboard now shows the top <strong>20</strong> commands (was 15). Long-tail <code>ig run &lt;cmd&gt;</code> variants usually fill positions 15-20 and collectively account for a big chunk of savings. Use <code>--full</code> when you need every row.
+    </p>
 
     <div class="relative">
       <div class="code-label">output example</div>
