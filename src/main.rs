@@ -829,6 +829,9 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
             print_compact(&results);
         } else {
             let mut printer = Printer::new(use_color, opts.json);
+            if results.is_empty() && !opts.count && !opts.files_with_matches {
+                printer.print_no_matches(pattern);
+            }
             for file_matches in &results {
                 printer.print_file_matches(file_matches, opts.count, opts.files_with_matches);
             }
@@ -858,6 +861,9 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
             print_compact(&results);
         } else {
             let mut printer = Printer::new(use_color, opts.json);
+            if results.is_empty() && !opts.count && !opts.files_with_matches {
+                printer.print_no_matches(pattern);
+            }
             for file_matches in &results {
                 printer.print_file_matches(file_matches, opts.count, opts.files_with_matches);
             }

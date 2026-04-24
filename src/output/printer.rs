@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -49,6 +49,15 @@ impl Printer {
             total_matches_emitted: 0,
             global_cap_hit: false,
         }
+    }
+
+    /// Emit a minimal "no matches" notice (compact mode only, non-JSON).
+    /// Useful for agents so they distinguish "no results" from "tool crashed".
+    pub fn print_no_matches(&mut self, pattern: &str) {
+        if self.json_mode || !self.compact {
+            return;
+        }
+        let _ = writeln!(self.stdout, "0 matches for {:?}", pattern);
     }
 
     pub fn print_file_matches(
@@ -637,20 +646,31 @@ fn format_duration(d: Duration) -> String {
     }
 }
 
-/// Read compact-mode env vars. `IG_COMPACT=1` enables the following defaults:
-/// - line length capped at 100
-/// - per-file match cap: 10
+/// Read compact-mode env vars. Compact mode activates when any of:
+/// - `IG_COMPACT=1` is set explicitly
+/// - stdout is not a TTY (piped to a file / agent / `wc`) and `IG_COMPACT` is unset or `"auto"`
+///
+/// Defaults in compact mode (aligned with rtk 0.37 so agents see the same budget):
+/// - line length capped at 80
+/// - per-file match cap: 10 (ig-only — rtk has no per-file cap)
 /// - global match cap: 200
 /// - no `--` separator between non-contiguous matches
 /// - no blank line between files
 ///
-/// `IG_LINE_MAX`, `IG_MAX_MATCHES_PER_FILE`, `IG_MAX_MATCHES_TOTAL` override individual caps.
+/// Opt-out: `IG_COMPACT=0` forces full verbose output even on pipe.
+/// Fine-tune: `IG_LINE_MAX`, `IG_MAX_MATCHES_PER_FILE`, `IG_MAX_MATCHES_TOTAL` override caps.
 fn compact_limits() -> (usize, usize, usize, bool) {
-    let compact = std::env::var("IG_COMPACT").ok().as_deref() == Some("1");
+    let raw = std::env::var("IG_COMPACT").ok();
+    let compact = match raw.as_deref() {
+        Some("1") | Some("true") | Some("yes") => true,
+        Some("0") | Some("false") | Some("no") => false,
+        // unset or "auto" → enable on pipe
+        _ => !std::io::stdout().is_terminal(),
+    };
     let line_max = std::env::var("IG_LINE_MAX")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(if compact { 100 } else { 0 });
+        .unwrap_or(if compact { 80 } else { 0 });
     let per_file = std::env::var("IG_MAX_MATCHES_PER_FILE")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
