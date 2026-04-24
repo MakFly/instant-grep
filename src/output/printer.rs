@@ -9,7 +9,7 @@ use crate::context::BlockResult;
 use crate::read::ReadResult;
 use crate::search::indexed::SearchStats;
 use crate::search::matcher::{FileMatches, LineMatch};
-use crate::smart::SmartSummary;
+use crate::smart::{DirAggregate, SmartSummary};
 use crate::symbols::SymbolMatch;
 
 pub struct Printer {
@@ -297,6 +297,12 @@ impl Printer {
     }
 
     pub fn print_file_list(&mut self, files: &[std::path::PathBuf], root: &std::path::Path) {
+        // Compact mode (pipe) + large listing: emit a one-line aggregate instead
+        // of every path. `--verbose` or TTY keeps the full list.
+        if self.compact && !self.json_mode && files.len() >= 40 {
+            self.print_file_list_aggregate(files, root);
+            return;
+        }
         for path in files {
             let rel = path.strip_prefix(root).unwrap_or(path);
             let rel_str = rel.to_string_lossy();
@@ -306,6 +312,51 @@ impl Printer {
                 let _ = writeln!(self.stdout, "{}", rel_str);
             }
         }
+    }
+
+    fn print_file_list_aggregate(
+        &mut self,
+        files: &[std::path::PathBuf],
+        root: &std::path::Path,
+    ) {
+        use std::collections::BTreeSet;
+
+        let mut ext_counts: BTreeMap<String, usize> = BTreeMap::new();
+        let mut dirs: BTreeSet<std::path::PathBuf> = BTreeSet::new();
+
+        for path in files {
+            let rel = path.strip_prefix(root).unwrap_or(path);
+            if let Some(parent) = rel.parent() {
+                dirs.insert(parent.to_path_buf());
+            }
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("(none)")
+                .to_string();
+            *ext_counts.entry(ext).or_default() += 1;
+        }
+
+        // Top extensions by count, descending
+        let mut ext_sorted: Vec<(String, usize)> = ext_counts.into_iter().collect();
+        ext_sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        let top_exts: Vec<String> = ext_sorted
+            .iter()
+            .take(6)
+            .map(|(e, c)| format!("{} {}", c, e))
+            .collect();
+
+        let _ = writeln!(
+            self.stdout,
+            "{} files in {} dirs · {}",
+            files.len(),
+            dirs.len(),
+            top_exts.join(", ")
+        );
+        let _ = writeln!(
+            self.stdout,
+            "(compact view — set IG_COMPACT=0 or run in a TTY for the full listing)"
+        );
     }
 
     pub fn print_symbols(&mut self, symbols: &[SymbolMatch]) {
@@ -587,6 +638,62 @@ impl Printer {
             let _ = write!(self.stdout, "\"{}\":{}", escape_json(ext), count);
         }
         let _ = writeln!(self.stdout, "}}}}}}");
+    }
+
+    /// One-block aggregate summary for a directory (compact pipe mode).
+    pub fn print_dir_aggregate(&mut self, agg: &DirAggregate, dir_name: &str) {
+        if self.json_mode {
+            let key_files_json: Vec<String> = agg
+                .key_files
+                .iter()
+                .map(|f| format!("\"{}\"", escape_json(f)))
+                .collect();
+            let exts_json: Vec<String> = agg
+                .top_exts
+                .iter()
+                .map(|(e, c)| format!("\"{}\":{}", escape_json(e), c))
+                .collect();
+            let subdirs_json: Vec<String> = agg
+                .top_subdirs
+                .iter()
+                .map(|(d, c)| format!("\"{}\":{}", escape_json(d), c))
+                .collect();
+            let _ = writeln!(
+                self.stdout,
+                "{{\"dir\":\"{}\",\"total_files\":{},\"dir_count\":{},\"top_exts\":{{{}}},\"top_subdirs\":{{{}}},\"key_files\":[{}]}}",
+                escape_json(dir_name),
+                agg.total_files,
+                agg.dir_count,
+                exts_json.join(","),
+                subdirs_json.join(","),
+                key_files_json.join(",")
+            );
+            return;
+        }
+        let exts: Vec<String> = agg
+            .top_exts
+            .iter()
+            .map(|(e, c)| format!("{} {}", c, e))
+            .collect();
+        let _ = writeln!(
+            self.stdout,
+            "{}: {} files, {} dirs · {}",
+            dir_name,
+            agg.total_files,
+            agg.dir_count,
+            exts.join(", ")
+        );
+        if !agg.top_subdirs.is_empty() {
+            let subs: Vec<String> = agg
+                .top_subdirs
+                .iter()
+                .map(|(d, c)| format!("{}/ ({})", d, c))
+                .collect();
+            let _ = writeln!(self.stdout, "top: {}", subs.join(", "));
+        }
+        if !agg.key_files.is_empty() {
+            let _ = writeln!(self.stdout, "key: {}", agg.key_files.join(", "));
+        }
     }
 
     pub fn print_smart(&mut self, summaries: &[SmartSummary]) {

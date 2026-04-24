@@ -13,6 +13,100 @@ pub struct SmartSummary {
     pub public_api: String, // L2: exported/public symbols
 }
 
+/// A directory-level aggregate summary — one output block for the whole tree
+/// instead of a per-file report. Used in compact (pipe) mode on big dirs,
+/// where per-file output is O(N) with N in the thousands.
+pub struct DirAggregate {
+    pub total_files: usize,
+    pub dir_count: usize,
+    /// (extension, file_count) sorted by count desc, top 6
+    pub top_exts: Vec<(String, usize)>,
+    /// (top-level subdir, file_count) sorted desc, top 8
+    pub top_subdirs: Vec<(String, usize)>,
+    /// Well-known manifest / entry files found at the root (package.json, Cargo.toml, …)
+    pub key_files: Vec<String>,
+}
+
+/// Fast directory aggregate: no file content reads, just walks and counts.
+pub fn smart_dir_aggregate(
+    root: &Path,
+    use_default_excludes: bool,
+    max_file_size: u64,
+    type_filter: Option<&str>,
+    glob_filter: Option<&str>,
+) -> Result<DirAggregate> {
+    use std::collections::{BTreeMap, BTreeSet};
+    let files = walk::walk_files(
+        root,
+        use_default_excludes,
+        max_file_size,
+        type_filter,
+        glob_filter,
+    )?;
+    let mut ext_counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut subdir_counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut dirs: BTreeSet<std::path::PathBuf> = BTreeSet::new();
+    let mut key_files: Vec<String> = Vec::new();
+    const MANIFESTS: &[&str] = &[
+        "package.json",
+        "Cargo.toml",
+        "pyproject.toml",
+        "go.mod",
+        "composer.json",
+        "requirements.txt",
+        "Gemfile",
+        "pom.xml",
+        "build.gradle",
+        "README.md",
+        "readme.md",
+        "Dockerfile",
+        "docker-compose.yml",
+        "tsconfig.json",
+        "Makefile",
+    ];
+    for path in &files {
+        let rel = path.strip_prefix(root).unwrap_or(path);
+        if let Some(parent) = rel.parent() {
+            dirs.insert(parent.to_path_buf());
+        }
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("(none)")
+            .to_string();
+        *ext_counts.entry(ext).or_default() += 1;
+        if let Some(first) = rel.components().next()
+            && let Some(s) = first.as_os_str().to_str()
+            && !s.is_empty()
+            && rel.components().count() > 1
+        {
+            *subdir_counts.entry(s.to_string()).or_default() += 1;
+        }
+        if let Some(name) = rel.file_name().and_then(|s| s.to_str())
+            && MANIFESTS.iter().any(|m| m.eq_ignore_ascii_case(name))
+            && rel.components().count() <= 3
+        {
+            key_files.push(rel.to_string_lossy().to_string());
+        }
+    }
+    let mut top_exts: Vec<(String, usize)> = ext_counts.into_iter().collect();
+    top_exts.sort_by(|a, b| b.1.cmp(&a.1));
+    top_exts.truncate(6);
+    let mut top_subdirs: Vec<(String, usize)> = subdir_counts.into_iter().collect();
+    top_subdirs.sort_by(|a, b| b.1.cmp(&a.1));
+    top_subdirs.truncate(8);
+    key_files.sort();
+    key_files.dedup();
+    key_files.truncate(10);
+    Ok(DirAggregate {
+        total_files: files.len(),
+        dir_count: dirs.len(),
+        top_exts,
+        top_subdirs,
+        key_files,
+    })
+}
+
 /// Generate 2-line smart summaries for all files under a path.
 pub fn smart_summarize(
     root: &Path,

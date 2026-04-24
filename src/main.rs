@@ -437,14 +437,34 @@ fn main() -> Result<()> {
                 } else {
                     root.clone()
                 };
-                let summaries = smart::smart_summarize(
-                    &scan_dir,
-                    use_excludes,
-                    max_size,
-                    file_type.as_deref(),
-                    glob.as_deref(),
-                )?;
-                printer.print_smart(&summaries);
+
+                // Compact pipe mode → emit a fast dir aggregate instead of
+                // reading every file (per-file smart on a big tree is 5+ s).
+                let is_compact = std::env::var("IG_COMPACT").ok().as_deref() != Some("0")
+                    && (std::env::var("IG_COMPACT").ok().as_deref() == Some("1")
+                        || !std::io::IsTerminal::is_terminal(&std::io::stdout()));
+                if is_compact && !json {
+                    let agg = smart::smart_dir_aggregate(
+                        &scan_dir,
+                        use_excludes,
+                        max_size,
+                        file_type.as_deref(),
+                        glob.as_deref(),
+                    )?;
+                    let label = base_path
+                        .and_then(|p| p.to_str())
+                        .unwrap_or_else(|| scan_dir.to_str().unwrap_or("."));
+                    printer.print_dir_aggregate(&agg, label);
+                } else {
+                    let summaries = smart::smart_summarize(
+                        &scan_dir,
+                        use_excludes,
+                        max_size,
+                        file_type.as_deref(),
+                        glob.as_deref(),
+                    )?;
+                    printer.print_smart(&summaries);
+                }
             }
 
             let command = match path.as_deref() {
