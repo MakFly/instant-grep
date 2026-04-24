@@ -81,6 +81,12 @@ pub struct Cli {
     /// Max file size in bytes (default: 1MB, 0 = no limit)
     #[arg(long, global = true)]
     pub max_file_size: Option<u64>,
+
+    /// Return only the top N files, ranked by BM25 relevance
+    /// (tf × IDF × length normalisation). Keeps the most informative files
+    /// when the raw match count would blow the context budget.
+    #[arg(long, global = true, value_name = "N")]
+    pub top: Option<usize>,
 }
 
 #[derive(Subcommand)]

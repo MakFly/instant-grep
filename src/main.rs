@@ -72,6 +72,7 @@ fn main() -> Result<()> {
     let fixed_strings = cli.fixed_strings;
     let no_default_excludes = cli.no_default_excludes;
     let max_file_size = cli.max_file_size;
+    let top = cli.top;
 
     match cli.command {
         // Explicit subcommands
@@ -95,6 +96,7 @@ fn main() -> Result<()> {
                 fixed_strings,
                 no_default_excludes,
                 max_file_size,
+                top,
             })?;
         }
 
@@ -740,6 +742,7 @@ fn main() -> Result<()> {
                     fixed_strings,
                     no_default_excludes,
                     max_file_size,
+                    top,
                 })?;
             } else {
                 // No pattern, no subcommand — show help
@@ -772,6 +775,7 @@ struct SearchOpts<'a> {
     fixed_strings: bool,
     no_default_excludes: bool,
     max_file_size: Option<u64>,
+    top: Option<usize>,
 }
 
 /// Transform pattern based on -w and -F flags.
@@ -815,7 +819,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
     let use_color = util::use_color(opts.json);
 
     if opts.no_index {
-        let results = search::fallback::search_brute_force(
+        let mut results = search::fallback::search_brute_force(
             &root,
             pattern,
             opts.ignore_case,
@@ -825,6 +829,9 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
             &path_filters,
             max_size,
         )?;
+        if let Some(n) = opts.top {
+            search::rank::rank_top(&mut results, &root, n);
+        }
         if opts.compact {
             print_compact(&results);
         } else {
@@ -847,7 +854,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
             .unwrap_or(false);
 
     if !index_ready {
-        let results = search::fallback::search_brute_force(
+        let mut results = search::fallback::search_brute_force(
             &root,
             pattern,
             opts.ignore_case,
@@ -857,6 +864,9 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
             &path_filters,
             max_size,
         )?;
+        if let Some(n) = opts.top {
+            search::rank::rank_top(&mut results, &root, n);
+        }
         if opts.compact {
             print_compact(&results);
         } else {
@@ -876,7 +886,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
         return Ok(());
     }
 
-    let (results, search_stats) = indexed::search_indexed(
+    let (mut results, search_stats) = indexed::search_indexed(
         &root,
         pattern,
         opts.ignore_case,
@@ -887,10 +897,17 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
         max_size,
     )?;
 
+    if let Some(n) = opts.top {
+        search::rank::rank_top(&mut results, &root, n);
+    }
+
     if opts.compact {
         print_compact(&results);
     } else {
         let mut printer = Printer::new(use_color, opts.json);
+        if results.is_empty() && !opts.count && !opts.files_with_matches {
+            printer.print_no_matches(pattern);
+        }
         for file_matches in &results {
             printer.print_file_matches(file_matches, opts.count, opts.files_with_matches);
         }

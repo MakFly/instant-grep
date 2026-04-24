@@ -192,7 +192,11 @@ impl Printer {
         let _ = self
             .stdout
             .set_color(ColorSpec::new().set_fg(Some(Color::Magenta)).set_bold(true));
-        let _ = write!(self.stdout, "{}", path);
+        if self.compact && path.len() > 60 {
+            let _ = write!(self.stdout, "{}", ellide_path(path));
+        } else {
+            let _ = write!(self.stdout, "{}", path);
+        }
         let _ = self.stdout.reset();
     }
 
@@ -644,6 +648,42 @@ fn format_duration(d: Duration) -> String {
     } else {
         format!("{:.2}s", d.as_secs_f64())
     }
+}
+
+/// Shorten a path for compact display: keep the first segment and the last two.
+/// `apps/pwa-backoffice/src/app/(auth)/maintenance/components/maintenance-client.tsx`
+/// becomes
+/// `apps/.../components/maintenance-client.tsx`.
+/// If the result is still > 80 bytes, additionally truncate the filename.
+fn ellide_path(path: &str) -> String {
+    let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.len() <= 3 {
+        return path.to_string();
+    }
+    let first = parts[0];
+    let tail = &parts[parts.len() - 2..];
+    let mut out = format!("{}/.../{}", first, tail.join("/"));
+    if out.len() > 80 {
+        // Still too long (huge filename). Truncate the basename keeping extension.
+        if let Some(base) = tail.last() {
+            let (stem, ext) = match base.rsplit_once('.') {
+                Some((s, e)) => (s, format!(".{}", e)),
+                None => (*base, String::new()),
+            };
+            let keep = 80usize.saturating_sub(
+                first.len() + 5 /* "/.../" */ + tail[0].len() + 1 /* "/" */ + ext.len() + 1, /* "…" */
+            );
+            let short_stem: String = stem.chars().take(keep).collect();
+            out = format!(
+                "{}/.../{}/{}…{}",
+                first,
+                tail[0],
+                short_stem,
+                ext
+            );
+        }
+    }
+    out
 }
 
 /// Read compact-mode env vars. Compact mode activates when any of:
