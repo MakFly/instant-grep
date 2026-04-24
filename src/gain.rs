@@ -178,7 +178,7 @@ fn show_dashboard(entries: &[&tracking::HistoryEntry], full: bool) {
     let visible_count = if full {
         sorted.len()
     } else {
-        sorted.len().min(15)
+        sorted.len().min(20)
     };
 
     for (i, (cmd, stats)) in sorted.iter().take(visible_count).enumerate() {
