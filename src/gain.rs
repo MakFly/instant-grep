@@ -210,6 +210,51 @@ fn show_dashboard(entries: &[&tracking::HistoryEntry], full: bool) {
             sorted.len()
         );
     }
+
+    // "Usage-only" commands: tracked via log_usage (no savings baseline), but
+    // still represent meaningful ig activity. `ig search` is the prime example —
+    // its output matches `grep -rn` byte-for-byte so there's no honest "saved"
+    // number to display, but count is informative.
+    let usage_only: Vec<_> = sorted
+        .iter()
+        .filter(|(_, stats)| stats.saved_bytes == 0 && stats.count > 0)
+        .collect();
+    if !usage_only.is_empty() && !full {
+        let mut by_count: Vec<_> = usage_only.clone();
+        by_count.sort_by_key(|(_, stats)| std::cmp::Reverse(stats.count));
+        let visible = by_count.len().min(10);
+        eprintln!();
+        eprintln!("{}", style_header("By Usage (no byte baseline)"));
+        let usage_width = 4 + 1 + cmd_width + 2 + count_width;
+        eprintln!("{}", "─".repeat(usage_width));
+        eprintln!(
+            "{:>4} {:<cmd_width$}  {:>count_width$}",
+            "#",
+            "Command",
+            "Count",
+            cmd_width = cmd_width,
+            count_width = count_width,
+        );
+        eprintln!("{}", "─".repeat(usage_width));
+        for (i, (cmd, stats)) in by_count.iter().take(visible).enumerate() {
+            let cmd_cell = style_command_cell(&truncate_for_column(cmd, cmd_width));
+            eprintln!(
+                "{:>3}. {}  {:>count_width$}",
+                i + 1,
+                cmd_cell,
+                stats.count,
+                count_width = count_width,
+            );
+        }
+        eprintln!("{}", "─".repeat(usage_width));
+        if by_count.len() > visible {
+            eprintln!(
+                "Showing top {} of {} usage-only commands. Use `ig gain --full` for all.",
+                visible,
+                by_count.len()
+            );
+        }
+    }
 }
 
 fn show_history_refs(entries: &[&tracking::HistoryEntry]) {

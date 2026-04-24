@@ -2,6 +2,16 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.10.1] — 2026-04-24
+
+### Changed — `ig gain` dashboard surfaces usage-only commands
+
+The savings table sorts by `saved_bytes` desc, so high-volume commands with no honest byte baseline (typically `ig search`, `ig read` without flags, `ig smart`, …) were pushed off the top-20 view. They've always been logged via `tracking::log_usage`, just invisible.
+
+New *"By Usage (no byte baseline)"* section below the main table: top-10 commands by count with `saved_bytes == 0`. No fabricated multipliers — `ig search` output is byte-identical to `grep -rn`, so claiming savings there would be dishonest. The section just shows volume.
+
+Example: a workflow with 1 k `ig search` calls now lists them explicitly instead of hiding them under a "151 total commands" footer.
+
 ## [1.10.0] — 2026-04-24
 
 ### Added — BM25 ranking with `--top N`
