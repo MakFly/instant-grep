@@ -16,6 +16,13 @@ pub struct TrackEntry {
     pub project: String,
 }
 
+/// Resolve the current project path for history attribution.
+pub fn current_project() -> String {
+    std::env::current_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
 /// Get the history file path.
 fn history_path() -> Option<PathBuf> {
     let data_dir = if cfg!(target_os = "macos") {
@@ -84,6 +91,16 @@ pub fn log_savings(entry: &TrackEntry) {
     unsafe {
         libc::flock(file.as_raw_fd(), libc::LOCK_UN);
     }
+}
+
+/// Log a command for usage analytics when no meaningful savings baseline exists.
+pub fn log_usage(command: impl Into<String>) {
+    log_savings(&TrackEntry {
+        command: command.into(),
+        original_bytes: 0,
+        output_bytes: 0,
+        project: current_project(),
+    });
 }
 
 /// Parsed history entry for aggregation.

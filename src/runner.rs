@@ -43,9 +43,7 @@ pub fn run_filtered(args: &[&str], filter: Option<&CompiledFilter>) -> Result<i3
         command: format!("ig run {}", cmd_str),
         original_bytes: raw.len() as u64,
         output_bytes: filtered.len() as u64,
-        project: std::env::current_dir()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default(),
+        project: tracking::current_project(),
     });
 
     Ok(exit_code)

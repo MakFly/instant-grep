@@ -221,6 +221,12 @@ fn main() -> Result<()> {
             } else {
                 printer.print_file_list(&files, &root);
             }
+
+            let command = match path.as_deref() {
+                Some(target) => format!("ig files {}", target),
+                None => "ig files".to_string(),
+            };
+            tracking::log_usage(command);
         }
 
         Some(Commands::Symbols { path }) => {
@@ -246,6 +252,12 @@ fn main() -> Result<()> {
             let use_color = util::use_color(json);
             let mut printer = Printer::new(use_color, json);
             printer.print_symbols(&syms);
+
+            let command = match path.as_deref() {
+                Some(target) => format!("ig symbols {}", target),
+                None => "ig symbols".to_string(),
+            };
+            tracking::log_usage(command);
         }
 
         Some(Commands::Context { file, line }) => {
@@ -272,6 +284,7 @@ fn main() -> Result<()> {
             let use_color = util::use_color(json);
             let mut printer = Printer::new(use_color, json);
             printer.print_context(&block);
+            tracking::log_usage(format!("ig context {}:{}", file, line));
         }
 
         Some(Commands::Read {
@@ -298,9 +311,7 @@ fn main() -> Result<()> {
                         command: format!("ig read -d {}", file),
                         original_bytes: original_size,
                         output_bytes,
-                        project: std::env::current_dir()
-                            .map(|p| p.to_string_lossy().to_string())
-                            .unwrap_or_default(),
+                        project: tracking::current_project(),
                     });
                     true
                 } else {
@@ -316,6 +327,7 @@ fn main() -> Result<()> {
                     let result = read::read_file_filtered(path, read::FilterLevel::Full)?;
                     let mut printer = Printer::new(false, false);
                     printer.print_read_plain(&result);
+                    tracking::log_usage(format!("ig read --plain {}", file));
                     return Ok(());
                 }
 
@@ -378,9 +390,7 @@ fn main() -> Result<()> {
                     command: format!("ig read{} {}", flag, file),
                     original_bytes: original_size,
                     output_bytes,
-                    project: std::env::current_dir()
-                        .map(|p| p.to_string_lossy().to_string())
-                        .unwrap_or_default(),
+                    project: tracking::current_project(),
                 });
             } // if !delta_done
         }
@@ -434,6 +444,12 @@ fn main() -> Result<()> {
                 )?;
                 printer.print_smart(&summaries);
             }
+
+            let command = match path.as_deref() {
+                Some(target) => format!("ig smart {}", target),
+                None => "ig smart".to_string(),
+            };
+            tracking::log_usage(command);
         }
 
         Some(Commands::Pack { path }) => {
@@ -470,9 +486,7 @@ fn main() -> Result<()> {
                 command: format!("ig ls {}", target),
                 original_bytes: estimated_original,
                 output_bytes,
-                project: std::env::current_dir()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_default(),
+                project: tracking::current_project(),
             });
         }
 
@@ -486,6 +500,7 @@ fn main() -> Result<()> {
 
         Some(Commands::Gain {
             clear,
+            full,
             history,
             json: gain_json,
             project,
@@ -509,6 +524,7 @@ fn main() -> Result<()> {
             } else {
                 gain::show_gain(gain::GainOpts {
                     clear,
+                    full,
                     history,
                     json: gain_json,
                     project,
@@ -817,6 +833,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
                 printer.print_file_matches(file_matches, opts.count, opts.files_with_matches);
             }
         }
+        tracking::log_usage(search_command_label(opts));
         return Ok(());
     }
 
@@ -849,6 +866,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
         // Build index after results are printed (user sees output immediately)
         let _ = writer::build_index(&root, use_excludes, max_size);
 
+        tracking::log_usage(search_command_label(opts));
         return Ok(());
     }
 
@@ -875,6 +893,8 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
         let mut printer = Printer::new(use_color, opts.json);
         printer.print_stats(&search_stats);
     }
+
+    tracking::log_usage(search_command_label(opts));
 
     Ok(())
 }
@@ -951,6 +971,16 @@ fn print_compact(results: &[search::matcher::FileMatches]) {
         }
         println!();
     }
+}
+
+fn search_command_label(opts: &SearchOpts) -> String {
+    let mut parts = vec![
+        "ig".to_string(),
+        "search".to_string(),
+        opts.pattern.to_string(),
+    ];
+    parts.extend(opts.paths.iter().map(|p| (*p).to_string()));
+    parts.join(" ")
 }
 
 fn ensure_index(root: &std::path::Path, use_excludes: bool, max_size: u64) -> Result<()> {

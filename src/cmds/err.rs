@@ -36,14 +36,11 @@ pub fn run(args: &[String]) -> Result<i32> {
     };
 
     // Track savings
-    let project = std::env::current_dir()
-        .map(|p| p.display().to_string())
-        .unwrap_or_default();
     tracking::log_savings(&tracking::TrackEntry {
         command: format!("ig err {}", args.join(" ")),
         original_bytes: raw.len() as u64,
         output_bytes: output_text.len() as u64,
-        project,
+        project: tracking::current_project(),
     });
 
     Ok(exit_code)

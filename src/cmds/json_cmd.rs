@@ -29,14 +29,11 @@ pub fn run(args: &[String]) -> Result<i32> {
     println!("{}", output);
 
     // Track savings
-    let project = std::env::current_dir()
-        .map(|p| p.display().to_string())
-        .unwrap_or_default();
     crate::tracking::log_savings(&crate::tracking::TrackEntry {
         command: format!("ig json {}", args.join(" ")),
         original_bytes: content.len() as u64,
         output_bytes: output.len() as u64,
-        project,
+        project: crate::tracking::current_project(),
     });
 
     Ok(0)

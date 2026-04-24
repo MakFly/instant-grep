@@ -192,7 +192,12 @@ fn git_diff(args: &[String]) {
 fn git_branch(args: &[String]) {
     let output = run_git_capture(&[&["branch"], args_as_str(args).as_slice()].concat());
     print!("{}", output);
-    // No tracking — branch output is already compact
+    let command = if args.is_empty() {
+        "ig git branch".to_string()
+    } else {
+        format!("ig git branch {}", args.join(" "))
+    };
+    tracking::log_usage(command);
 }
 
 /// `ig git show` — stat + compact diff
@@ -265,8 +270,6 @@ fn track(command: &str, original_bytes: u64, output_bytes: u64) {
         command: command.to_string(),
         original_bytes,
         output_bytes,
-        project: std::env::current_dir()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default(),
+        project: tracking::current_project(),
     });
 }

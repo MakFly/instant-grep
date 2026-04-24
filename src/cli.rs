@@ -214,6 +214,10 @@ pub enum Commands {
         #[arg(long)]
         clear: bool,
 
+        /// Show the full "By Command" table instead of the top 15
+        #[arg(long)]
+        full: bool,
+
         /// Show individual command history
         #[arg(short = 'H', long)]
         history: bool,
@@ -448,4 +452,19 @@ pub enum TeeOp {
     List,
     /// Delete every tee entry
     Clear,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn gain_full_flag_parses() {
+        let cli = Cli::try_parse_from(["ig", "gain", "--full"]).unwrap();
+        match cli.command {
+            Some(Commands::Gain { full, .. }) => assert!(full),
+            _ => panic!("expected gain command"),
+        }
+    }
 }

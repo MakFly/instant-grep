@@ -1,6 +1,7 @@
 //! Token savings dashboard — displays aggregated stats from tracking history.
 
 use std::collections::BTreeMap;
+use std::io::IsTerminal;
 
 use crate::tracking;
 use crate::util::format_bytes;
@@ -8,6 +9,7 @@ use crate::util::format_bytes;
 /// Options for the gain dashboard.
 pub struct GainOpts {
     pub clear: bool,
+    pub full: bool,
     pub history: bool,
     pub json: bool,
     pub project: bool,
@@ -93,10 +95,10 @@ pub fn show_gain(opts: GainOpts) {
     }
 
     // Default dashboard
-    show_dashboard(&entries);
+    show_dashboard(&entries, opts.full);
 }
 
-fn show_dashboard(entries: &[&tracking::HistoryEntry]) {
+fn show_dashboard(entries: &[&tracking::HistoryEntry], full: bool) {
     let total_commands = entries.len();
     let total_input: u64 = entries.iter().map(|e| e.original_bytes).sum();
     let total_output: u64 = entries.iter().map(|e| e.output_bytes).sum();
@@ -107,7 +109,7 @@ fn show_dashboard(entries: &[&tracking::HistoryEntry]) {
         0.0
     };
 
-    // Aggregate by command prefix
+    // Aggregate by command family with more detail than the raw subcommand.
     let mut by_cmd: BTreeMap<String, CmdStats> = BTreeMap::new();
     for entry in entries {
         let key = command_key(&entry.command);
@@ -117,70 +119,97 @@ fn show_dashboard(entries: &[&tracking::HistoryEntry]) {
         stats.saved_bytes += entry.saved_bytes;
     }
 
-    eprintln!("\x1b[1mig Token Savings\x1b[0m");
+    eprintln!("{}", style_header("ig Token Savings"));
     eprintln!("════════════════════════════════════════════════════════════");
     eprintln!();
     eprintln!("Total commands:    {}", total_commands);
     eprintln!("Input bytes:       {}", format_bytes(total_input));
     eprintln!("Output bytes:      {}", format_bytes(total_output));
     eprintln!(
-        "Bytes saved:       {} (\x1b[32m{:.1}%\x1b[0m)",
+        "Bytes saved:       {} ({})",
         format_bytes(total_saved),
-        total_pct
+        colorize_pct(total_pct, &format!("{:.1}%", total_pct))
     );
-
-    let bar_width: usize = 24;
-    let filled = ((total_pct / 100.0) * bar_width as f64) as usize;
-    let empty = bar_width.saturating_sub(filled);
-    eprintln!(
-        "Efficiency meter:  {}{}  {:.1}%",
-        "█".repeat(filled),
-        "░".repeat(empty),
-        total_pct
-    );
+    eprintln!("Efficiency meter:  {}", efficiency_meter(total_pct));
 
     eprintln!();
-    eprintln!("By Command");
-    eprintln!("────────────────────────────────────────────────────────────");
-    eprintln!(
-        "  {:2}  {:<24} {:>5}  {:>7}  {:>5}",
-        "#", "Command", "Count", "Saved", "Avg%"
-    );
-    eprintln!("────────────────────────────────────────────────────────────");
-
     let mut sorted: Vec<_> = by_cmd.into_iter().collect();
     sorted.sort_by_key(|b| std::cmp::Reverse(b.1.saved_bytes));
+    eprintln!("{}", style_header("By Command"));
 
-    for (i, (cmd, stats)) in sorted.iter().enumerate() {
+    let cmd_width = 30usize;
+    let impact_width = 10usize;
+    let count_width = sorted
+        .iter()
+        .map(|(_, stats)| stats.count.to_string().len())
+        .max()
+        .unwrap_or(5)
+        .max(5);
+    let saved_width = sorted
+        .iter()
+        .map(|(_, stats)| format_bytes(stats.saved_bytes).len())
+        .max()
+        .unwrap_or(7)
+        .max(7);
+    let table_width =
+        4 + 1 + cmd_width + 2 + count_width + 2 + saved_width + 2 + 6 + 2 + impact_width;
+
+    eprintln!("{}", "─".repeat(table_width));
+    eprintln!(
+        "{:>4} {:<cmd_width$}  {:>count_width$}  {:>saved_width$}  {:>6}  {:<impact_width$}",
+        "#",
+        "Command",
+        "Count",
+        "Saved",
+        "Avg%",
+        "Impact",
+        cmd_width = cmd_width,
+        count_width = count_width,
+        saved_width = saved_width,
+        impact_width = impact_width,
+    );
+    eprintln!("{}", "─".repeat(table_width));
+
+    let max_saved = sorted
+        .first()
+        .map(|(_, stats)| stats.saved_bytes)
+        .unwrap_or(1)
+        .max(1);
+    let visible_count = if full {
+        sorted.len()
+    } else {
+        sorted.len().min(15)
+    };
+
+    for (i, (cmd, stats)) in sorted.iter().take(visible_count).enumerate() {
         let avg_pct = if stats.input_bytes > 0 {
             (stats.saved_bytes as f64 / stats.input_bytes as f64) * 100.0
         } else {
             0.0
         };
-
-        let max_saved = sorted
-            .first()
-            .map(|(_, s)| s.saved_bytes)
-            .unwrap_or(1)
-            .max(1);
-        let bar_len = ((stats.saved_bytes as f64 / max_saved as f64) * 10.0) as usize;
-        let bar = format!(
-            "{}{}",
-            "█".repeat(bar_len),
-            "░".repeat(10usize.saturating_sub(bar_len))
-        );
+        let cmd_cell = style_command_cell(&truncate_for_column(cmd, cmd_width));
+        let pct_plain = format!("{:>6.1}%", avg_pct);
 
         eprintln!(
-            "  {:2}. {:<24} {:>5}  {:>7}  {:>4.1}%  {}",
+            "{:>3}. {}  {:>count_width$}  {:>saved_width$}  {}  {}",
             i + 1,
-            cmd,
+            cmd_cell,
             stats.count,
             format_bytes(stats.saved_bytes),
-            avg_pct,
-            bar,
+            colorize_pct(avg_pct, &pct_plain),
+            mini_bar(stats.saved_bytes, max_saved, impact_width),
+            count_width = count_width,
+            saved_width = saved_width,
         );
     }
-    eprintln!("────────────────────────────────────────────────────────────");
+    eprintln!("{}", "─".repeat(table_width));
+    if !full && sorted.len() > visible_count {
+        eprintln!(
+            "Showing top {} of {} commands. Use `ig gain --full` to see the full list.",
+            visible_count,
+            sorted.len()
+        );
+    }
 }
 
 fn show_history_refs(entries: &[&tracking::HistoryEntry]) {
@@ -495,23 +524,225 @@ struct CmdStats {
     saved_bytes: u64,
 }
 
-/// Extract a normalized command key (e.g., "ig read", "ig ls", "ig search")
+/// Extract a normalized command key with enough detail to avoid collapsing
+/// unrelated workflows into a single bucket.
 fn command_key(cmd: &str) -> String {
     let parts: Vec<&str> = cmd.split_whitespace().collect();
+    if parts.is_empty() {
+        return "unknown".to_string();
+    }
+
     if parts.first() != Some(&"ig") {
-        return cmd
-            .split_whitespace()
-            .next()
-            .unwrap_or("unknown")
-            .to_string();
+        return raw_command_key(&parts);
     }
 
     match parts.get(1) {
+        Some(&"run") => {
+            let key = raw_command_key(&parts[2..]);
+            if key == "unknown" {
+                "ig run".to_string()
+            } else {
+                format!("ig run {}", key)
+            }
+        }
+        Some(&"git") => match first_non_flag(&parts[2..]) {
+            Some(sub) => format!("ig git {}", sub),
+            None => "ig git".to_string(),
+        },
+        Some(&"read") => read_command_key(&parts[2..]),
+        Some(&"json") => {
+            if parts[2..].contains(&"--schema") {
+                "ig json --schema".to_string()
+            } else {
+                "ig json".to_string()
+            }
+        }
+        Some(&"err") => {
+            let key = raw_command_key(&parts[2..]);
+            if key == "unknown" {
+                "ig err".to_string()
+            } else {
+                format!("ig err {}", key)
+            }
+        }
         Some(sub) if !sub.starts_with('"') && !sub.starts_with('\'') && !sub.starts_with('-') => {
             format!("ig {}", sub)
         }
         _ => "ig search".to_string(),
     }
+}
+
+fn read_command_key(args: &[&str]) -> String {
+    let mut flags = Vec::new();
+    let mut i = 0usize;
+    while i < args.len() {
+        let arg = args[i];
+        if !arg.starts_with('-') {
+            break;
+        }
+        match arg {
+            "-s" | "-a" | "-d" | "--plain" => flags.push(arg),
+            "-b" => {
+                flags.push("-b");
+                i += 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    if flags.is_empty() {
+        "ig read".to_string()
+    } else {
+        format!("ig read {}", flags.join(" "))
+    }
+}
+
+fn raw_command_key(parts: &[&str]) -> String {
+    if parts.is_empty() {
+        return "unknown".to_string();
+    }
+
+    let base = parts[0];
+    match base {
+        "git" => format_with_optional_subcommand("git", first_non_flag(&parts[1..])),
+        "cargo" | "bun" | "bunx" | "go" | "dotnet" | "uv" | "pytest" | "ruff" | "mypy"
+        | "eslint" | "tsc" | "vitest" | "make" | "just" => {
+            format_with_optional_subcommand(base, first_non_flag(&parts[1..]))
+        }
+        "npm" | "pnpm" | "npx" => format_package_manager_key(base, &parts[1..]),
+        "docker" => format_docker_key(&parts[1..]),
+        "kubectl" => format_with_optional_subcommand("kubectl", first_non_flag(&parts[1..])),
+        "gh" => format_gh_key(&parts[1..]),
+        _ => base.to_string(),
+    }
+}
+
+fn format_with_optional_subcommand(base: &str, sub: Option<&str>) -> String {
+    match sub {
+        Some(sub) => format!("{} {}", base, sub),
+        None => base.to_string(),
+    }
+}
+
+fn format_package_manager_key(base: &str, args: &[&str]) -> String {
+    match first_non_flag(args) {
+        Some("run") | Some("exec") => {
+            let mut key = format!("{} {}", base, first_non_flag(args).unwrap_or("run"));
+            if let Some(script) = first_non_flag_after(args, 1) {
+                key.push(' ');
+                key.push_str(script);
+            }
+            key
+        }
+        Some(sub) => format!("{} {}", base, sub),
+        None => base.to_string(),
+    }
+}
+
+fn format_docker_key(args: &[&str]) -> String {
+    match first_non_flag(args) {
+        Some("compose") => match first_non_flag_after(args, 1) {
+            Some(sub) => format!("docker compose {}", sub),
+            None => "docker compose".to_string(),
+        },
+        Some(sub) => format!("docker {}", sub),
+        None => "docker".to_string(),
+    }
+}
+
+fn format_gh_key(args: &[&str]) -> String {
+    match first_non_flag(args) {
+        Some(top) => match first_non_flag_after(args, 1) {
+            Some(sub) => format!("gh {} {}", top, sub),
+            None => format!("gh {}", top),
+        },
+        None => "gh".to_string(),
+    }
+}
+
+fn first_non_flag<'a>(parts: &'a [&'a str]) -> Option<&'a str> {
+    parts.iter().copied().find(|part| !part.starts_with('-'))
+}
+
+fn first_non_flag_after<'a>(parts: &'a [&'a str], after_non_flag_index: usize) -> Option<&'a str> {
+    let mut seen = 0usize;
+    for part in parts {
+        if part.starts_with('-') {
+            continue;
+        }
+        if seen == after_non_flag_index {
+            return Some(*part);
+        }
+        seen += 1;
+    }
+    None
+}
+
+fn use_color() -> bool {
+    std::io::stderr().is_terminal() && std::env::var("NO_COLOR").is_err()
+}
+
+fn ansi(text: &str, code: &str) -> String {
+    if use_color() {
+        format!("\x1b[{}m{}\x1b[0m", code, text)
+    } else {
+        text.to_string()
+    }
+}
+
+fn style_header(text: &str) -> String {
+    ansi(text, "1;32")
+}
+
+fn style_command_cell(text: &str) -> String {
+    ansi(text, "1;36")
+}
+
+fn colorize_pct(pct: f64, text: &str) -> String {
+    if pct >= 70.0 {
+        ansi(text, "1;32")
+    } else if pct >= 40.0 {
+        ansi(text, "1;33")
+    } else {
+        ansi(text, "1;31")
+    }
+}
+
+fn truncate_for_column(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        return format!("{text:<width$}");
+    }
+
+    if width <= 3 {
+        return text.chars().take(width).collect();
+    }
+
+    let mut out: String = text.chars().take(width - 3).collect();
+    out.push_str("...");
+    out
+}
+
+fn mini_bar(value: u64, max: u64, width: usize) -> String {
+    if width == 0 || max == 0 {
+        return String::new();
+    }
+
+    let filled = ((value as f64 / max as f64) * width as f64).round() as usize;
+    let filled = filled.min(width);
+    let bar = format!("{}{}", "█".repeat(filled), "░".repeat(width - filled));
+    ansi(&bar, "36")
+}
+
+fn efficiency_meter(pct: f64) -> String {
+    let width = 24usize;
+    let filled = (((pct / 100.0) * width as f64).round() as usize).min(width);
+    let bar = format!("{}{}", "█".repeat(filled), "░".repeat(width - filled));
+    format!(
+        "{} {}",
+        ansi(&bar, "32"),
+        colorize_pct(pct, &format!("{pct:.1}%"))
+    )
 }
 
 /// Return the [start, end) unix-second range for a named period.
@@ -628,9 +859,21 @@ mod tests {
     #[test]
     fn test_command_key() {
         assert_eq!(command_key("ig read src/main.rs"), "ig read");
+        assert_eq!(command_key("ig read -s src/main.rs"), "ig read -s");
         assert_eq!(command_key("ig ls src/"), "ig ls");
         assert_eq!(command_key("ig \"pattern\""), "ig search");
         assert_eq!(command_key("ig smart src/"), "ig smart");
+        assert_eq!(command_key("ig git status"), "ig git status");
+        assert_eq!(
+            command_key("ig run cargo test --release"),
+            "ig run cargo test"
+        );
+        assert_eq!(command_key("ig run npm run build"), "ig run npm run build");
+        assert_eq!(
+            command_key("ig run docker compose logs web"),
+            "ig run docker compose logs"
+        );
+        assert_eq!(command_key("ig err bun test"), "ig err bun test");
     }
 
     #[test]
