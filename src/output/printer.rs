@@ -335,7 +335,7 @@ impl Printer {
 
         // Top extensions by count, descending
         let mut ext_sorted: Vec<(String, usize)> = ext_counts.into_iter().collect();
-        ext_sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        ext_sorted.sort_by_key(|e| std::cmp::Reverse(e.1));
         let top_exts: Vec<String> = ext_sorted
             .iter()
             .take(6)

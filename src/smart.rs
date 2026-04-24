@@ -90,10 +90,10 @@ pub fn smart_dir_aggregate(
         }
     }
     let mut top_exts: Vec<(String, usize)> = ext_counts.into_iter().collect();
-    top_exts.sort_by(|a, b| b.1.cmp(&a.1));
+    top_exts.sort_by_key(|e| std::cmp::Reverse(e.1));
     top_exts.truncate(6);
     let mut top_subdirs: Vec<(String, usize)> = subdir_counts.into_iter().collect();
-    top_subdirs.sort_by(|a, b| b.1.cmp(&a.1));
+    top_subdirs.sort_by_key(|e| std::cmp::Reverse(e.1));
     top_subdirs.truncate(8);
     key_files.sort();
     key_files.dedup();
