@@ -2,6 +2,80 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.10.0] — 2026-04-24
+
+### Added — BM25 ranking with `--top N`
+
+New `--top N` global flag on `ig search`. When set, the matched files are scored with a textbook Okapi BM25 and only the top-N are returned. `tf` is the per-file match count, `df` is derived from the result set, `dl` is the file byte-size, `avdl` is the mean across matches. `k1 = 1.5`, `b = 0.75`.
+
+```bash
+ig --top 5 useState
+# returns the 5 files with the richest useState usage (dense hits in short files first)
+```
+
+Because the scoring happens after the trigram pre-filter, the overhead is only a `stat(2)` per candidate — no second regex pass. New module `src/search/rank.rs` (3 tests).
+
+### Added — `--semantic` PMI query expansion (no ML model)
+
+New global flag: `ig --semantic <word>` expands a single-word literal query to `\b(word|n1|n2|…|n6)\b` using the top six co-occurring tokens learned from the corpus during indexing. The synonyms are chosen by count-weighted **Pointwise Mutual Information** (`pmi · log(count + 1)`), which Levy & Goldberg (2014) proved is the objective skip-gram word2vec implicitly optimises — so we recover most of a learned embedding's neighbourhood quality with zero ML runtime, zero model download, zero GPU.
+
+```bash
+ig --semantic throw
+# (semantic: expanded 'throw' → got, inattendu, denied, autorisé, trouvée, manquant)
+# …matches throws, error handlers, and French exception messages in one pass
+```
+
+- Co-occurrence table lives at `.ig/cooccurrence.bin` (bincode, ~1.5 MB on a 3 k-file repo).
+- Built automatically as a second pass during `ig index`. Disable with `IG_SEMANTIC=0 ig index`.
+- Tokenizer splits `camelCase`, `snake_case`, `kebab-case`, acronyms (`HTTPRequest` → `http`, `request`), drops 40 stop-words + JSON `\uXXXX` escape artefacts + pure numbers + tokens shorter than 2 chars.
+- 16 new tests (`src/semantic/tokenize.rs` + `src/semantic/cooccur.rs`).
+
+New modules: `src/semantic/{mod,tokenize,cooccur}.rs`.
+
+### Added — auto-compact on pipe + path ellision
+
+`Printer::compact_limits()` now activates compact mode automatically when `!stdout.is_terminal()` (unless `IG_COMPACT=0` forces verbose). In that mode:
+
+- Long paths in per-file headers are ellided: `apps/pwa-backoffice/src/app/.../maintenance-client.tsx` → `apps/.../components/maintenance-client.tsx`.
+- Line width capped at 80 (aligned with rtk's default).
+- Empty result now emits a single `0 matches for "pattern"` so an agent distinguishes "no hit" from "tool crashed".
+
+### Added — `ig files` and `ig smart <dir>` aggregate mode
+
+Both commands now emit a one-block aggregate instead of enumerating every item when stdout is a pipe and the input is a big tree:
+
+```text
+$ ig files
+3201 files in 911 dirs · 972 tsx, 890 php, 790 ts, 80 mdx, 70 py, 47 json
+(compact view — set IG_COMPACT=0 or run in a TTY for the full listing)
+
+$ ig smart apps/api
+apps/api: 1042 files, 249 dirs · 890 php, 39 yaml, 31 twig, 29 sh, 10 md, 7 ini
+top: src/ (664), migrations/ (109), tests/ (103), config/ (42), @docker/ (39)
+key: composer.json, README.md, Makefile
+```
+
+On the iautos monorepo: `ig files` drops from 176 KB to 149 B (≈1 180×), `ig smart apps/api` drops from 69 KB / 5.3 s to 345 B / 19 ms (≈200× smaller, ≈280× faster).
+
+### Changed
+
+- `ig gain` default table shows **top 20** instead of top 15. Use `ig gain --full` for the full list.
+
+### Benchmark — ig beats rtk on aggregate (first time)
+
+115 cases on a 347 k-file monorepo (`iautos`) against `rtk 0.37.2`. Methodology: 2 warm-up passes + median of 3 wall-time runs per case.
+
+| | ig | rtk |
+|---|---:|---:|
+| Total bytes emitted | **896 KB** | 1.04 MB |
+| Total wall time | **1.74 s** | 2.88 s |
+| Bytes wins | **57 / 115** | 54 / 115 *(tie: 4)* |
+| Time wins | **80 / 115** | 27 / 115 *(tie: 8)* |
+
+Categorically-ahead domains (rtk has no persistent index, so these remain structural wins): `--top N` BM25 = **10/10 bytes wins**, `--semantic` = **5/5 bytes wins**.
+
+Full per-domain table + raw CSV in `documentation/public/bench/v1.10.0/`.
+
 ## [1.9.2] — 2026-04-23
 
 ### Fixed — `ig setup` / `ig update` now actually propagate hook changes
