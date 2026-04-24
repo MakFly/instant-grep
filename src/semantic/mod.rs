@@ -12,5 +12,5 @@
 //! embedding at a fraction of the cost and with none of the model-file
 //! dependency.
 
-pub mod tokenize;
 pub mod cooccur;
+pub mod tokenize;

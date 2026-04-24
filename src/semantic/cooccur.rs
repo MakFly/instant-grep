@@ -220,11 +220,7 @@ impl Default for CooccurrenceBuilder {
 /// Build (and persist) a co-occurrence index for every text file under `root`.
 /// Honours the same walk rules as the trigram index builder.
 /// Controlled by env var `IG_SEMANTIC`: `0` disables build entirely.
-pub fn build_for_root(
-    root: &Path,
-    use_default_excludes: bool,
-    max_file_size: u64,
-) -> Result<()> {
+pub fn build_for_root(root: &Path, use_default_excludes: bool, max_file_size: u64) -> Result<()> {
     if std::env::var("IG_SEMANTIC").ok().as_deref() == Some("0") {
         return Ok(());
     }
@@ -276,13 +272,10 @@ try {
             b.feed_text("plain code foo bar baz");
         }
         let idx = b.finalise();
-        let neigh = idx
-            .expand("error", 10)
-            .expect("error should be known");
+        let neigh = idx.expand("error", 10).expect("error should be known");
         // At least one of the expected neighbours must be there.
         let has_related = neigh.iter().any(|t| {
-            ["catch", "exception", "custom", "failed", "request", "http"]
-                .contains(&t.as_str())
+            ["catch", "exception", "custom", "failed", "request", "http"].contains(&t.as_str())
         });
         assert!(
             has_related,

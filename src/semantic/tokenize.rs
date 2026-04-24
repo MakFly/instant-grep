@@ -24,13 +24,12 @@ const MIN_LEN: usize = 2;
 /// carry no semantic signal worth learning co-occurrences for.
 const STOPWORDS: &[&str] = &[
     // English prepositions + articles + pronouns
-    "the", "and", "but", "not", "you", "are", "with", "this", "that",
-    "from", "into", "off", "to", "of", "in", "is", "it", "be", "as",
-    "on", "by", "or", "an", "at", "so", "we", "he", "she", "his", "her",
-    "has", "was", "any", "all",
+    "the", "and", "but", "not", "you", "are", "with", "this", "that", "from", "into", "off", "to",
+    "of", "in", "is", "it", "be", "as", "on", "by", "or", "an", "at", "so", "we", "he", "she",
+    "his", "her", "has", "was", "any", "all",
     // Generic language keywords with no semantic weight for search
-    "let", "var", "def", "else", "then", "do", "end",
-    "true", "false", "null", "nil", "none", "void",
+    "let", "var", "def", "else", "then", "do", "end", "true", "false", "null", "nil", "none",
+    "void",
     // NB: we deliberately keep "use", "get", "set", "for", "if", "fn",
     // "const", "return", "throw", "new" — they carry intent signal
     // (React `useState`, error-handling `throw`, immutability `const`, …)
@@ -49,6 +48,7 @@ impl Tokenizer {
 
     /// Tokenize one line of source code. Allocates a new Vec.
     /// For hot loops, prefer `tokenize_into`.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn tokenize(&self, line: &str) -> Vec<String> {
         let mut out = Vec::new();
         self.tokenize_into(line, &mut out);
@@ -113,13 +113,10 @@ fn split_identifier(word: &str, emit: &mut dyn FnMut(&str)) {
         let prev_lower = i > 0 && chars[i - 1].is_lowercase();
         let next_lower = i + 1 < len && chars[i + 1].is_lowercase();
 
-        // Boundary: lower → Upper  (userName → user | Name)
-        if is_upper && prev_lower {
-            emit_slice(&chars, start, i, emit);
-            start = i;
-        }
-        // Boundary: UPPER → UpperLower  (HTTPRequest → HTTP | Request)
-        else if is_upper && i > start + 1 && next_lower {
+        // Two boundaries collapse into one cut:
+        //   lower → Upper          (userName   → user | Name)
+        //   UPPER → UpperLower     (HTTPRequest → HTTP | Request)
+        if is_upper && (prev_lower || (i > start + 1 && next_lower)) {
             emit_slice(&chars, start, i, emit);
             start = i;
         }
@@ -178,10 +175,7 @@ mod tests {
     #[test]
     fn snake_case() {
         // "by" is a stop-word; "get"/"user"/"id" are kept.
-        assert_eq!(
-            tokenize("get_user_by_id"),
-            vec!["get", "user", "id"]
-        );
+        assert_eq!(tokenize("get_user_by_id"), vec!["get", "user", "id"]);
         assert_eq!(tokenize("my_function_name"), vec!["my", "function", "name"]);
     }
 

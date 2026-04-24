@@ -314,11 +314,7 @@ impl Printer {
         }
     }
 
-    fn print_file_list_aggregate(
-        &mut self,
-        files: &[std::path::PathBuf],
-        root: &std::path::Path,
-    ) {
+    fn print_file_list_aggregate(&mut self, files: &[std::path::PathBuf], root: &std::path::Path) {
         use std::collections::BTreeSet;
 
         let mut ext_counts: BTreeMap<String, usize> = BTreeMap::new();
@@ -781,13 +777,7 @@ fn ellide_path(path: &str) -> String {
                 first.len() + 5 /* "/.../" */ + tail[0].len() + 1 /* "/" */ + ext.len() + 1, /* "…" */
             );
             let short_stem: String = stem.chars().take(keep).collect();
-            out = format!(
-                "{}/.../{}/{}…{}",
-                first,
-                tail[0],
-                short_stem,
-                ext
-            );
+            out = format!("{}/.../{}/{}…{}", first, tail[0], short_stem, ext);
         }
     }
     out
