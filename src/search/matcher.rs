@@ -89,12 +89,15 @@ pub fn match_file(
         return Ok(None);
     }
 
-    // NOW build line index — only for files with confirmed matches
-    let mut line_starts: Vec<usize> = vec![0];
-    for (i, &byte) in content.iter().enumerate() {
-        if byte == b'\n' {
-            line_starts.push(i + 1);
-        }
+    // NOW build line index — only for files with confirmed matches.
+    // memchr scans for newlines using SIMD (SSE2/AVX2/NEON) — typically
+    // 3–10× faster than `for &b in content.iter()` on large files.
+    // Capacity hint avoids reallocations: ~1 line per 40 bytes is a fair
+    // average for source code and keeps tiny files cheap.
+    let mut line_starts: Vec<usize> = Vec::with_capacity(content.len() / 40 + 1);
+    line_starts.push(0);
+    for nl in memchr::memchr_iter(b'\n', content) {
+        line_starts.push(nl + 1);
     }
 
     let match_count = match_positions.len();

@@ -147,16 +147,21 @@ pub fn search_indexed(
 
     let filtered_count = candidate_paths.len();
 
-    // Parallel candidate verification with rayon
-    // Clone regex per thread to avoid internal pool mutex contention (regex#934)
+    // Parallel candidate verification with rayon.
+    // `map_init` clones the regex *once per worker thread* (instead of once
+    // per candidate file), avoiding the regex internal-pool mutex contention
+    // (regex#934) without paying the clone cost N times.
     let mut results: Vec<FileMatches> = candidate_paths
         .par_iter()
-        .filter_map(|(_doc_id, rel_path)| {
-            let local_re = regex.clone();
-            matcher::match_file(root, rel_path, &local_re, config)
-                .ok()
-                .flatten()
-        })
+        .map_init(
+            || regex.clone(),
+            |local_re, (_doc_id, rel_path)| {
+                matcher::match_file(root, rel_path, local_re, config)
+                    .ok()
+                    .flatten()
+            },
+        )
+        .filter_map(|opt| opt)
         .collect();
 
     // Sort by path for deterministic output

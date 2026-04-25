@@ -262,12 +262,15 @@ fn full_rebuild(
                 }
                 let ngrams_with_masks =
                     extract_sparse_ngrams_with_masks(&bytes, prev_df_table.as_ref());
-                // Collect unique bigram hashes for this file (DF collection)
-                let mut file_bigrams: AHashSet<u32> = AHashSet::with_capacity(bytes.len());
+                // Collect unique bigram hashes for this file (DF collection).
+                // Cap initial capacity at 8192: even very large source files
+                // exhaust the bigram space well before saturating; using
+                // `bytes.len()` over-allocated by 10–100× on every worker.
+                let cap = bytes.len().min(8192);
+                let mut bigram_hashes: AHashSet<u32> = AHashSet::with_capacity(cap);
                 for window in bytes.windows(2) {
-                    file_bigrams.insert(ngram::hash_bigram(window[0], window[1]));
+                    bigram_hashes.insert(ngram::hash_bigram(window[0], window[1]));
                 }
-                let bigram_hashes: Vec<u32> = file_bigrams.into_iter().collect();
                 let mtime = fs::metadata(path)
                     .and_then(|m| m.modified())
                     .ok()?

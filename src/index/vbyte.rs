@@ -1,7 +1,7 @@
 use super::postings::DocId;
 
 /// Encode a u32 as variable-byte (7 bits/byte, MSB=1 = final byte).
-#[inline]
+#[inline(always)]
 pub fn encode_u32(value: u32, buf: &mut Vec<u8>) {
     let mut v = value;
     loop {
@@ -17,7 +17,12 @@ pub fn encode_u32(value: u32, buf: &mut Vec<u8>) {
 
 /// Decode a u32 from variable-byte encoding at the given position.
 /// Advances `pos` past the consumed bytes.
-#[inline]
+///
+/// `inline(always)` is critical here: this is the inner loop of every
+/// posting-list decode (millions of calls per query) and the compiler
+/// can only specialize away the variable byte-count branch when the
+/// caller's loop is fully inlined.
+#[inline(always)]
 pub fn decode_u32(data: &[u8], pos: &mut usize) -> u32 {
     let mut result: u32 = 0;
     let mut shift = 0;

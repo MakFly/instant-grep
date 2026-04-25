@@ -730,6 +730,7 @@ dependencies = [
  "ignore",
  "libc",
  "lru",
+ "memchr",
  "memmap2",
  "notify",
  "rayon",
