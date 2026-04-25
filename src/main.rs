@@ -1132,8 +1132,13 @@ fn resolve_root_and_filters(paths: &[String]) -> (PathBuf, Vec<String>) {
             && let Ok(rel) = abs.strip_prefix(&root_abs)
         {
             let mut rel_str = rel.to_string_lossy().to_string();
+            // Path equals root → no filter at all (don't push "" or "/",
+            // both of which would either match nothing or be ambiguous).
+            if rel_str.is_empty() {
+                continue;
+            }
             // For directories, ensure trailing slash so starts_with works as prefix
-            if base.is_dir() && !rel_str.is_empty() && !rel_str.ends_with('/') {
+            if base.is_dir() && !rel_str.ends_with('/') {
                 rel_str.push('/');
             }
             filters.push(rel_str);
