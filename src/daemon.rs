@@ -37,7 +37,12 @@ struct QueryRequest {
 }
 
 /// Public typed query result for in-process consumption (CLI auto-routing).
+///
+/// `error`, `candidates`, `total_files` and `search_ms` are part of the
+/// daemon protocol; the CLI does not consume them today but wire-format
+/// callers (curl, integration tests, future telemetry) do.
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct DaemonResponse {
     #[serde(default)]
     pub results: Option<Vec<DaemonMatch>>,
@@ -498,44 +503,44 @@ fn process_query_cached(line: &str, state: &DaemonState, reloaded: bool) -> Quer
         .par_iter()
         .map_init(
             || (*regex).clone(),
-            |local_re, (_doc_id, rel_path)| {
-                match matcher::match_file(root, rel_path, local_re, &config) {
-                    Ok(Some(file_matches)) => {
-                        if req.files_only {
-                            Some(vec![MatchResult {
-                                file: file_matches.path,
-                                line: None,
-                                text: None,
+            |local_re, (_doc_id, rel_path)| match matcher::match_file(
+                root, rel_path, local_re, &config,
+            ) {
+                Ok(Some(file_matches)) => {
+                    if req.files_only {
+                        Some(vec![MatchResult {
+                            file: file_matches.path,
+                            line: None,
+                            text: None,
+                            count: None,
+                        }])
+                    } else if req.count_only {
+                        Some(vec![MatchResult {
+                            file: file_matches.path,
+                            line: None,
+                            text: None,
+                            count: Some(file_matches.match_count),
+                        }])
+                    } else {
+                        let matches: Vec<MatchResult> = file_matches
+                            .matches
+                            .iter()
+                            .filter(|m| !m.is_context)
+                            .map(|m| MatchResult {
+                                file: file_matches.path.clone(),
+                                line: Some(m.line_number),
+                                text: Some(String::from_utf8_lossy(&m.line).to_string()),
                                 count: None,
-                            }])
-                        } else if req.count_only {
-                            Some(vec![MatchResult {
-                                file: file_matches.path,
-                                line: None,
-                                text: None,
-                                count: Some(file_matches.match_count),
-                            }])
+                            })
+                            .collect();
+                        if matches.is_empty() {
+                            None
                         } else {
-                            let matches: Vec<MatchResult> = file_matches
-                                .matches
-                                .iter()
-                                .filter(|m| !m.is_context)
-                                .map(|m| MatchResult {
-                                    file: file_matches.path.clone(),
-                                    line: Some(m.line_number),
-                                    text: Some(String::from_utf8_lossy(&m.line).to_string()),
-                                    count: None,
-                                })
-                                .collect();
-                            if matches.is_empty() {
-                                None
-                            } else {
-                                Some(matches)
-                            }
+                            Some(matches)
                         }
                     }
-                    _ => None,
                 }
+                _ => None,
             },
         )
         .filter_map(|opt| opt)
@@ -1019,8 +1024,14 @@ pub fn try_query_daemon(
     // UnixStream::connect blocks but we follow up with a read timeout.
     let stream = match UnixStream::connect(&sock) {
         Ok(s) => s,
-        Err(e) if matches!(e.kind(), std::io::ErrorKind::ConnectionRefused
-            | std::io::ErrorKind::NotFound) => return Ok(None),
+        Err(e)
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound
+            ) =>
+        {
+            return Ok(None);
+        }
         Err(e) => return Err(anyhow::Error::new(e).context("connect daemon")),
     };
     stream.set_read_timeout(Some(Duration::from_secs(30))).ok();

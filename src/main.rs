@@ -855,11 +855,13 @@ fn daemon_response_to_file_matches(
         std::collections::BTreeMap::new();
 
     for m in matches {
-        let entry = grouped.entry(m.file.clone()).or_insert_with(|| FileMatches {
-            path: m.file.clone(),
-            matches: Vec::new(),
-            match_count: 0,
-        });
+        let entry = grouped
+            .entry(m.file.clone())
+            .or_insert_with(|| FileMatches {
+                path: m.file.clone(),
+                matches: Vec::new(),
+                match_count: 0,
+            });
 
         if files_only {
             entry.match_count = entry.match_count.max(1);
