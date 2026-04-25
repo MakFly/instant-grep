@@ -2,6 +2,77 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.11.0] — 2026-04-25
+
+### Added — auto-route CLI through daemon (transparent)
+
+Each `ig "<term>" path` invocation used to re-pay binary cold start, re-mmap the index, and prefault the page-cache from cold every single time. The daemon (sub-millisecond hot queries) existed but was opt-in via the explicit `ig query` subcommand — so Claude Code, Codex and similar tools never benefited from it.
+
+`do_search` now silently attempts a daemon round-trip first, falls back transparently to in-process `search_indexed` when the daemon is missing or the request is not representable, and on a fall-back spawns the daemon in the background (silent variant — no stderr noise) so the *next* call lands on a hot daemon. The route only fires for daemon-representable requests: no `--json`, `--stats`, `--top`, `--glob`, `--semantic`, no asymmetric context, no path filters.
+
+Two opt-out env vars: `IG_NO_DAEMON=1` (skip the route entirely) and `IG_NO_AUTO_DAEMON=1` (skip the implicit spawn).
+
+New public API in `daemon`: `DaemonResponse` + `DaemonMatch` typed structs (replacing the ad-hoc `String` return of `query_daemon`), `is_daemon_available(&Path) -> bool` (TOCTOU-safe liveness check — PID alive *and* socket bound), `try_query_daemon(...) -> Result<Option<DaemonResponse>>` (`Ok(None)` when unreachable so callers fall through), and `start_daemon_background_silent`.
+
+### Added — `IndexReader::warm_lexicon()`
+
+Symmetric to the existing `warm_postings`. The lexicon mmap was previously hinted with `MADV_WILLNEED` at `IndexReader::open` but the kernel may delay the prefetch — on an 80+ MB lexicon the first few queries would otherwise eat random page faults during linear probing. The daemon now calls `warm_lexicon()` during its boot warm-up phase, so no query ever sees a cold lexicon.
+
+### Fixed — empty `path_filter` when path equals project root
+
+`resolve_root_and_filters(["."])` produced `path_filter = "/"` whenever the provided path was already the project root: `rel_str` came out empty, the trailing-slash normalisation pushed a lone `/`, and downstream `search_indexed` filtered against `rel_path.starts_with("/")` — which never matches because stored rel paths never have a leading slash.
+
+Net effect: every `ig "<term>" .` invocation returned `0 matches` silently even though the index was correct. The daemon path was unaffected because it ignores `path_filters` entirely; the bug therefore only surfaced on the in-process indexed path and was masked any time the daemon answered.
+
+Fix: when the resolved relative path is empty, skip pushing a filter at all instead of normalising it to `/`. Predates the auto-route work but shipped together because the auto-route bench surfaced it.
+
+### Performance
+
+Four small, additive optimisations on the verify path and indexation hot path.
+
+- **memchr SIMD newlines** in `matcher::match_file`. `line_starts` was built with a byte-by-byte scan; replaced by `memchr::memchr_iter` (SSE2/AVX2 on x86, NEON on aarch64) — 3-10× faster on large files. Adds a `Vec::with_capacity(content.len() / 40 + 1)` hint so realloc churn drops to ~zero on source code.
+- **Per-worker regex clone via rayon `map_init`** in `search::indexed::search_indexed` and `daemon::process_query_cached`. The candidate-verification `par_iter` used to clone the compiled regex once per file (to dodge regex#934 internal-pool contention). `map_init(|| regex.clone(), |re, item| ...)` clones once *per worker thread* instead — ~16× fewer clones at the default rayon pool size.
+- **`vbyte::decode_u32` / `encode_u32` → `#[inline(always)]`**. Inner loop of every posting-list decode (millions of calls per query); the plain `#[inline]` hint was respected only sometimes by rustc.
+- **`bigram_df` set bucket cap** in `writer.rs`. The per-file `AHashSet<u32>` for unique-bigram collection was pre-allocated with `bytes.len()` capacity — so a 100 KB source file reserved ~1.5 MB while in practice holding ~8 K bigrams. Capped at 8192 and shipped directly (no intermediate `Vec<u32>`); sizable drop in indexation peak RAM on large repos.
+
+Adds `memchr = "2"` to `[dependencies]`; resolver picks the same crate ripgrep already pulls in transitively, so the dep-tree weight is flat.
+
+### Benchmarks — iautos/apps (3049 files, 100 MB index, warm cache)
+
+`hyperfine --warmup 3 --runs 12 -N`:
+
+| pattern             | v1.10.1 (no daemon) | v1.11.0 (daemon) | gain  |
+| ------------------- | ------------------: | ---------------: | ----: |
+| `useEffect`         | 7.2 ms              | **5.7 ms**       | -21 % |
+| `createServer`      | 3.8 ms              | **2.6 ms**       | -32 % |
+| `fn\s+\w+_test`     | 4.1 ms              | **3.0 ms**       | -27 % |
+| `async function`    | n/a                 | **8.1 ms**       |       |
+
+Burst of 10 sequential queries (representative of an agent's pattern):
+
+| metric                      | v1.10.1   | v1.11.0   |
+| --------------------------- | --------: | --------: |
+| Total wall time (5 runs)    | 84.6 ms   | **72.3 ms** (-15 %) |
+| User CPU time               | 61.7 ms   | **18.8 ms** (-70 %) |
+
+### Benchmarks — ig vs ripgrep 14.1.1 (same workload)
+
+Match counts identical on all 5 patterns (zero divergence — file count *and* total match count match `rg` byte-for-byte).
+
+| pattern             | ig (daemon) | rg 14.1.1 | ig faster |
+| ------------------- | ----------: | --------: | --------: |
+| `useEffect`         | 5.9 ms      | 18.3 ms   | **3.1×**  |
+| `createServer`      | 2.4 ms      | 18.8 ms   | **7.8×**  |
+| `fn\s+\w+_test`     | 3.5 ms      | 27.4 ms   | **7.8×**  |
+| `async function`    | 8.1 ms      | 18.2 ms   | **2.2×**  |
+| `export default`    | 6.9 ms      | 18.0 ms   | **2.6×**  |
+
+`rg` spends ~17-27 ms walking the gitignore tree and opening the ~3000 candidate files; `ig`'s trigram filter cuts that to ~50-200 candidates *before* any file is touched — `User: 1.5 ms, System: 1.5 ms` average.
+
+### Tests
+
+`cargo test --release --no-fail-fast` — **438 passing**, 0 failures.
+
 ## [1.10.1] — 2026-04-24
 
 ### Changed — `ig gain` dashboard surfaces usage-only commands

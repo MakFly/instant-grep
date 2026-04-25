@@ -39,6 +39,10 @@ Index: yes
 
 | What | Result |
 |------|--------|
+| **ig vs ripgrep 14.1.1 — wall time** (v1.11.0, 5 patterns on iautos/apps 18 GB) | **2.2× to 7.8× faster** (median 2.6× faster) |
+| **ig vs ripgrep — match parity** | **5/5 patterns identical** (file count + total matches byte-for-byte) |
+| **Daemon auto-route gain** (v1.11.0, 10-query burst) | **-15% wall, -70% user CPU** vs in-process search |
+| **Single-query latency** (warm, daemon, iautos/apps) | **2.4–8.1 ms** depending on pattern |
 | **ig vs rtk total bytes** (v1.10.0, 115 cases on a 347K-file monorepo) | **896 KB vs 1.04 MB** (ig wins) |
 | **ig vs rtk total time** (same 115 cases) | **1.74 s vs 2.88 s** (ig 40% faster) |
 | **BM25 `--top N` vs rtk** | **10/10 bytes wins**, 7/10 time wins (rtk has no index) |
@@ -47,16 +51,27 @@ Index: yes
 | **ig files --compact** | 176K → 149B (**-99.9%**) on a 3K-file project |
 | **git status** | 422 bytes → 25 bytes (**-94%**) |
 | **git log** | 2,499 bytes → 484 bytes (**-81%**) |
-| **Search speed** | **23ms** on 1,609 files, **0.2ms** via daemon |
 | **Index build** | **226ms** for 1,609 files, **483ms** for 3,084 files |
 | **Symbols extracted** | **4,834** from a Laravel project, **7,702** from a monorepo |
 | **Context reduction** | 12,841 bytes → 3,828 bytes per turn (**-70%**) |
 | **Agent setup** | 8 agents configured in **one command** |
-| **Rust tests** | **434 tests** (385 bin + 49 goldens) |
+| **Rust tests** | **438 tests** (389 bin + 49 goldens) |
 | **Integration tests** | **63/65 pass** (2 voluntary skips, 0 failures) |
 | **Commands rewritten** | **91 bins** across 42 TOML filters (v1.9.0) |
 
-> Every number on this page is measured with `wc -c` on real commands, on real projects (1,609-file Laravel app, 3,084-file monorepo, 347K-file iautos SaaS). See the [v1.10.0 benchmark artefacts](documentation/public/bench/v1.10.0/) for CSV + per-domain tables.
+### ig vs ripgrep 14.1.1 (v1.11.0, iautos/apps 18 GB, warm cache, hyperfine -N)
+
+| pattern             | ig (daemon) | rg 14.1.1 | ig faster |
+| ------------------- | ----------: | --------: | --------: |
+| `useEffect`         | 5.9 ms      | 18.3 ms   | **3.1×**  |
+| `createServer`      | 2.4 ms      | 18.8 ms   | **7.8×**  |
+| `fn\s+\w+_test`     | 3.5 ms      | 27.4 ms   | **7.8×**  |
+| `async function`    | 8.1 ms      | 18.2 ms   | **2.2×**  |
+| `export default`    | 6.9 ms      | 18.0 ms   | **2.6×**  |
+
+`rg` spends ~17–27 ms walking the gitignore tree and opening 3 000 candidate files. `ig`'s trigram filter cuts that to ~50–200 candidates *before* any file is touched — `User: 1.5 ms, System: 1.5 ms` average. Match counts identical on every pattern (no false positives, no missed lines).
+
+> Every number on this page is measured with `wc -c` / `hyperfine` on real commands, on real projects (1,609-file Laravel app, 3,084-file monorepo, 347K-file iautos SaaS). See the [v1.10.0 benchmark artefacts](documentation/public/bench/v1.10.0/) for the older CSV + per-domain tables.
 
 ## Why
 
@@ -68,10 +83,10 @@ AI agents call CLI tools constantly. Every byte of output is a token consumed. O
 
 2. **Token compression** — `ig git status` outputs 25 bytes instead of 422. `ig read --plain` is byte-exact with `cat`, or `-s` gives signatures-only (−95% on large code files). `ig ls` produces compact listings. Compact search mode (`IG_COMPACT=1`) caps matches + truncates long lines for −60 to −95% on `grep`/`rg`. A PreToolUse hook rewrites commands transparently — the AI agent never knows the difference.
 
-|             | ripgrep   | ig (CLI)       | ig (daemon)        |
-| ----------- | --------- | -------------- | ------------------ |
-| 11,350 files | ~34ms    | **~29ms**      | **~0.2ms**         |
-| Approach    | Full scan | Index + verify | Persistent process |
+|              | ripgrep 14.1.1 | ig (CLI, in-proc) | ig (daemon, auto-route) |
+| ------------ | -------------- | ----------------- | ----------------------- |
+| iautos/apps (3K files, 18 GB) | ~18–27 ms | ~3–7 ms | **~2.4–8 ms** (auto-spawned, transparent) |
+| Approach     | Full scan      | Index + verify    | Persistent hot process  |
 
 ## Installation
 
