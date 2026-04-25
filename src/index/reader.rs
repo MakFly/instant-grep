@@ -364,6 +364,19 @@ impl IndexReader {
         &self.metadata.files[doc_id as usize].path
     }
 
+    /// Pre-fault the lexicon mmap into the OS page cache. Lexicon is hot for
+    /// every query (hash lookup → linear probing), so we touch one byte per
+    /// page sequentially. MADV_WILLNEED at open() *requests* prefetch but the
+    /// kernel may delay it; this loop guarantees the pages are resident.
+    pub fn warm_lexicon(&self) {
+        let page_size = 4096;
+        let mut sum: u8 = 0;
+        for offset in (0..self.lexicon.len()).step_by(page_size) {
+            sum = sum.wrapping_add(self.lexicon[offset]);
+        }
+        std::hint::black_box(sum);
+    }
+
     /// Pre-fault the postings mmap into the OS page cache via sequential scan.
     pub fn warm_postings(&self) {
         #[cfg(unix)]

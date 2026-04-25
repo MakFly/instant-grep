@@ -36,6 +36,32 @@ struct QueryRequest {
     file_type: Option<String>,
 }
 
+/// Public typed query result for in-process consumption (CLI auto-routing).
+#[derive(Debug, Clone, Deserialize)]
+pub struct DaemonResponse {
+    #[serde(default)]
+    pub results: Option<Vec<DaemonMatch>>,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub candidates: usize,
+    #[serde(default)]
+    pub total_files: usize,
+    #[serde(default)]
+    pub search_ms: f64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DaemonMatch {
+    pub file: String,
+    #[serde(default)]
+    pub line: Option<usize>,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub count: Option<usize>,
+}
+
 fn default_context() -> usize {
     0
 }
@@ -465,48 +491,54 @@ fn process_query_cached(line: &str, state: &DaemonState, reloaded: bool) -> Quer
 
     let root = &state.root;
 
-    // Parallel regex verification with rayon
+    // Parallel regex verification with rayon — clone regex once per worker
+    // thread (not per candidate) to avoid regex#934 internal-pool contention
+    // without paying N regex clones.
     let results: Vec<MatchResult> = candidate_paths
         .par_iter()
-        .filter_map(|(_doc_id, rel_path)| {
-            match matcher::match_file(root, rel_path, &regex, &config) {
-                Ok(Some(file_matches)) => {
-                    if req.files_only {
-                        Some(vec![MatchResult {
-                            file: file_matches.path,
-                            line: None,
-                            text: None,
-                            count: None,
-                        }])
-                    } else if req.count_only {
-                        Some(vec![MatchResult {
-                            file: file_matches.path,
-                            line: None,
-                            text: None,
-                            count: Some(file_matches.match_count),
-                        }])
-                    } else {
-                        let matches: Vec<MatchResult> = file_matches
-                            .matches
-                            .iter()
-                            .filter(|m| !m.is_context)
-                            .map(|m| MatchResult {
-                                file: file_matches.path.clone(),
-                                line: Some(m.line_number),
-                                text: Some(String::from_utf8_lossy(&m.line).to_string()),
+        .map_init(
+            || (*regex).clone(),
+            |local_re, (_doc_id, rel_path)| {
+                match matcher::match_file(root, rel_path, local_re, &config) {
+                    Ok(Some(file_matches)) => {
+                        if req.files_only {
+                            Some(vec![MatchResult {
+                                file: file_matches.path,
+                                line: None,
+                                text: None,
                                 count: None,
-                            })
-                            .collect();
-                        if matches.is_empty() {
-                            None
+                            }])
+                        } else if req.count_only {
+                            Some(vec![MatchResult {
+                                file: file_matches.path,
+                                line: None,
+                                text: None,
+                                count: Some(file_matches.match_count),
+                            }])
                         } else {
-                            Some(matches)
+                            let matches: Vec<MatchResult> = file_matches
+                                .matches
+                                .iter()
+                                .filter(|m| !m.is_context)
+                                .map(|m| MatchResult {
+                                    file: file_matches.path.clone(),
+                                    line: Some(m.line_number),
+                                    text: Some(String::from_utf8_lossy(&m.line).to_string()),
+                                    count: None,
+                                })
+                                .collect();
+                            if matches.is_empty() {
+                                None
+                            } else {
+                                Some(matches)
+                            }
                         }
                     }
+                    _ => None,
                 }
-                _ => None,
-            }
-        })
+            },
+        )
+        .filter_map(|opt| opt)
         .flatten()
         .collect();
 
@@ -525,9 +557,14 @@ fn warm_page_cache(state: &Arc<DaemonState>) {
     let start = Instant::now();
     let rv = state.reader_view.read().unwrap_or_else(|e| e.into_inner());
 
+    // Phase 0: pre-fault lexicon (small but hit on every query — linear probing
+    // would otherwise eat random page faults until the OS readahead settles).
+    rv.reader.warm_lexicon();
+    let lexicon_ms = start.elapsed().as_secs_f64() * 1000.0;
+
     // Phase 1: pre-fault postings mmap
     rv.reader.warm_postings();
-    let postings_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let postings_ms = start.elapsed().as_secs_f64() * 1000.0 - lexicon_ms;
 
     // Phase 2: read first 4KB of each source file (capped at 10,000 files)
     let file_count = rv.reader.metadata.files.len().min(10_000);
@@ -549,7 +586,8 @@ fn warm_page_cache(state: &Arc<DaemonState>) {
     }
 
     eprintln!(
-        "Page cache warmed: postings in {:.1}ms, {} files prefetched in {:.0}ms",
+        "Page cache warmed: lexicon in {:.1}ms, postings in {:.1}ms, {} files prefetched in {:.0}ms",
+        lexicon_ms,
         postings_ms,
         warmed,
         start.elapsed().as_secs_f64() * 1000.0,
@@ -705,6 +743,16 @@ fn pid_path(ig_dir: &Path) -> PathBuf {
 
 /// Start the daemon in the background by re-executing ourselves.
 pub fn start_daemon_background(root: &Path) -> Result<()> {
+    start_daemon_background_inner(root, false)
+}
+
+/// Same as `start_daemon_background`, but silent on stderr — used by
+/// the CLI auto-route so cold invocations don't spam users.
+pub fn start_daemon_background_silent(root: &Path) -> Result<()> {
+    start_daemon_background_inner(root, true)
+}
+
+fn start_daemon_background_inner(root: &Path, silent: bool) -> Result<()> {
     let root = root.canonicalize().context("canonicalize root")?;
     let ig = crate::util::ig_dir(&root);
 
@@ -712,7 +760,9 @@ pub fn start_daemon_background(root: &Path) -> Result<()> {
     // is a TOCTOU signal since another process could create/remove it between
     // the check and a subsequent bind.
     if is_daemon_alive(&ig) {
-        eprintln!("Daemon is already running");
+        if !silent {
+            eprintln!("Daemon is already running");
+        }
         return Ok(());
     }
 
@@ -736,7 +786,9 @@ pub fn start_daemon_background(root: &Path) -> Result<()> {
     let pid = child.id();
     std::fs::write(pid_path(&ig), pid.to_string()).context("write daemon.pid")?;
 
-    eprintln!("Daemon started (PID {}), log: {}", pid, log_path.display());
+    if !silent {
+        eprintln!("Daemon started (PID {}), log: {}", pid, log_path.display());
+    }
     Ok(())
 }
 
@@ -930,6 +982,72 @@ pub fn query_daemon(root: &Path, pattern: &str, case_insensitive: bool) -> Resul
     reader.read_line(&mut response)?;
 
     Ok(response)
+}
+
+/// True if a daemon process is alive AND its socket is bound — meaning
+/// it's actually accepting connections (not a stale pid file).
+pub fn is_daemon_available(root: &Path) -> bool {
+    let Ok(root) = root.canonicalize() else {
+        return false;
+    };
+    let ig = crate::util::ig_dir(&root);
+    if !is_daemon_alive(&ig) {
+        return false;
+    }
+    socket_path(&root).exists()
+}
+
+/// Typed query against the daemon. Returns `Ok(None)` if the daemon is not
+/// reachable (no socket / connect refused) so callers can transparently fall
+/// back to the in-process indexed search.
+pub fn try_query_daemon(
+    root: &Path,
+    pattern: &str,
+    case_insensitive: bool,
+    files_only: bool,
+    count_only: bool,
+    context: usize,
+    file_type: Option<&str>,
+) -> Result<Option<DaemonResponse>> {
+    let root = root.canonicalize().context("canonicalize root")?;
+    let sock = socket_path(&root);
+    if !sock.exists() {
+        return Ok(None);
+    }
+
+    // Short connect timeout so a stale socket doesn't stall the CLI.
+    // UnixStream::connect blocks but we follow up with a read timeout.
+    let stream = match UnixStream::connect(&sock) {
+        Ok(s) => s,
+        Err(e) if matches!(e.kind(), std::io::ErrorKind::ConnectionRefused
+            | std::io::ErrorKind::NotFound) => return Ok(None),
+        Err(e) => return Err(anyhow::Error::new(e).context("connect daemon")),
+    };
+    stream.set_read_timeout(Some(Duration::from_secs(30))).ok();
+    stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
+
+    let mut req = serde_json::json!({
+        "pattern": pattern,
+        "case_insensitive": case_insensitive,
+        "files_only": files_only,
+        "count_only": count_only,
+        "context": context,
+    });
+    if let Some(ft) = file_type {
+        req["type"] = serde_json::Value::String(ft.to_string());
+    }
+
+    let mut writer = &stream;
+    writeln!(writer, "{}", req)?;
+    writer.flush()?;
+
+    let mut reader = BufReader::new(&stream);
+    let mut response = String::new();
+    reader.read_line(&mut response)?;
+
+    let parsed: DaemonResponse = serde_json::from_str(response.trim())
+        .with_context(|| format!("parse daemon response: {}", response))?;
+    Ok(Some(parsed))
 }
 
 #[cfg(test)]

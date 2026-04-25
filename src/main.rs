@@ -824,6 +824,70 @@ fn prepare_pattern(pattern: &str, word_regexp: bool, fixed_strings: bool) -> Str
     p
 }
 
+/// Convert a daemon response into `FileMatches` so the existing Printer
+/// can render results identically to the in-process search path.
+/// Match ranges are recomputed locally with the pattern (cheap), so
+/// highlighting is preserved.
+fn daemon_response_to_file_matches(
+    resp: &daemon::DaemonResponse,
+    pattern: &str,
+    case_insensitive: bool,
+    count_only: bool,
+    files_only: bool,
+) -> Vec<search::matcher::FileMatches> {
+    use search::matcher::{FileMatches, LineMatch};
+    let Some(matches) = resp.results.as_ref() else {
+        return Vec::new();
+    };
+
+    // Compile regex once for highlight range recomputation.
+    let regex = (!files_only && !count_only)
+        .then(|| {
+            regex::bytes::RegexBuilder::new(pattern)
+                .case_insensitive(case_insensitive)
+                .unicode(false)
+                .build()
+                .ok()
+        })
+        .flatten();
+
+    let mut grouped: std::collections::BTreeMap<String, FileMatches> =
+        std::collections::BTreeMap::new();
+
+    for m in matches {
+        let entry = grouped.entry(m.file.clone()).or_insert_with(|| FileMatches {
+            path: m.file.clone(),
+            matches: Vec::new(),
+            match_count: 0,
+        });
+
+        if files_only {
+            entry.match_count = entry.match_count.max(1);
+            continue;
+        }
+        if count_only {
+            entry.match_count = m.count.unwrap_or(0);
+            continue;
+        }
+
+        let text = m.text.clone().unwrap_or_default();
+        let bytes = text.as_bytes().to_vec();
+        let match_ranges = match &regex {
+            Some(re) => re.find_iter(&bytes).map(|mtch| mtch.range()).collect(),
+            None => Vec::new(),
+        };
+        entry.matches.push(LineMatch {
+            line_number: m.line.unwrap_or(0),
+            line: bytes,
+            match_ranges,
+            is_context: false,
+        });
+        entry.match_count += 1;
+    }
+
+    grouped.into_values().collect()
+}
+
 /// Core search logic shared between `ig "pattern"` and `ig search "pattern"`.
 #[allow(clippy::too_many_arguments)]
 fn do_search(opts: &SearchOpts) -> Result<()> {
@@ -952,6 +1016,61 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
 
         tracking::log_usage(search_command_label(opts));
         return Ok(());
+    }
+
+    // ── Daemon auto-route ─────────────────────────────────────────────
+    // For the agent hot path (`ig "x" path` with no advanced flags) we
+    // try to short-circuit through a running daemon. This skips binary
+    // cold start + index mmap page faults entirely (typical: 30–100 ms
+    // → < 5 ms). Falls back transparently to in-process search if the
+    // daemon is missing or the request is not representable.
+    let daemon_eligible = !opts.json
+        && !opts.stats
+        && opts.top.is_none()
+        && opts.glob.is_none()
+        && path_filters.is_empty()
+        && before == after
+        && std::env::var_os("IG_NO_DAEMON").is_none();
+
+    if daemon_eligible
+        && let Ok(Some(resp)) = daemon::try_query_daemon(
+            &root,
+            pattern,
+            opts.ignore_case,
+            opts.files_with_matches,
+            opts.count,
+            before,
+            opts.file_type,
+        )
+    {
+        let results = daemon_response_to_file_matches(
+            &resp,
+            pattern,
+            opts.ignore_case,
+            opts.count,
+            opts.files_with_matches,
+        );
+        if opts.compact {
+            print_compact(&results);
+        } else {
+            let mut printer = Printer::new(use_color, opts.json);
+            if results.is_empty() && !opts.count && !opts.files_with_matches {
+                printer.print_no_matches(pattern);
+            }
+            for file_matches in &results {
+                printer.print_file_matches(file_matches, opts.count, opts.files_with_matches);
+            }
+        }
+        tracking::log_usage(search_command_label(opts));
+        return Ok(());
+    }
+
+    // Daemon was not reachable — best-effort auto-spawn for next call.
+    if daemon_eligible
+        && std::env::var_os("IG_NO_AUTO_DAEMON").is_none()
+        && !daemon::is_daemon_available(&root)
+    {
+        let _ = daemon::start_daemon_background_silent(&root);
     }
 
     let (mut results, search_stats) = indexed::search_indexed(
