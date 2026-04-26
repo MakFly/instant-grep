@@ -15,8 +15,8 @@ import { Code } from "astro:components"
     <div>
       <p><strong>New in v1.10.0:</strong></p>
       <ul>
-        <li><code>ig --top N "pattern"</code> — BM25 ranking returns the N most relevant files instead of the first N found on disk. See <a href="/docs/cli#bm25">CLI reference</a>.</li>
-        <li><code>ig --semantic "error"</code> — PMI-learned query expansion (no ML model, synonyms learned from your repo during indexing). See <a href="/docs/cli#semantic">CLI reference</a>.</li>
+        <li><code>ig search --mode top "pattern"</code> — BM25 ranking returns the most relevant files instead of the first files found on disk. See <a href="/docs/cli#bm25">CLI reference</a>.</li>
+        <li><code>ig search --mode semantic error</code> — PMI-learned query expansion (no ML model, synonyms learned from your repo during indexing). See <a href="/docs/cli#semantic">CLI reference</a>.</li>
         <li>Auto-compact output when piped to an agent + dir-aggregate <code>ig smart &lt;dir&gt;</code> and <code>ig files</code>. See <a href="/docs/vs-rtk">vs rtk bench</a>: ig now beats rtk on total bytes and total wall time.</li>
       </ul>
     </div>
@@ -149,7 +149,11 @@ ig -C 3 "Result<T>" .
 ig --json "impl Trait" .
 
 # Filter by file type
-ig --type rs "pub fn" .`}
+ig --type rs "pub fn" .
+
+# Agent presets
+ig search --mode top "useState" .
+ig search --mode semantic error .`}
     lang="bash"
     theme="github-dark"
   />

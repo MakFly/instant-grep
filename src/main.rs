@@ -40,7 +40,7 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use clap::Parser;
 
-use cli::{Cli, Commands, TeeOp};
+use cli::{Cli, Commands, LegacySearchFlags, SearchFlags, SearchMode, TeeOp};
 use index::metadata::{INDEX_VERSION, IndexMetadata};
 use index::overlay::OverlayReader;
 use index::writer;
@@ -56,57 +56,46 @@ fn main() -> Result<()> {
     // Check for updates in the background (non-blocking)
     update::check_update_background();
 
-    // Extract search flags from top-level (shared between shortcut and subcommand)
-    let ignore_case = cli.ignore_case;
-    let after_context = cli.after_context;
-    let before_context = cli.before_context;
-    let context = cli.context;
-    let count = cli.count;
-    let files_with_matches = cli.files_with_matches;
-    let compact = cli.compact;
-    let no_index = cli.no_index;
-    let stats = cli.stats;
-    let file_type = cli.file_type;
-    let glob = cli.glob;
-    let json = cli.json;
-    let word_regexp = cli.word_regexp;
-    let fixed_strings = cli.fixed_strings;
-    let no_default_excludes = cli.no_default_excludes;
-    let max_file_size = cli.max_file_size;
-    let top = cli.top;
-    let semantic = cli.semantic;
+    // Legacy globals remain accepted for compatibility, but they are hidden
+    // from most help screens. New visible search flags live on `ig search`.
+    let legacy = cli.search.clone();
 
     match cli.command {
         // Explicit subcommands
-        Some(Commands::Search { pattern, paths }) => {
+        Some(Commands::Search {
+            pattern,
+            paths,
+            flags,
+        }) => {
+            let flags = merge_search_flags(&flags, &legacy);
             do_search(&SearchOpts {
                 pattern: &pattern,
                 paths: &paths,
-                ignore_case,
-                after_context,
-                before_context,
-                context,
-                count,
-                files_with_matches,
-                compact,
-                no_index,
-                stats,
-                file_type: file_type.as_deref(),
-                glob: glob.as_deref(),
-                json,
-                word_regexp,
-                fixed_strings,
-                no_default_excludes,
-                max_file_size,
-                top,
-                semantic,
+                ignore_case: flags.ignore_case,
+                after_context: flags.after_context,
+                before_context: flags.before_context,
+                context: flags.context,
+                count: flags.count,
+                files_with_matches: flags.files_with_matches,
+                compact: flags.compact,
+                no_index: flags.no_index,
+                stats: flags.stats,
+                file_type: flags.file_type.as_deref(),
+                glob: flags.glob.as_deref(),
+                json: flags.json,
+                word_regexp: flags.word_regexp,
+                fixed_strings: flags.fixed_strings,
+                no_default_excludes: flags.no_default_excludes,
+                max_file_size: flags.max_file_size,
+                top: flags.top,
+                semantic: flags.semantic,
             })?;
         }
 
         Some(Commands::Index { path }) => {
             let root = resolve_root(path.as_deref());
-            let max_size = max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
-            let use_excludes = !no_default_excludes;
+            let max_size = legacy.max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
+            let use_excludes = !legacy.no_default_excludes;
             let start = Instant::now();
             let meta =
                 writer::build_index(&root, use_excludes, max_size).context("building index")?;
@@ -175,7 +164,7 @@ fn main() -> Result<()> {
 
         Some(Commands::Watch { path }) => {
             let root = resolve_root(path.as_deref());
-            watch::watch_and_rebuild(&root, !no_default_excludes)?;
+            watch::watch_and_rebuild(&root, !legacy.no_default_excludes)?;
         }
 
         Some(Commands::Daemon { action, path }) => {
@@ -210,18 +199,18 @@ fn main() -> Result<()> {
             compact: files_compact,
         }) => {
             let root = resolve_root(path.as_deref());
-            let max_size = max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
-            let use_excludes = !no_default_excludes;
+            let max_size = legacy.max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
+            let use_excludes = !legacy.no_default_excludes;
             let files = walk::walk_files(
                 &root,
                 use_excludes,
                 max_size,
-                file_type.as_deref(),
-                glob.as_deref(),
+                legacy.file_type.as_deref(),
+                legacy.glob.as_deref(),
             )?;
-            let use_color = util::use_color(json);
-            let mut printer = Printer::new(use_color, json);
-            if files_compact || compact {
+            let use_color = util::use_color(legacy.json);
+            let mut printer = Printer::new(use_color, legacy.json);
+            if files_compact || legacy.compact {
                 printer.print_file_tree(&files, &root);
             } else {
                 printer.print_file_list(&files, &root);
@@ -244,18 +233,18 @@ fn main() -> Result<()> {
                     p.canonicalize().ok()
                 }
             });
-            let max_size = max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
-            let use_excludes = !no_default_excludes;
+            let max_size = legacy.max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
+            let use_excludes = !legacy.no_default_excludes;
             let syms = symbols::extract_symbols(
                 &root,
                 scope.as_deref(),
                 use_excludes,
                 max_size,
-                file_type.as_deref(),
-                glob.as_deref(),
+                legacy.file_type.as_deref(),
+                legacy.glob.as_deref(),
             )?;
-            let use_color = util::use_color(json);
-            let mut printer = Printer::new(use_color, json);
+            let use_color = util::use_color(legacy.json);
+            let mut printer = Printer::new(use_color, legacy.json);
             printer.print_symbols(&syms);
 
             let command = match path.as_deref() {
@@ -286,8 +275,8 @@ fn main() -> Result<()> {
                     context::extract_block(path, line)?
                 }
             };
-            let use_color = util::use_color(json);
-            let mut printer = Printer::new(use_color, json);
+            let use_color = util::use_color(legacy.json);
+            let mut printer = Printer::new(use_color, legacy.json);
             printer.print_context(&block);
             tracking::log_usage(format!("ig context {}:{}", file, line));
         }
@@ -307,8 +296,8 @@ fn main() -> Result<()> {
             // Delta mode: show only git-changed lines with enclosing context
             let delta_done = if delta {
                 if let Ok(result) = delta::read_delta(path) {
-                    let use_color = util::use_color(json);
-                    let mut printer = Printer::new(use_color, json);
+                    let use_color = util::use_color(legacy.json);
+                    let mut printer = Printer::new(use_color, legacy.json);
                     printer.print_read(&result);
                     let output_bytes: u64 =
                         result.lines.iter().map(|(_, l)| l.len() as u64 + 7).sum();
@@ -376,8 +365,8 @@ fn main() -> Result<()> {
                     result.lines = scoring::compress_lsc(result.lines, budget, relevant.as_deref());
                 }
 
-                let use_color = util::use_color(json);
-                let mut printer = Printer::new(use_color, json);
+                let use_color = util::use_color(legacy.json);
+                let mut printer = Printer::new(use_color, legacy.json);
                 printer.print_read(&result);
 
                 // Track savings
@@ -402,12 +391,12 @@ fn main() -> Result<()> {
 
         Some(Commands::Smart { path }) => {
             let root = resolve_root(path.as_deref());
-            let max_size = max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
-            let use_excludes = !no_default_excludes;
+            let max_size = legacy.max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
+            let use_excludes = !legacy.no_default_excludes;
 
             let base_path = path.as_deref().map(std::path::Path::new);
-            let use_color = util::use_color(json);
-            let mut printer = Printer::new(use_color, json);
+            let use_color = util::use_color(legacy.json);
+            let mut printer = Printer::new(use_color, legacy.json);
 
             // Load filedata cache
             let ig = ig_dir(&root);
@@ -446,13 +435,13 @@ fn main() -> Result<()> {
                 let is_compact = std::env::var("IG_COMPACT").ok().as_deref() != Some("0")
                     && (std::env::var("IG_COMPACT").ok().as_deref() == Some("1")
                         || !std::io::IsTerminal::is_terminal(&std::io::stdout()));
-                if is_compact && !json {
+                if is_compact && !legacy.json {
                     let agg = smart::smart_dir_aggregate(
                         &scan_dir,
                         use_excludes,
                         max_size,
-                        file_type.as_deref(),
-                        glob.as_deref(),
+                        legacy.file_type.as_deref(),
+                        legacy.glob.as_deref(),
                     )?;
                     let label = base_path
                         .and_then(|p| p.to_str())
@@ -463,8 +452,8 @@ fn main() -> Result<()> {
                         &scan_dir,
                         use_excludes,
                         max_size,
-                        file_type.as_deref(),
-                        glob.as_deref(),
+                        legacy.file_type.as_deref(),
+                        legacy.glob.as_deref(),
                     )?;
                     printer.print_smart(&summaries);
                 }
@@ -479,8 +468,8 @@ fn main() -> Result<()> {
 
         Some(Commands::Pack { path }) => {
             let root = resolve_root(path.as_deref());
-            let max_size = max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
-            let use_excludes = !no_default_excludes;
+            let max_size = legacy.max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
+            let use_excludes = !legacy.no_default_excludes;
             let start = Instant::now();
 
             // Ensure index exists first (tree.txt is generated during indexing)
@@ -608,7 +597,7 @@ fn main() -> Result<()> {
 
         Some(Commands::Query { pattern, path }) => {
             let root = resolve_root(path.as_deref());
-            let response = daemon::query_daemon(&root, &pattern, ignore_case)?;
+            let response = daemon::query_daemon(&root, &pattern, legacy.ignore_case)?;
             print!("{}", response);
         }
 
@@ -746,27 +735,28 @@ fn main() -> Result<()> {
         // No subcommand — shortcut mode: `ig "pattern" [path]`
         None => {
             if let Some(pattern) = cli.pattern {
+                let flags = merge_search_flags(&SearchFlags::default(), &legacy);
                 do_search(&SearchOpts {
                     pattern: &pattern,
                     paths: &cli.paths,
-                    ignore_case,
-                    after_context,
-                    before_context,
-                    context,
-                    count,
-                    files_with_matches,
-                    compact,
-                    no_index,
-                    stats,
-                    file_type: file_type.as_deref(),
-                    glob: glob.as_deref(),
-                    json,
-                    word_regexp,
-                    fixed_strings,
-                    no_default_excludes,
-                    max_file_size,
-                    top,
-                    semantic,
+                    ignore_case: flags.ignore_case,
+                    after_context: flags.after_context,
+                    before_context: flags.before_context,
+                    context: flags.context,
+                    count: flags.count,
+                    files_with_matches: flags.files_with_matches,
+                    compact: flags.compact,
+                    no_index: flags.no_index,
+                    stats: flags.stats,
+                    file_type: flags.file_type.as_deref(),
+                    glob: flags.glob.as_deref(),
+                    json: flags.json,
+                    word_regexp: flags.word_regexp,
+                    fixed_strings: flags.fixed_strings,
+                    no_default_excludes: flags.no_default_excludes,
+                    max_file_size: flags.max_file_size,
+                    top: flags.top,
+                    semantic: flags.semantic,
                 })?;
             } else {
                 // No pattern, no subcommand — show help
@@ -778,6 +768,57 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn merge_search_flags(local: &SearchFlags, legacy: &LegacySearchFlags) -> SearchFlags {
+    let mut flags = SearchFlags {
+        mode: local.mode.or(legacy.mode),
+        ignore_case: local.ignore_case || legacy.ignore_case,
+        after_context: if local.after_context != 0 {
+            local.after_context
+        } else {
+            legacy.after_context
+        },
+        before_context: if local.before_context != 0 {
+            local.before_context
+        } else {
+            legacy.before_context
+        },
+        context: local.context.or(legacy.context),
+        count: local.count || legacy.count,
+        files_with_matches: local.files_with_matches || legacy.files_with_matches,
+        no_index: local.no_index || legacy.no_index,
+        stats: local.stats || legacy.stats,
+        file_type: local.file_type.clone().or_else(|| legacy.file_type.clone()),
+        glob: local.glob.clone().or_else(|| legacy.glob.clone()),
+        line_number: local.line_number || legacy.line_number,
+        word_regexp: local.word_regexp || legacy.word_regexp,
+        fixed_strings: local.fixed_strings || legacy.fixed_strings,
+        json: local.json || legacy.json,
+        compact: local.compact || legacy.compact,
+        no_default_excludes: local.no_default_excludes || legacy.no_default_excludes,
+        max_file_size: local.max_file_size.or(legacy.max_file_size),
+        top: local.top.or(legacy.top),
+        semantic: local.semantic || legacy.semantic,
+    };
+
+    match flags.mode.unwrap_or(SearchMode::Normal) {
+        SearchMode::Normal => {}
+        SearchMode::Compact => flags.compact = true,
+        SearchMode::Top => {
+            if flags.top.is_none() {
+                flags.top = Some(10);
+            }
+        }
+        SearchMode::Semantic => {
+            flags.semantic = true;
+            if flags.top.is_none() {
+                flags.top = Some(5);
+            }
+        }
+    }
+
+    flags
 }
 
 struct SearchOpts<'a> {
@@ -1290,5 +1331,70 @@ fn format_age(secs: u64) -> String {
         format!("{}h ago", secs / 3600)
     } else {
         format!("{}d ago", secs / 86400)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mode_compact_sets_compact_output() {
+        let local = SearchFlags {
+            mode: Some(SearchMode::Compact),
+            ..SearchFlags::default()
+        };
+        let flags = merge_search_flags(&local, &LegacySearchFlags::default());
+        assert!(flags.compact);
+        assert_eq!(flags.top, None);
+        assert!(!flags.semantic);
+    }
+
+    #[test]
+    fn mode_top_defaults_to_ten_unless_overridden() {
+        let local = SearchFlags {
+            mode: Some(SearchMode::Top),
+            ..SearchFlags::default()
+        };
+        let flags = merge_search_flags(&local, &LegacySearchFlags::default());
+        assert_eq!(flags.top, Some(10));
+
+        let local = SearchFlags {
+            mode: Some(SearchMode::Top),
+            top: Some(3),
+            ..SearchFlags::default()
+        };
+        let flags = merge_search_flags(&local, &LegacySearchFlags::default());
+        assert_eq!(flags.top, Some(3));
+    }
+
+    #[test]
+    fn mode_semantic_enables_semantic_and_top_five() {
+        let local = SearchFlags {
+            mode: Some(SearchMode::Semantic),
+            ..SearchFlags::default()
+        };
+        let flags = merge_search_flags(&local, &LegacySearchFlags::default());
+        assert!(flags.semantic);
+        assert_eq!(flags.top, Some(5));
+    }
+
+    #[test]
+    fn local_search_flags_override_legacy_options() {
+        let local = SearchFlags {
+            glob: Some("*.rs".to_string()),
+            top: Some(2),
+            ..SearchFlags::default()
+        };
+        let legacy = LegacySearchFlags {
+            glob: Some("*.ts".to_string()),
+            top: Some(10),
+            ignore_case: true,
+            ..LegacySearchFlags::default()
+        };
+        let flags = merge_search_flags(&local, &legacy);
+        assert_eq!(flags.glob.as_deref(), Some("*.rs"));
+        assert_eq!(flags.top, Some(2));
+        assert!(flags.ignore_case);
     }
 }

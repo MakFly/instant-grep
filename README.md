@@ -244,8 +244,8 @@ ig "useRouter" . --type ts        # filter by file type
 ig -C 3 "async fn" src/           # context lines
 ig "fetchData" . --json           # JSON output for agents
 ig "Result<T>" . --stats          # show performance stats
-ig --top 10 "pattern" .           # BM25 ranking, keep top 10 by relevance (v1.10.0)
-ig --semantic "error" .           # expand query with PMI-learned synonyms (v1.10.0)
+ig search --mode top "pattern" .  # BM25 ranking, keep top 10 by relevance
+ig search --mode semantic error . # PMI expansion + top 5 results for agents
 ```
 
 ### Compact search mode (v1.8.2+)
@@ -274,7 +274,7 @@ Typical gains on real projects: **−60 to −94%** on dense patterns (`rg 'publ
 Regex search returns every match in filesystem order. That's fine for a human skimming 20 hits — it's wasteful when there are 2 000 of them and only 5 actually matter. `--top N` scores each matched file with a textbook Okapi BM25 and keeps only the N highest-ranked:
 
 ```bash
-$ ig --top 5 useState
+$ ig search --mode top --top 5 useState
 apps/.../create-conversational/vehicle-edit-step-dialog.tsx
   3: import { useState, useMemo } from "react";
  73:   const [value, setValue] = useState(formData.saleMode);
@@ -284,14 +284,14 @@ apps/.../create-conversational/vehicle-edit-step-dialog.tsx
 
 Score = `idf · (tf · (k1 + 1)) / (tf + k1 · (1 − b + b · dl / avdl))` with `k1 = 1.5`, `b = 0.75`. `tf` is the match count per file, `dl` is the file byte-size, `avdl` is the mean across matches. Dense hits in short files rank first — the files where the concept is actually implemented, not the files that happen to mention it in a comment.
 
-On iautos: `ig --top 10 "export default"` returns **743 bytes** of curated hits; `rtk grep "export default"` returns a flat-compressed 19 KB dump. Not better compression — *better content*, because rtk has no index and cannot rank.
+On iautos: `ig search --mode top "export default"` returns **743 bytes** of curated hits; `rtk grep "export default"` returns a flat-compressed 19 KB dump. Not better compression — *better content*, because rtk has no index and cannot rank.
 
 ### Semantic query expansion — `--semantic` (v1.10.0)
 
-Statistical synonym expansion, **no ML model, no download**. During `ig index`, a second pass tokenises every line, counts co-occurrences in a 5-line sliding window, and persists a PMI-ranked top-10 neighbour table to `.ig/cooccurrence.bin`. At query time, `ig --semantic error` rewrites the regex to `\b(error|catch|throw|exception|…)\b` and lets the trigram pre-filter do the heavy lifting:
+Statistical synonym expansion, **no ML model, no download**. During `ig index`, a second pass tokenises every line, counts co-occurrences in a 5-line sliding window, and persists a PMI-ranked top-10 neighbour table to `.ig/cooccurrence.bin`. At query time, `ig search --mode semantic error` rewrites the regex to `\b(error|catch|throw|exception|…)\b` and lets the trigram pre-filter do the heavy lifting:
 
 ```bash
-$ ig --semantic --top 5 throw
+$ ig search --mode semantic throw
 (semantic: expanded 'throw' → got, inattendu, denied, autorisé, trouvée, manquant)
 apps/packages/reader-api-vo/scripts/test-rest-e2e.ts
  44:   throw new Error("HTTP server did not become ready in time");
@@ -584,10 +584,10 @@ Scoring happens *after* the regex verification pass (so only real matches are co
 ig index  ─┬─▶ trigram + filedata + symbols       (existing)
             └─▶ cooccurrence.bin                    (new)
 
-ig --semantic <word> ─▶ lookup top-6 PMI neighbours
-                     ─▶ build regex \b(word|n1|…|n6)\b
-                     ─▶ normal trigram+regex search
-                     ─▶ optional BM25 rerank via --top
+ig search --mode semantic <word> ─▶ lookup top-6 PMI neighbours
+                                  ─▶ build regex \b(word|n1|…|n6)\b
+                                  ─▶ normal trigram+regex search
+                                  ─▶ BM25 rerank via --top (default: 5)
 ```
 
 During index build, every line is tokenised (camelCase / snake_case / acronym-aware), and co-occurrences in a 5-line sliding window are counted. At finalisation we compute count-weighted PPMI per pair:

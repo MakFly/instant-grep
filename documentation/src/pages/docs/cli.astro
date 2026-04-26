@@ -3,15 +3,15 @@ import DocsLayout from "@/layouts/docs.astro"
 import { Code } from "astro:components"
 ---
 
-<DocsLayout title="CLI Reference" description="Complete command reference — all ig commands with full flag documentation">
+<DocsLayout title="CLI Reference" description="Core ig commands and agent-oriented search presets">
 
   <h1>CLI Reference</h1>
 
-  <p>Complete documentation for every ig command and flag. The <code>search</code> subcommand is the default — most commands listed here have no required subcommand prefix.</p>
+  <p>Core documentation for the commands shown by <code>ig --help</code>. Advanced maintenance and analytics commands remain available, but are hidden from the default help to keep the agent-facing CLI small.</p>
 
   <!-- Quick nav -->
   <nav class="quick-nav" aria-label="Commands">
-    {["search", "index", "status", "watch", "daemon", "query", "files", "symbols", "context", "ls", "read", "smart", "pack", "gain", "setup", "git", "discover", "proxy"].map((cmd) => (
+    {["search", "index", "status", "files", "read", "git", "gain", "setup", "run"].map((cmd) => (
       <a href={`#${cmd}`} class="quick-nav-link">ig {cmd}</a>
     ))}
   </nav>
@@ -24,14 +24,14 @@ import { Code } from "astro:components"
 
     <div class="docs-callout">
       <div>
-        <p><strong>Shortcut:</strong> the <code>search</code> subcommand is optional. <code>ig "pattern" .</code> and <code>ig search "pattern" .</code> are equivalent — all flags work the same way in both forms.</p>
+        <p><strong>Shortcut:</strong> the <code>search</code> subcommand is optional. <code>ig "pattern" .</code> and <code>ig search "pattern" .</code> are equivalent; <code>ig search --help</code> is the compact place to discover search-only flags.</p>
       </div>
     </div>
 
     <div class="relative">
       <div class="code-label">syntax</div>
-      <Code code={`ig [OPTIONS] <PATTERN> [PATH]
-ig search [OPTIONS] <PATTERN> [PATH]  # also works`} lang="bash" theme="github-dark" />
+      <Code code={`ig <PATTERN> [PATH]
+ig search [OPTIONS] <PATTERN> [PATH]`} lang="bash" theme="github-dark" />
     </div>
 
     <table>
@@ -44,6 +44,7 @@ ig search [OPTIONS] <PATTERN> [PATH]  # also works`} lang="bash" theme="github-d
       </thead>
       <tbody>
         <tr><td><code class="flag">--ignore-case</code></td><td><code class="flag">-i</code></td><td>Case-insensitive matching</td></tr>
+        <tr><td><code class="flag">--mode MODE</code></td><td></td><td>Agent preset: <code>normal</code>, <code>compact</code>, <code>top</code>, or <code>semantic</code></td></tr>
         <tr><td><code class="flag">--after-context N</code></td><td><code class="flag">-A N</code></td><td>Show N lines after each match</td></tr>
         <tr><td><code class="flag">--before-context N</code></td><td><code class="flag">-B N</code></td><td>Show N lines before each match</td></tr>
         <tr><td><code class="flag">--context N</code></td><td><code class="flag">-C N</code></td><td>Show N lines before and after (overrides -A/-B)</td></tr>
@@ -59,11 +60,11 @@ ig search [OPTIONS] <PATTERN> [PATH]  # also works`} lang="bash" theme="github-d
 
     <h3 id="bm25">BM25 ranking — <code>--top N</code> <span class="badge">v1.10.0</span></h3>
 
-    <p>Regex search returns every match in filesystem order. <code>--top N</code> scores each matched file with Okapi BM25 and keeps only the N highest-ranked, so the agent sees the files that <em>implement</em> the concept — not the files that merely mention it in a comment.</p>
+    <p>Regex search returns every match in filesystem order. <code>--mode top</code> defaults to the top 10 files, and <code>--top N</code> overrides that count. Results are scored with Okapi BM25 so the agent sees the files that <em>implement</em> the concept — not the files that merely mention it in a comment.</p>
 
     <div class="relative">
       <div class="code-label">example</div>
-      <Code code={`$ ig --top 5 useState
+      <Code code={`$ ig search --mode top --top 5 useState
 apps/.../create-conversational/vehicle-edit-step-dialog.tsx
   3: import { useState, useMemo } from "react";
  73:   const [value, setValue] = useState(formData.saleMode);
@@ -76,11 +77,11 @@ apps/.../create-conversational/vehicle-edit-step-dialog.tsx
 
     <h3 id="semantic">Semantic query expansion — <code>--semantic</code> <span class="badge">v1.10.0</span></h3>
 
-    <p>Learn synonyms from the corpus itself, no ML model, no download. During <code>ig index</code>, a second pass tokenises every line and counts co-occurrences in a 5-line sliding window; at finalisation we rank each token's top-10 neighbours by count-weighted PPMI and persist to <code>.ig/cooccurrence.bin</code> (~1.5 MB on a 3K-file repo).</p>
+    <p>Learn synonyms from the corpus itself, no ML model, no download. During <code>ig index</code>, a second pass tokenises every line and counts co-occurrences in a 5-line sliding window; at finalisation we rank each token's top-10 neighbours by count-weighted PPMI and persist to <code>.ig/cooccurrence.bin</code> (~1.5 MB on a 3K-file repo). <code>--mode semantic</code> enables semantic expansion and defaults to top 5 results.</p>
 
     <div class="relative">
       <div class="code-label">example</div>
-      <Code code={`$ ig --semantic --top 5 throw
+      <Code code={`$ ig search --mode semantic throw
 (semantic: expanded 'throw' → got, inattendu, denied, autorisé, trouvée, manquant)
 apps/packages/reader-api-vo/scripts/test-rest-e2e.ts
  44:   throw new Error("HTTP server did not become ready in time");
@@ -94,7 +95,7 @@ apps/packages/reader-api-vo/scripts/test-rest-e2e.ts
     <p><strong>Controls:</strong></p>
     <ul>
       <li>Disable the second index pass entirely: <code>IG_SEMANTIC=0 ig index</code></li>
-      <li>Opt-out per query: just don't pass <code>--semantic</code></li>
+      <li>Opt-out per query: use the default <code>normal</code> mode or omit <code>--semantic</code></li>
       <li>Inspect what was added: the stderr line <code>(semantic: expanded 'x' → …)</code> shows every term included</li>
     </ul>
 
@@ -108,14 +109,14 @@ ig "async fn \\w+" src/
 # Case-insensitive with 2 lines of context
 ig -i -C 2 "TODO" .
 
-# JSON output for AI agents
-ig --json "impl \\w+ for" src/
+# Compact output for AI agents
+ig search --mode compact "impl \\w+ for" src/
 
 # Only Rust files
-ig --type rs "pub fn" .
+ig search --type rs "pub fn" .
 
 # Files matching glob
-ig --glob 'src/**/*.rs' "Result<" .
+ig search --glob 'src/**/*.rs' "Result<" .
 
 # Show stats (candidates filtered, time)
 ig --stats "use std" .`} lang="bash" theme="github-dark" />
