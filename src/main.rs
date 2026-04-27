@@ -43,9 +43,9 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use clap::Parser;
 
-use cli::{Cli, Commands, TeeOp};
 #[cfg(feature = "embed-poc")]
 use cli::EmbedPocOp;
+use cli::{Cli, Commands, TeeOp};
 use index::metadata::{INDEX_VERSION, IndexMetadata};
 use index::overlay::OverlayReader;
 use index::writer;

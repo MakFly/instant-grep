@@ -101,7 +101,14 @@ fn handle(mut req: Request, root: &Path, ui_dir: Option<&Path>) -> Result<()> {
             req.respond(resp).context("respond")?;
         }
         Err((code, msg)) => {
-            eprintln!("{} {} → {} ({} ms) {}", method.as_str(), path, code, ms, msg);
+            eprintln!(
+                "{} {} → {} ({} ms) {}",
+                method.as_str(),
+                path,
+                code,
+                ms,
+                msg
+            );
             let body = json!({ "error": msg }).to_string();
             req.respond(json_response(code, body)).context("respond")?;
         }
@@ -229,18 +236,11 @@ fn json_ok(v: Value) -> Response<std::io::Cursor<Vec<u8>>> {
 fn json_response(code: u16, body: String) -> Response<std::io::Cursor<Vec<u8>>> {
     Response::from_data(body.into_bytes())
         .with_status_code(StatusCode(code))
-        .with_header(
-            Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap(),
-        )
-        .with_header(
-            Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap(),
-        )
+        .with_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap())
+        .with_header(Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap())
 }
 
-fn serve_static(
-    dir: &Path,
-    req_path: &str,
-) -> Result<Response<std::io::Cursor<Vec<u8>>>> {
+fn serve_static(dir: &Path, req_path: &str) -> Result<Response<std::io::Cursor<Vec<u8>>>> {
     let rel = req_path.trim_start_matches('/');
     let mut candidate = if rel.is_empty() {
         dir.join("index.html")
@@ -254,8 +254,8 @@ fn serve_static(
     if !candidate.exists() {
         candidate = dir.join("index.html");
     }
-    let bytes = std::fs::read(&candidate)
-        .with_context(|| format!("read {}", candidate.display()))?;
+    let bytes =
+        std::fs::read(&candidate).with_context(|| format!("read {}", candidate.display()))?;
     let mime = mime_for(&candidate);
     Ok(Response::from_data(bytes)
         .with_header(Header::from_bytes(&b"Content-Type"[..], mime.as_bytes()).unwrap()))

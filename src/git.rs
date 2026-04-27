@@ -140,12 +140,13 @@ fn git_log(args: &[String]) {
         let head = a.split('=').next().unwrap_or(a);
         stat_flags.contains(&head)
     });
-    let verbose_flags: Vec<&str> = stat_flags.iter().chain(cosmetic_flags.iter()).copied().collect();
+    let verbose_flags: Vec<&str> = stat_flags
+        .iter()
+        .chain(cosmetic_flags.iter())
+        .copied()
+        .collect();
 
-    let mut cmd_args = vec![
-        "log".to_string(),
-        "--no-color".to_string(),
-    ];
+    let mut cmd_args = vec!["log".to_string(), "--no-color".to_string()];
 
     // Compact custom format. --oneline → tightest "%h %s".
     let user_wants_oneline = args.iter().any(|a| {

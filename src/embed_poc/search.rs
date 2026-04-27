@@ -84,7 +84,11 @@ mod tests {
     #[test]
     fn diagonal_query_picks_45deg_chunk() {
         let store = mk_store();
-        let q = vec![std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2, 0.0];
+        let q = vec![
+            std::f32::consts::FRAC_1_SQRT_2,
+            std::f32::consts::FRAC_1_SQRT_2,
+            0.0,
+        ];
         let hits = search(&store, &q, 1);
         assert_eq!(hits[0].chunk.id, 3);
     }
