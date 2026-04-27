@@ -2,6 +2,38 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.14.1] — 2026-04-27
+
+### Fixed — refuse to auto-index `$HOME` / `/` / system roots
+
+Reported in the wild: a user on Debian (still on v1.6.0) ran `ig update` from his home directory. v1.6.0 had no `Update` subcommand yet, so clap's positional fallback parsed `update` as a search pattern with default path `$HOME`. The auto-index walk then tripped on `~/Docker/mariadb/data/performance_schema` (mode `0700`, owned by user `mysql`) → `Permission denied` → `Error: walking files`.
+
+v1.14.0 already silently skipped `Permission denied` during iteration (`Err(_) => continue` in `walk_files`), so the exact crash is gone — but searching from `$HOME` would still pointlessly brute-force-walk tens of GB of Docker volumes, mail spools, `~/Library`, `~/.cache`, etc. before producing anything useful.
+
+**Fix:** new `guard_suspicious_root` in `src/main.rs` refuses to auto-build an index OR fall through to brute-force search when the resolved root is `$HOME`, `/`, `/usr`, `/home`, `/Users`, `/var`, or `/tmp` AND no `.ig/` already exists. Errors out with an actionable hint:
+
+```
+Error: refusing to auto-build an index for /home/julien — this is not a project root.
+
+Walking it would crawl system directories (Docker volumes, mail spools, protected
+subtrees) and is almost never what you want.
+
+Hint: `cd` into a real project first, or pass an explicit path:
+  ig "<pattern>" /path/to/your/project
+
+To override (you really meant it), re-run with IG_ALLOW_HOME_INDEX=1.
+```
+
+The escape hatch `IG_ALLOW_HOME_INDEX=1` lets users who deliberately index their `$HOME` (e.g. running a personal-knowledge-base index) opt back in. The guard never fires when an existing `.ig/` is found at the root, so previously-built `$HOME` indexes keep working.
+
+Two call sites are gated:
+- `ensure_index` (explicit `ig daemon start/install`, `Symbols`, etc.)
+- `do_search` (the implicit search path that powers `ig "pattern"`), before the brute-force fallback can touch the filesystem
+
+v1.6.0 and earlier users still need to upgrade since their binary doesn't ship the guard.
+
+---
+
 ## [1.14.0] — 2026-04-27
 
 ### Changed — token compression beats `rtk` on most commands

@@ -919,6 +919,14 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
     // Resolve paths: detect single-file, directory prefixes, or default to cwd
     let (root, path_filters) = resolve_root_and_filters(opts.paths);
 
+    // Guard: refuse to search from $HOME or system roots if no index exists
+    // (would brute-force-walk Docker volumes, mail spools, /System/Library, …
+    // and either choke on permission-denied or pointlessly scan tens of GB).
+    let ig = ig_dir(&root);
+    if !IndexMetadata::exists(&ig) {
+        guard_suspicious_root(&root)?;
+    }
+
     // Base pattern from -w / -F flags.
     let base_pattern = prepare_pattern(opts.pattern, opts.word_regexp, opts.fixed_strings);
 
@@ -999,7 +1007,6 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
         return Ok(());
     }
 
-    let ig = ig_dir(&root);
     let index_ready = IndexMetadata::exists(&ig)
         && IndexMetadata::load_from(&ig)
             .map(|m| m.version == INDEX_VERSION)
@@ -1225,12 +1232,55 @@ fn ensure_index(root: &std::path::Path, use_excludes: bool, max_size: u64) -> Re
     };
 
     if needs_build {
+        // Refuse to auto-index suspicious roots ($HOME, /, /usr, /home, /var,
+        // /tmp). Walking those crawls system dirs that often contain
+        // permission-protected subtrees (mariadb data, /root, etc.) and is
+        // almost never what the user actually wants. Hint them to cd into a
+        // real project first.
+        guard_suspicious_root(root)?;
         eprintln!("Building index for {}...", root.display());
         let meta = writer::build_index(root, use_excludes, max_size).context("building index")?;
         eprintln!(
             "Indexed {} files, {} trigrams",
             meta.file_count, meta.ngram_count
         );
+    }
+    Ok(())
+}
+
+/// Refuse to build an index for roots that are clearly not project roots.
+/// Returns `Err` with an actionable hint if the path is `$HOME`, `/`, `/usr`,
+/// `/home`, `/var`, or `/tmp`. Bypass with `IG_ALLOW_HOME_INDEX=1`.
+fn guard_suspicious_root(root: &std::path::Path) -> Result<()> {
+    if std::env::var("IG_ALLOW_HOME_INDEX").as_deref() == Ok("1") {
+        return Ok(());
+    }
+    let canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+
+    let mut suspicious: Vec<std::path::PathBuf> = vec![
+        std::path::PathBuf::from("/"),
+        std::path::PathBuf::from("/usr"),
+        std::path::PathBuf::from("/home"),
+        std::path::PathBuf::from("/var"),
+        std::path::PathBuf::from("/tmp"),
+        std::path::PathBuf::from("/Users"),
+    ];
+    if let Some(home) = dirs::home_dir() {
+        suspicious.push(home);
+    }
+    for s in &suspicious {
+        let s_canonical = s.canonicalize().unwrap_or_else(|_| s.clone());
+        if canonical == s_canonical {
+            anyhow::bail!(
+                "refusing to auto-build an index for {} — this is not a project root.\n\n\
+                 Walking it would crawl system directories (Docker volumes, mail spools, \
+                 protected subtrees) and is almost never what you want.\n\n\
+                 Hint: `cd` into a real project first, or pass an explicit path:\n\
+                   ig \"<pattern>\" /path/to/your/project\n\n\
+                 To override (you really meant it), re-run with IG_ALLOW_HOME_INDEX=1.",
+                canonical.display()
+            );
+        }
     }
     Ok(())
 }
