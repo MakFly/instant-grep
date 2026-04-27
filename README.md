@@ -623,14 +623,30 @@ Theoretical basis: Levy & Goldberg, [*Neural Word Embedding as Implicit Matrix F
 
 ### OpenAI embeddings — opt-in POC (v1.14.0)
 
-PMI gives you semantic *expansion* (synonyms learned from your repo) on top of literal matching. For natural-language queries that don't share any token with the target code (`"function that cancels a Stripe subscription"` → `unsubscribe()`), you need **dense embeddings**. v1.14.0 ships a pedagogical POC behind a cargo feature flag, **disabled by default**:
+PMI gives you semantic *expansion* (synonyms learned from your repo) on top of literal matching. For natural-language queries that don't share any token with the target code (`"function that cancels a Stripe subscription"` → `unsubscribe()`), you need **dense embeddings**. v1.14.0 ships a pedagogical POC, **disabled by default at two layers**:
+
+| Layer | Mechanism | Controls |
+|---|---|---|
+| **Compile-time** | `cargo build --features embed-poc` | Whether the `embed-poc` subcommand exists in the binary at all (default: absent). |
+| **Runtime** (v1.14.2) | `ig emb on / ig emb off` | Whether it executes when present (default: off). |
 
 ```bash
-cargo build --release --features embed-poc      # opt-in
-ig embed-poc --help                              # only visible with the feature
+# 1. Compile-time opt-in
+cargo build --release --features embed-poc      # subcommand now compiled in
+ig embed-poc --help                              # visible
+
+# 2. Runtime toggle (lives in ~/.config/ig/embed.toml)
+ig emb status                                    # disabled (default)
+ig emb on                                        # enabled
+ig emb off                                       # back to disabled
+
+# 3. Try to use embed-poc while runtime is OFF → friendly refusal
+$ ig embed-poc hello "test"
+Error: embeddings are disabled.
+Enable with:  ig emb on
 ```
 
-The POC is intentionally tiny — JSON store, brute-force cosine, 40-line chunker — so the math is readable. **The shipped binary contains zero OpenAI client code** unless you opt in. Users without an API key fall back to the regular trigram path (`ig search "pattern"`) which is sub-ms, no network, no cost.
+The POC is intentionally tiny — JSON store, brute-force cosine, 40-line chunker — so the math is readable. **The shipped binary contains zero OpenAI client code** unless you opt in at compile-time. Even after that, the runtime toggle defaults to off so no network call ever fires by accident. Users without an API key fall back to the regular trigram path (`ig search "pattern"`) which is sub-ms, no network, no cost.
 
 ```
 ig embed-poc index ./src
@@ -646,12 +662,15 @@ ig embed-poc search "function that cancels a Stripe subscription"
    └─▶ top-N ranked (file:lines + score + preview)
 ```
 
-Five subcommands, all gated behind the feature flag:
+Five subcommands, all gated behind the feature flag **and** the runtime toggle:
 - `embed-poc hello <text>` — single-vector smoke test (Phase 1)
 - `embed-poc index <dir>` — chunk + embed + JSON store (Phase 2)
 - `embed-poc inspect [--limit N]` — human-readable store dump
 - `embed-poc search <query> [--top N]` — cosine top-N
 - `embed-poc serve [--port 7877] [--ui ui/dist]` — `tiny_http` JSON server + optional React SPA
+
+Plus one always-available toggle (no feature flag required):
+- `ig emb [on|off|status]` — flip the runtime switch persisted in `~/.config/ig/embed.toml`. Fail-closed: if the config file is unreadable, embeddings stay off.
 
 Why this is **not the default**:
 - **Cost guard.** An indexing run on a 3 k-file repo costs ~$0.05; a runaway re-index in a CI loop could rack up real money. PMI/trigram are free.

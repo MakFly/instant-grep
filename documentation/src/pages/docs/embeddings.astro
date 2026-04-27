@@ -8,7 +8,7 @@ import { Code } from "astro:components"
   <h1>OpenAI Embeddings — opt-in POC</h1>
   <p>
     A pedagogical playground for dense semantic search over your codebase, using OpenAI's <code>text-embedding-3-small</code> model.
-    Ships behind a cargo feature flag and is <strong>disabled by default</strong> — the published binary contains zero OpenAI client code, no <code>tiny_http</code> server, no API-key prompts. Build with <code>--features embed-poc</code> to enable.
+    Disabled by default at <strong>two independent layers</strong>: compile-time (cargo feature flag) and runtime (<code>ig emb on/off</code>, since v1.14.2). The published binary contains zero OpenAI client code unless you build with <code>--features embed-poc</code>; even then, no network call fires until you flip <code>ig emb on</code>.
   </p>
 
   <div class="docs-callout">
@@ -23,10 +23,86 @@ import { Code } from "astro:components"
     </div>
   </div>
 
+  <h2>Two-layer gating</h2>
+
+  <div class="overflow-x-auto border rounded-lg overflow-hidden my-4">
+    <table class="w-full text-sm border-collapse">
+      <thead>
+        <tr class="bg-muted">
+          <th class="text-left py-3 px-4 text-xs font-normal uppercase tracking-wider text-muted-foreground">Layer</th>
+          <th class="text-left py-3 px-4 text-xs font-normal uppercase tracking-wider text-muted-foreground">Mechanism</th>
+          <th class="text-left py-3 px-4 text-xs font-normal uppercase tracking-wider text-muted-foreground">Controls</th>
+          <th class="text-left py-3 px-4 text-xs font-normal uppercase tracking-wider text-muted-foreground">Default</th>
+        </tr>
+      </thead>
+      <tbody class="text-xs">
+        <tr class="border-t hover:bg-muted/50">
+          <td class="py-3 px-4 font-semibold">Compile-time</td>
+          <td class="py-3 px-4"><code>cargo build --features embed-poc</code></td>
+          <td class="py-3 px-4">Whether the subcommand is in the binary at all</td>
+          <td class="py-3 px-4">absent</td>
+        </tr>
+        <tr class="border-t hover:bg-muted/50">
+          <td class="py-3 px-4 font-semibold">Runtime <span class="text-muted-foreground">(v1.14.2+)</span></td>
+          <td class="py-3 px-4"><code>ig emb on / off</code></td>
+          <td class="py-3 px-4">Whether it executes when present</td>
+          <td class="py-3 px-4">disabled</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    Both layers are independent. The runtime toggle is always-available — even on a binary built without <code>--features embed-poc</code>, you can call <code>ig emb on</code> and the flag is persisted; the subcommand just isn't there until you rebuild.
+  </p>
+
+  <h3>Runtime toggle — <code>ig emb</code></h3>
+
+  <Code
+    code={`# Inspect the current state (default: disabled)
+ig emb status
+
+# Enable — accepts: on, true, 1, yes, y, enable, enabled
+ig emb on
+
+# Disable — accepts: off, false, 0, no, n, disable, disabled
+ig emb off`}
+    lang="bash"
+    theme="github-dark"
+  />
+
+  <p>
+    State persisted at <code>~/.config/ig/embed.toml</code>:
+  </p>
+
+  <Code
+    code={`# Runtime toggle for ig emb — overridable with ig emb on/off
+enabled = false`}
+    lang="toml"
+    theme="github-dark"
+  />
+
+  <p>
+    When the runtime toggle is off and someone calls <code>ig embed-poc &lt;op&gt;</code>:
+  </p>
+
+  <Code
+    code={`$ ig embed-poc hello "test"
+Error: embeddings are disabled.
+Enable with:  ig emb on
+(or build a binary without the embed-poc feature to remove the subcommand entirely.)`}
+    lang="bash"
+    theme="github-dark"
+  />
+
+  <p>
+    Fail-closed: if the config file is unreadable or malformed, embeddings stay off.
+  </p>
+
   <h2>Quickstart</h2>
 
   <Code
-    code={`# 1. Build with the feature on
+    code={`# 1. Build with the feature on (compile-time opt-in)
 cargo build --release --features embed-poc
 cp target/release/ig ~/.local/bin/ig
 
@@ -38,17 +114,23 @@ default_model = "text-embedding-3-small"
 EOF
 chmod 600 ~/.config/ig/config.toml
 
-# 3. Smoke-test — Phase 1: 1 string → 1 vector → console
+# 3. Flip the runtime toggle ON (default is OFF, even when feature is built in)
+ig emb on
+
+# 4. Smoke-test — Phase 1: 1 string → 1 vector → console
 ig embed-poc hello "function cancelSubscription(userId)"
 
-# 4. Index a directory — Phase 2: chunk + embed + JSON store
+# 5. Index a directory — Phase 2: chunk + embed + JSON store
 ig embed-poc index ./src
 
-# 5. Search — Phase 2: top-N cosine
+# 6. Search — Phase 2: top-N cosine
 ig embed-poc search "function that cancels a Stripe subscription"
 
-# 6. (optional) — Phase 3: tiny_http JSON server + React SPA
-ig embed-poc serve --port 7877 --ui ui/dist`}
+# 7. (optional) — Phase 3: tiny_http JSON server + React SPA
+ig embed-poc serve --port 7877 --ui ui/dist
+
+# 8. When you're done — flip it back off
+ig emb off`}
     lang="bash"
     theme="github-dark"
   />
