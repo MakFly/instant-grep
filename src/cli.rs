@@ -453,7 +453,9 @@ pub enum Commands {
         since: u32,
     },
 
-    /// POC — OpenAI embeddings playground (hidden, branch feat/ui-embeddings)
+    /// POC — OpenAI embeddings playground (opt-in, build with `--features embed-poc`).
+    /// Without the feature, falls back to `ig search` (trigram, no API key).
+    #[cfg(feature = "embed-poc")]
     #[command(hide = true)]
     EmbedPoc {
         #[command(subcommand)]
@@ -471,6 +473,7 @@ pub enum Commands {
     },
 }
 
+#[cfg(feature = "embed-poc")]
 #[derive(Subcommand)]
 pub enum EmbedPocOp {
     /// Embed a single text input and print the vector summary (Phase 1)

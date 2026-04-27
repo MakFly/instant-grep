@@ -7,6 +7,7 @@ mod context;
 mod daemon;
 mod delta;
 mod discover;
+#[cfg(feature = "embed-poc")]
 mod embed_poc;
 mod filter;
 mod gain;
@@ -42,7 +43,9 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use clap::Parser;
 
-use cli::{Cli, Commands, EmbedPocOp, TeeOp};
+use cli::{Cli, Commands, TeeOp};
+#[cfg(feature = "embed-poc")]
+use cli::EmbedPocOp;
 use index::metadata::{INDEX_VERSION, IndexMetadata};
 use index::overlay::OverlayReader;
 use index::writer;
@@ -749,6 +752,7 @@ fn main() -> Result<()> {
             autoignore::run_autoignore(path, force)?;
         }
 
+        #[cfg(feature = "embed-poc")]
         Some(Commands::EmbedPoc { op }) => match op {
             EmbedPocOp::Hello { text } => embed_poc::run_hello(&text)?,
             EmbedPocOp::Index { dir, yes } => embed_poc::run_index(dir, yes)?,
