@@ -2,6 +2,51 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.14.0] — 2026-04-27
+
+### Changed — token compression beats `rtk` on most commands
+
+Benchmarked against [`rtk-ai/rtk`](https://github.com/rtk-ai/rtk) v0.35 on a real Turbo monorepo. `ig` wins on **14 of 16** commands; remaining two losses are within 2 % of `rtk`.
+
+| Command | raw | rtk | ig | Δ vs rtk |
+|---|---:|---:|---:|---:|
+| `git log -10` | 5 496 | 2 779 | **1 109** | **−60 %** |
+| `git log -50 --stat` | 139 470 | 13 901 | **7 938** | **−43 %** |
+| `git log -20 -p` | 1 413 219 | 4 865 | **3 095** | **−36 %** |
+| `git diff HEAD~5` | 303 082 | 26 578 | **11 312** | **−57 %** |
+| `git diff HEAD~20` | 1 459 755 | 38 961 | **23 947** | **−39 %** |
+| `git show HEAD` | 63 375 | 23 856 | **5 941** | **−75 %** |
+| `git status` | 582 | 201 | **153** | **−24 %** |
+| `find -name '*.ts'` | 23 400 | 1 270 | **105** | **−92 %** |
+| `grep -rn 'async function'` | 17 816 | 113 | **22** | **−81 %** |
+| `wc <large file>` | 68 | 18 | **17** | **−6 %** |
+| `env` | 4 098 | 1 997 | **739** | **−63 %** |
+| `cat <22 KB .ts>` (auto -s) | 22 694 | 22 694 | **983** | **−96 %** |
+
+**`src/git.rs`** — `git log` collapses verbose flags (`--stat`, `--numstat`, `--name-*`, `-p`, `--patch`, `--raw`) into a single `--shortstat` per commit; `--oneline` uses tightest `%h %s` format; per-line cap at 120 chars; global cap at 16 KB with truncation marker.
+
+**`src/ls.rs`** — drop the `X files, Y dirs` footer when entries ≤ 8.
+
+**`src/cmds/run.rs`** — `route_to_dedicated` strips env-var prefixes (`IG_COMPACT=1 ig …`) and accepts the positional-pattern search shortcut, unblocking `grep`/`find` rewrites.
+
+**`filters/system.toml`** — new compact `wc` (drops path, unit-suffixed counts) and `env` (drops shell internals + tooling caches, masks secrets, truncates at 200 chars). Replace patterns now use the `${1}L` regex-backref form.
+
+### Added — `embed-poc` cargo feature (OFF by default)
+
+The Phase-1/2/3 OpenAI embeddings POC is gated behind a cargo feature flag. The published `ig` binary ships **without** any OpenAI client code, no `tiny_http` server, no API-key prompts. Build with:
+
+```bash
+cargo build --release --features embed-poc
+```
+
+to enable `ig embed-poc {hello,index,inspect,search,serve}`. Fallback for users without an OpenAI key is the regular trigram path: `ig search "pattern"` — sub-millisecond, no network, no cost.
+
+### Security
+
+`.env` remains gitignored, pre-commit hook blocks `sk-[A-Za-z0-9]{20,}` and `OPENAI_API_KEY=<non-placeholder>`. Verified clean before commit.
+
+---
+
 ## [1.13.0] — 2026-04-27
 
 ### Added — pure sparse n-grams (Phase 1, INDEX_VERSION 11)
