@@ -49,15 +49,13 @@ pub fn run_update() -> Result<()> {
 
     // Early permission check on both target dirs
     if let Some(dir) = rust_path.parent() {
-        fs::create_dir_all(dir).with_context(|| {
-            format!("cannot create backend directory {}", dir.display())
-        })?;
+        fs::create_dir_all(dir)
+            .with_context(|| format!("cannot create backend directory {}", dir.display()))?;
         check_writable(dir)?;
     }
     if let Some(dir) = shim_path.parent() {
-        fs::create_dir_all(dir).with_context(|| {
-            format!("cannot create shim directory {}", dir.display())
-        })?;
+        fs::create_dir_all(dir)
+            .with_context(|| format!("cannot create shim directory {}", dir.display()))?;
         check_writable(dir)?;
     }
 
@@ -86,7 +84,7 @@ pub fn run_update() -> Result<()> {
                 "download failed for {}: {}",
                 rust_artifact,
                 e
-            ))
+            ));
         }
     };
 
@@ -132,10 +130,10 @@ pub fn run_update() -> Result<()> {
     let shim_bytes = download_artifact(&shim_url, &shim_artifact)?;
 
     // Best-effort checksum verification
-    verify_checksums(tag, &[
-        (&shim_artifact, &shim_bytes),
-        (&rust_artifact, &rust_bytes),
-    ]);
+    verify_checksums(
+        tag,
+        &[(&shim_artifact, &shim_bytes), (&rust_artifact, &rust_bytes)],
+    );
 
     // Atomic install of both binaries
     eprint!("  Installing... ");
@@ -147,16 +145,17 @@ pub fn run_update() -> Result<()> {
     eprintln!("✓");
 
     // Migration: remove legacy ig-rust placed next to the shim
-    if let Some(legacy) = legacy_rust.as_ref() {
-        if legacy != &rust_path && legacy.exists() {
-            match fs::remove_file(legacy) {
-                Ok(_) => eprintln!("  → Migrated backend, removed legacy: {}", legacy.display()),
-                Err(e) => eprintln!(
-                    "  ⚠ Could not remove legacy backend at {}: {}",
-                    legacy.display(),
-                    e
-                ),
-            }
+    if let Some(legacy) = legacy_rust.as_ref()
+        && legacy != &rust_path
+        && legacy.exists()
+    {
+        match fs::remove_file(legacy) {
+            Ok(_) => eprintln!("  → Migrated backend, removed legacy: {}", legacy.display()),
+            Err(e) => eprintln!(
+                "  ⚠ Could not remove legacy backend at {}: {}",
+                legacy.display(),
+                e
+            ),
         }
     }
 
@@ -221,7 +220,9 @@ fn locate_shim_in_path(exclude: &Path) -> Option<PathBuf> {
     for dir in std::env::split_paths(&path_var) {
         let candidate = dir.join("ig");
         if candidate.is_file() {
-            let canon = candidate.canonicalize().unwrap_or_else(|_| candidate.clone());
+            let canon = candidate
+                .canonicalize()
+                .unwrap_or_else(|_| candidate.clone());
             if canon != exclude {
                 return Some(candidate);
             }
@@ -266,10 +267,12 @@ fn download_artifact(url: &str, name: &str) -> Result<Vec<u8>> {
 }
 
 fn atomic_install(bytes: &[u8], dest: &std::path::Path) -> Result<()> {
-    let dir = dest.parent().context("destination has no parent directory")?;
-    let mut tmp =
-        tempfile::NamedTempFile::new_in(dir).context("cannot create temporary file")?;
-    tmp.write_all(bytes).context("cannot write to temporary file")?;
+    let dir = dest
+        .parent()
+        .context("destination has no parent directory")?;
+    let mut tmp = tempfile::NamedTempFile::new_in(dir).context("cannot create temporary file")?;
+    tmp.write_all(bytes)
+        .context("cannot write to temporary file")?;
     tmp.flush().context("cannot flush temporary file")?;
 
     #[cfg(unix)]
@@ -299,7 +302,7 @@ fn verify_checksums(tag: &str, artifacts: &[(&str, &[u8])]) {
     let body = match ureq::get(&checksum_url)
         .header("User-Agent", &format!("ig/{}", CURRENT_VERSION))
         .call()
-        .and_then(|mut r| r.body_mut().read_to_string().map_err(Into::into))
+        .and_then(|mut r| r.body_mut().read_to_string())
     {
         Ok(b) => b,
         Err(_) => {
@@ -479,7 +482,11 @@ mod tests {
     #[test]
     fn detect_artifact_returns_pair() {
         let (shim, rust) = detect_artifact().unwrap();
-        assert!(shim.starts_with("ig-"), "shim='{}' should start with ig-", shim);
+        assert!(
+            shim.starts_with("ig-"),
+            "shim='{}' should start with ig-",
+            shim
+        );
         assert!(
             rust.ends_with("-rust"),
             "rust='{}' should end with -rust",
@@ -492,10 +499,20 @@ mod tests {
     #[test]
     fn detect_artifact_all_platforms() {
         let cases = [
-            ("macos", "aarch64", "ig-macos-aarch64", "ig-macos-aarch64-rust"),
+            (
+                "macos",
+                "aarch64",
+                "ig-macos-aarch64",
+                "ig-macos-aarch64-rust",
+            ),
             ("macos", "x86_64", "ig-macos-x86_64", "ig-macos-x86_64-rust"),
             ("linux", "x86_64", "ig-linux-x86_64", "ig-linux-x86_64-rust"),
-            ("linux", "aarch64", "ig-linux-aarch64", "ig-linux-aarch64-rust"),
+            (
+                "linux",
+                "aarch64",
+                "ig-linux-aarch64",
+                "ig-linux-aarch64-rust",
+            ),
         ];
         for (os, arch, expected_shim, expected_rust) in cases {
             let base = match (os, arch) {

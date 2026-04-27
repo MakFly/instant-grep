@@ -750,7 +750,10 @@ mod tests {
         let result = remove_binary(dir.path(), false);
         match result {
             RemoveResult::Removed(msg) => {
-                assert!(msg.contains(".local/bin/ig"), "msg should mention shim: {msg}");
+                assert!(
+                    msg.contains(".local/bin/ig"),
+                    "msg should mention shim: {msg}"
+                );
                 assert!(
                     msg.contains(".local/share/ig/bin/ig-rust"),
                     "msg should mention backend: {msg}"

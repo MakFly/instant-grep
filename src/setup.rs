@@ -1263,10 +1263,7 @@ fn install_shell_hook(home: &Path, dry_run: bool) -> ConfigResult {
     let (rc_path, hook_content) = if shell.contains("zsh") {
         (home.join(".zshrc"), SHELL_HOOK_ZSH)
     } else if shell.contains("fish") {
-        (
-            home.join(".config/fish/config.fish"),
-            SHELL_HOOK_FISH,
-        )
+        (home.join(".config/fish/config.fish"), SHELL_HOOK_FISH)
     } else {
         (home.join(".bashrc"), SHELL_HOOK_BASH)
     };
@@ -1297,15 +1294,8 @@ fn install_shell_hook(home: &Path, dry_run: bool) -> ConfigResult {
     };
 
     match fs::write(&rc_path, new_content.as_bytes()) {
-        Ok(_) => ConfigResult::Configured(format!(
-            "Shell hook installed in {}",
-            rc_path.display()
-        )),
-        Err(e) => ConfigResult::Error(format!(
-            "Could not write {}: {}",
-            rc_path.display(),
-            e
-        )),
+        Ok(_) => ConfigResult::Configured(format!("Shell hook installed in {}", rc_path.display())),
+        Err(e) => ConfigResult::Error(format!("Could not write {}: {}", rc_path.display(), e)),
     }
 }
 
