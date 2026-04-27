@@ -9,6 +9,7 @@ mod delta;
 mod discover;
 #[cfg(feature = "embed-poc")]
 mod embed_poc;
+mod embed_toggle;
 mod filter;
 mod gain;
 mod git;
@@ -753,13 +754,28 @@ fn main() -> Result<()> {
         }
 
         #[cfg(feature = "embed-poc")]
-        Some(Commands::EmbedPoc { op }) => match op {
-            EmbedPocOp::Hello { text } => embed_poc::run_hello(&text)?,
-            EmbedPocOp::Index { dir, yes } => embed_poc::run_index(dir, yes)?,
-            EmbedPocOp::Inspect { limit } => embed_poc::run_inspect(limit)?,
-            EmbedPocOp::Search { query, top } => embed_poc::run_search(&query, top)?,
-            EmbedPocOp::Serve { port, ui } => embed_poc::server::run_serve(port, ui)?,
-        },
+        Some(Commands::EmbedPoc { op }) => {
+            // Runtime guard: even when the cargo feature is built in, refuse
+            // to run unless the user has opted in via `ig emb on`. Default off.
+            if !embed_toggle::is_enabled() {
+                anyhow::bail!(
+                    "embeddings are disabled.\n\
+                     Enable with:  ig emb on\n\
+                     (or build a binary without the embed-poc feature to remove the subcommand entirely.)"
+                );
+            }
+            match op {
+                EmbedPocOp::Hello { text } => embed_poc::run_hello(&text)?,
+                EmbedPocOp::Index { dir, yes } => embed_poc::run_index(dir, yes)?,
+                EmbedPocOp::Inspect { limit } => embed_poc::run_inspect(limit)?,
+                EmbedPocOp::Search { query, top } => embed_poc::run_search(&query, top)?,
+                EmbedPocOp::Serve { port, ui } => embed_poc::server::run_serve(port, ui)?,
+            }
+        }
+
+        Some(Commands::Emb { state }) => {
+            embed_toggle::run(state)?;
+        }
 
         // No subcommand — shortcut mode: `ig "pattern" [path]`
         None => {

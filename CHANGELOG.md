@@ -2,6 +2,56 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.14.2] — 2026-04-27
+
+### Added — `ig emb on/off/status` (runtime embedding toggle)
+
+Two layers of control now gate the OpenAI embedding playground:
+
+| Layer | Mechanism | What it controls |
+|---|---|---|
+| **Compile-time** | `cargo build --features embed-poc` | Whether the `embed-poc` subcommand is present in the binary at all (default: absent). |
+| **Runtime** | `ig emb on/off` (this release) | Whether the subcommand actually executes when present (default: off). |
+
+Both are independent. The runtime toggle persists in `~/.config/ig/embed.toml`:
+
+```toml
+# Runtime toggle for `ig emb` — overridable with `ig emb on/off`.
+enabled = false
+```
+
+#### Usage
+
+```bash
+ig emb status   # inspect current state (default: disabled)
+ig emb on       # accepts: on, true, 1, yes, y, enable, enabled
+ig emb off      # accepts: off, false, 0, no, n, disable, disabled
+```
+
+When `embed-poc` is **off** at runtime and the user calls `ig embed-poc <op>`:
+
+```
+Error: embeddings are disabled.
+Enable with:  ig emb on
+(or build a binary without the embed-poc feature to remove the subcommand entirely.)
+```
+
+When the cargo feature is OFF, the toggle still works (the file is written) but the subcommand simply doesn't exist — `ig emb status` prints a `note:` directing users to rebuild with `--features embed-poc`.
+
+#### Why two layers?
+
+- Compile-time off (default): published binary has zero OpenAI client code, no `tiny_http`, no API-key prompts. Dependency-clean for distribution.
+- Compile-time on + runtime off (default in dev builds): user can experiment locally without accidental network calls. `ig emb on` is an explicit, auditable action.
+
+#### Implementation
+
+- `src/embed_toggle.rs` (~90 LoC) — read/write helpers + 3 unit tests (default-disabled, round-trip, malformed-config-falls-back-to-disabled).
+- `cli.rs` adds a top-level `Emb { state: Option<String> }` always-available subcommand.
+- `main.rs` gates `Some(Commands::EmbedPoc { op })` on `embed_toggle::is_enabled()` before dispatching to any phase.
+- Fail-closed: if the config file is unreadable or malformed, embeddings stay off.
+
+---
+
 ## [1.14.1] — 2026-04-27
 
 ### Fixed — refuse to auto-index `$HOME` / `/` / system roots

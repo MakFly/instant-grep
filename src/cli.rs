@@ -462,6 +462,13 @@ pub enum Commands {
         op: EmbedPocOp,
     },
 
+    /// Toggle the runtime embedding switch: `ig emb on|off|status`.
+    /// Default: disabled. Independent of the `embed-poc` cargo feature.
+    Emb {
+        /// `on` / `off` / `status` (default: status)
+        state: Option<String>,
+    },
+
     /// Generate a .ignore file tailored to the detected project stack
     Autoignore {
         /// Directory to generate .ignore for (default: current dir)
