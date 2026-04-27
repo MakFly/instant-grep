@@ -1,0 +1,364 @@
+---
+import DocsLayout from "@/layouts/docs.astro"
+import { Code } from "astro:components"
+---
+
+<DocsLayout title="OpenAI Embeddings (POC)" description="How ig's opt-in embedding playground works — chunking, OpenAI text-embedding-3-small, brute-force cosine, and why it's disabled by default.">
+
+  <h1>OpenAI Embeddings — opt-in POC</h1>
+  <p>
+    A pedagogical playground for dense semantic search over your codebase, using OpenAI's <code>text-embedding-3-small</code> model.
+    Ships behind a cargo feature flag and is <strong>disabled by default</strong> — the published binary contains zero OpenAI client code, no <code>tiny_http</code> server, no API-key prompts. Build with <code>--features embed-poc</code> to enable.
+  </p>
+
+  <div class="docs-callout">
+    <div>
+      <p><strong>Why opt-in?</strong></p>
+      <ul>
+        <li><strong>Cost.</strong> Indexing 3 k files ≈ $0.05; a runaway re-index could rack up real money.</li>
+        <li><strong>Network.</strong> Each search is one OpenAI round-trip (~200–800 ms). The trigram daemon answers in &lt; 1 ms.</li>
+        <li><strong>Recall is similar at this scale.</strong> Well-tuned <code>ig --semantic --top 10</code> (PMI) catches most queries dense embeddings catch on a 3 k-file repo. Embeddings start to dominate at 50 k+ files / multi-language polyglot repos.</li>
+      </ul>
+      <p>The fallback for users without an API key is the regular trigram path — sub-ms, no network, no cost.</p>
+    </div>
+  </div>
+
+  <h2>Quickstart</h2>
+
+  <Code
+    code={`# 1. Build with the feature on
+cargo build --release --features embed-poc
+cp target/release/ig ~/.local/bin/ig
+
+# 2. Drop your OpenAI key in either ~/.config/ig/config.toml OR a project .env
+mkdir -p ~/.config/ig && cat > ~/.config/ig/config.toml <<EOF
+[providers.openai]
+api_key = "sk-proj-XXXX"
+default_model = "text-embedding-3-small"
+EOF
+chmod 600 ~/.config/ig/config.toml
+
+# 3. Smoke-test — Phase 1: 1 string → 1 vector → console
+ig embed-poc hello "function cancelSubscription(userId)"
+
+# 4. Index a directory — Phase 2: chunk + embed + JSON store
+ig embed-poc index ./src
+
+# 5. Search — Phase 2: top-N cosine
+ig embed-poc search "function that cancels a Stripe subscription"
+
+# 6. (optional) — Phase 3: tiny_http JSON server + React SPA
+ig embed-poc serve --port 7877 --ui ui/dist`}
+    lang="bash"
+    theme="github-dark"
+  />
+
+  <h2>The pipeline</h2>
+
+  <pre class="text-xs font-mono bg-muted p-4 rounded overflow-x-auto leading-relaxed">{`ig embed-poc index ./src
+   │
+   ├─▶ walk files (respects .ig/ excludes)
+   ├─▶ chunk each file: 40 lines, 5-line overlap
+   ├─▶ batch-embed via OpenAI /v1/embeddings (size 100, ureq sync)
+   │     model = text-embedding-3-small
+   │     dim   = 1536, L2-normalised → cosine = dot product
+   ├─▶ persist as JSON  ──▶  .ig/poc-embeddings.json
+   │     (~30 MB on a 3 k-file repo, deliberately readable: cat | jq)
+   └─▶ console:  "Embedded 768 chunks · $0.0046 · 11.3 s"
+
+ig embed-poc search "<query>"
+   │
+   ├─▶ embed the query (1 OpenAI call, ~$0.0000002)
+   ├─▶ rayon par_iter cosine over the JSON store
+   │     ~3 ms on 247 chunks · ~600 ms on 50 k chunks
+   ├─▶ sort descending, take top-N
+   └─▶ stdout:  file:lines · score · 5-line preview`}</pre>
+
+  <h2>What an embedding actually is</h2>
+
+  <p>
+    Phase 1 (<code>ig embed-poc hello &lt;text&gt;</code>) exists for one reason: to make the abstract concept tangible. Run it once and you'll see exactly what comes back from OpenAI.
+  </p>
+
+  <Code
+    code={`$ ig embed-poc hello "function cancelSubscription(userId) { ... }"
+
+Provider     : openai
+Model        : text-embedding-3-small
+Input tokens : 12
+Cost         : $0.00000024
+Vector dim   : 1536
+First 10     : [-0.0123, 0.0456, -0.0211, 0.0089, ..., 0.0334]
+L2 norm      : 1.0000  ← OpenAI vectors are L2-normalized
+                          → cosine(a, b) = dot(a, b)
+                          → no division step needed`}
+    lang="bash"
+    theme="github-dark"
+  />
+
+  <p>
+    A 1 536-dimensional unit vector. Two semantically similar strings produce vectors with a high dot product (typically 0.4–0.7 for code/code), unrelated ones cluster around 0.1–0.2. That's the whole magic.
+  </p>
+
+  <h2>The store format — deliberately readable</h2>
+
+  <p>
+    The Phase-2 store is plain JSON, not bincode. You can <code>cat .ig/poc-embeddings.json | jq '.chunks[0]'</code> and inspect a single chunk + its full vector. This is intentional: when (later) we'd switch to bincode + HNSW, you'd already know exactly what got replaced.
+  </p>
+
+  <Code
+    code={`{
+  "version": "poc-1",
+  "model": "text-embedding-3-small",
+  "dim": 1536,
+  "provider": "openai",
+  "total_tokens": 156783,
+  "total_cost_usd": 0.00313566,
+  "chunks": [
+    {
+      "id": 0,
+      "file": "src/embed_poc/config.rs",
+      "start_line": 1,
+      "end_line": 40,
+      "tokens": 312,
+      "embedding": [0.0123, -0.0456, /* … 1534 more … */, 0.0089]
+    },
+    /* … */
+  ]
+}`}
+    lang="json"
+    theme="github-dark"
+  />
+
+  <h2>Search math — brute-force cosine</h2>
+
+  <p>
+    No HNSW, no FAISS, no PCA. The whole search is a <code>par_iter</code> dot product across the chunk array:
+  </p>
+
+  <Code
+    code={`pub fn rank<'a>(query: &[f32], store: &'a Store, top_n: usize)
+    -> Vec<(f32, &'a Chunk)>
+{
+    let mut scored: Vec<_> = store.chunks
+        .par_iter()                              // rayon
+        .map(|c| (dot(query, &c.embedding), c)) // L2-normalised → cosine = dot
+        .collect();
+    scored.par_sort_unstable_by(|a, b|
+        b.0.partial_cmp(&a.0).unwrap()
+    );
+    scored.truncate(top_n);
+    scored
+}`}
+    lang="rust"
+    theme="github-dark"
+  />
+
+  <p>
+    Latency on a Mac M4 Max:
+  </p>
+
+  <ul>
+    <li><strong>247 chunks × 1 536 dim:</strong> ~3 ms cosine + ~250 ms OpenAI = <strong>~250 ms total</strong>.</li>
+    <li><strong>50 k chunks × 1 536 dim:</strong> ~600 ms cosine + ~250 ms OpenAI = <strong>~850 ms total</strong>.</li>
+  </ul>
+
+  <p>
+    HNSW becomes worth it past ~100 k chunks. Below that, brute force is simpler, more debuggable, and the OpenAI round-trip dominates anyway.
+  </p>
+
+  <h2>Cost guard</h2>
+
+  <p>
+    Pricing as of April 2026 (always re-confirm in the OpenAI console):
+  </p>
+
+  <div class="overflow-x-auto border rounded-lg overflow-hidden my-4">
+    <table class="w-full text-sm border-collapse">
+      <thead>
+        <tr class="bg-muted">
+          <th class="text-left py-3 px-4 text-xs font-normal uppercase tracking-wider text-muted-foreground">Model</th>
+          <th class="text-right py-3 px-4 text-xs font-normal uppercase tracking-wider text-muted-foreground">Dim</th>
+          <th class="text-right py-3 px-4 text-xs font-normal uppercase tracking-wider text-muted-foreground">$/M tokens</th>
+          <th class="text-right py-3 px-4 text-xs font-normal uppercase tracking-wider text-muted-foreground">Index 3k files</th>
+        </tr>
+      </thead>
+      <tbody class="text-xs">
+        <tr class="border-t hover:bg-muted/50">
+          <td class="py-3 px-4 font-mono">text-embedding-3-small</td>
+          <td class="py-3 px-4 text-right">1 536</td>
+          <td class="py-3 px-4 text-right">~$0.02</td>
+          <td class="py-3 px-4 text-right font-semibold">~$0.05</td>
+        </tr>
+        <tr class="border-t hover:bg-muted/50">
+          <td class="py-3 px-4 font-mono">text-embedding-3-large</td>
+          <td class="py-3 px-4 text-right">3 072</td>
+          <td class="py-3 px-4 text-right">~$0.13</td>
+          <td class="py-3 px-4 text-right">~$0.40</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="docs-callout">
+    <div>
+      <p><strong>Set hard limits before generating your key.</strong></p>
+      <p>
+        OpenAI <code>Settings → Billing → Usage limits</code>. For this POC: <strong>Soft $2/mo</strong> + <strong>Hard $5/mo</strong>. The API will return errors past the hard limit. $5 covers ~100 full-repo re-indexes on a 3 k-file project.
+      </p>
+    </div>
+  </div>
+
+  <h2>Security — how the key never reaches the repo</h2>
+
+  <ul>
+    <li><strong><code>.env</code> is gitignored.</strong> Verified in <code>.gitignore</code> at the repo root.</li>
+    <li><strong>Pre-commit hook</strong> (<code>.githooks/pre-commit</code>) blocks any staged content matching <code>sk-[A-Za-z0-9]{`{20,}`}</code> or a non-placeholder <code>OPENAI_API_KEY=</code>.</li>
+    <li><strong>Project key only</strong> — the recommended OpenAI key is a <em>Project key</em> (<code>sk-proj-…</code>) with permissions restricted to <em>Models: Read</em> + <em>Model capabilities: Write</em>. It cannot generate text, cannot access your ChatGPT history.</li>
+    <li><strong>If in doubt, revoke.</strong> A leaked key costs $0 to revoke + regenerate from the OpenAI dashboard.</li>
+  </ul>
+
+  <h2>Phase 3 — the React SPA</h2>
+
+  <p>
+    <code>ig embed-poc serve</code> starts a 3-route <code>tiny_http</code> JSON server (sync, blocking, ~200 LoC) plus an optional static SPA. Bound to <code>127.0.0.1</code> only — no auth, no TLS, single-user local POC.
+  </p>
+
+  <Code
+    code={`# Backend (with the feature on)
+ig embed-poc serve --port 7877 --ui ui/dist
+
+# Routes
+GET  /api/status              → { ready, model, dim, chunks, total_tokens, total_cost_usd }
+POST /api/search   { query }  → { hits, openai_ms, cosine_ms, query_cost_usd }
+GET  /api/chunks?limit=N      → { total, returned, dim, chunks: [...] }`}
+    lang="bash"
+    theme="github-dark"
+  />
+
+  <p>
+    The SPA (under <code>ui/</code> in the repo, generated with <code>shadcn@latest</code> + Vite) ships three routes:
+  </p>
+
+  <ul>
+    <li><strong><code>/</code> — Home.</strong> Status cards (chunks, dim, tokens, cost), provider/model, store path.</li>
+    <li><strong><code>/search</code> — Semantic search.</strong> NL input + top-N spinbutton + ranked results with scores. Latency breakdown (OpenAI ms vs cosine ms vs query cost).</li>
+    <li><strong><code>/inspect</code> — Embedding heatmap.</strong> Browse the indexed chunks; click any chunk to render its 1 536-D vector as a <strong>32×48 heatmap</strong> (red = positive, blue = negative, black = zero, scaled symmetrically around the max abs value). This is what makes embeddings tangible: two semantically similar functions have visibly similar heatmaps.</li>
+  </ul>
+
+  <h2>Phase 0 — getting an API key safely</h2>
+
+  <ol>
+    <li>Create an OpenAI account at <a href="https://platform.openai.com">platform.openai.com</a> (carte requise — l'API n'est pas sur l'abonnement ChatGPT).</li>
+    <li><strong>Set usage limits FIRST</strong> (before generating a key): <code>Settings → Billing → Usage limits</code> → Soft $2 + Hard $5.</li>
+    <li>Generate a <em>Project key</em> (not a User key) at <code>Dashboard → API keys</code>. Permissions: <code>Restricted</code> → <em>Models: Read</em> + <em>Model capabilities: Write</em> only.</li>
+    <li>Copy <code>sk-proj-…</code> immediately (never reshown).</li>
+    <li>Persist locally with restrictive perms:
+      <Code
+        code={`mkdir -p ~/.config/ig && chmod 700 ~/.config/ig
+cat > ~/.config/ig/config.toml <<EOF
+[providers.openai]
+api_key = "sk-proj-XXXX"
+default_model = "text-embedding-3-small"
+EOF
+chmod 600 ~/.config/ig/config.toml`}
+        lang="bash"
+        theme="github-dark"
+      />
+    </li>
+    <li>Smoke-test:
+      <Code
+        code={`curl https://api.openai.com/v1/models \\
+  -H "Authorization: Bearer $(grep api_key ~/.config/ig/config.toml | cut -d'\"' -f2)" \\
+  | head -5`}
+        lang="bash"
+        theme="github-dark"
+      />
+    </li>
+  </ol>
+
+  <h2>What this POC does <em>not</em> do</h2>
+
+  <ul>
+    <li>❌ No HNSW or vector index optimisation — brute-force cosine only.</li>
+    <li>❌ No multi-provider — OpenAI only (no Voyage, no Cohere, no local model).</li>
+    <li>❌ No hybrid search — no lexical + vector RRF blending. Use <code>ig --semantic --top N</code> for hybrid.</li>
+    <li>❌ No auth, no TLS — <code>127.0.0.1</code> only.</li>
+    <li>❌ No automatic cost guard — just an estimate printed at index time.</li>
+    <li>❌ No async runtime — sync <code>ureq</code> + <code>tiny_http</code> blocking I/O.</li>
+  </ul>
+
+  <p>
+    This is by design. It's a teaching artefact: read the source, see the cost, decide if industrial-grade embedding search is worth building.
+  </p>
+
+  <h2>When to use embeddings vs <code>--semantic</code> vs trigram</h2>
+
+  <div class="grid sm:grid-cols-3 gap-4 my-6 not-prose">
+    <div class="p-4 rounded-lg border">
+      <h3 class="font-semibold mb-2 text-sm">Trigram (<code>ig "pat"</code>)</h3>
+      <ul class="text-xs text-muted-foreground space-y-1.5 leading-relaxed">
+        <li>Sub-ms, no network, no cost</li>
+        <li>Exact / regex matching</li>
+        <li>Best for: known-token searches, refactor queries, structural patterns</li>
+        <li><strong>Default.</strong></li>
+      </ul>
+    </div>
+    <div class="p-4 rounded-lg border">
+      <h3 class="font-semibold mb-2 text-sm"><code>--semantic</code> (PMI)</h3>
+      <ul class="text-xs text-muted-foreground space-y-1.5 leading-relaxed">
+        <li>~5 ms, no network, no cost</li>
+        <li>Synonyms learned from <em>your</em> repo at index time</li>
+        <li>Best for: queries where you know the concept but not the project's word for it</li>
+        <li>Combine with <code>--top N</code> for BM25 rerank.</li>
+      </ul>
+    </div>
+    <div class="p-4 rounded-lg border">
+      <h3 class="font-semibold mb-2 text-sm">Embeddings (POC)</h3>
+      <ul class="text-xs text-muted-foreground space-y-1.5 leading-relaxed">
+        <li>~250–800 ms, OpenAI round-trip, $0.0000002 per query</li>
+        <li>True natural-language understanding (cross-token, cross-language)</li>
+        <li>Best for: NL queries with no shared token (<em>"function that cancels a Stripe subscription"</em>)</li>
+        <li><strong>Opt-in only.</strong></li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Source layout</h2>
+
+  <Code
+    code={`src/embed_poc/
+├── mod.rs       # entry: run_hello, run_index, run_inspect, run_search
+├── config.rs    # parse ~/.config/ig/config.toml + .env
+├── openai.rs    # POST /v1/embeddings via ureq, batched
+├── chunk.rs     # 40-line chunker, 5-line overlap
+├── store.rs     # JSON (de)serialisation of .ig/poc-embeddings.json
+├── search.rs    # rayon par_iter cosine
+└── server.rs    # tiny_http: /api/status, /api/search, /api/chunks
+
+ui/                                # generated via \`bunx shadcn@latest init\`
+├── src/routes/Home.tsx             # status + nav
+├── src/routes/SearchPage.tsx       # NL search + ranked hits
+├── src/routes/Inspect.tsx          # 32×48 embedding heatmap
+└── src/lib/api.ts                  # typed fetch helpers`}
+    lang="bash"
+    theme="github-dark"
+  />
+
+  <h2>Next steps</h2>
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 not-prose">
+    <a href="/docs/cli" class="rounded-lg border p-4 flex flex-col gap-1.5 group hover:border-foreground/20 transition-colors">
+      <h3 class="font-medium text-sm group-hover:text-foreground transition-colors">CLI Reference</h3>
+      <p class="text-xs text-muted-foreground">All commands with every flag documented</p>
+    </a>
+    <a href="/docs/architecture" class="rounded-lg border p-4 flex flex-col gap-1.5 group hover:border-foreground/20 transition-colors">
+      <h3 class="font-medium text-sm group-hover:text-foreground transition-colors">Architecture</h3>
+      <p class="text-xs text-muted-foreground">Trigram pipeline + daemon (the always-on path)</p>
+    </a>
+    <a href="https://github.com/MakFly/instant-grep/blob/main/CHANGELOG.md#1140--2026-04-27" class="rounded-lg border p-4 flex flex-col gap-1.5 group hover:border-foreground/20 transition-colors">
+      <h3 class="font-medium text-sm group-hover:text-foreground transition-colors">v1.14.0 release notes</h3>
+      <p class="text-xs text-muted-foreground">embed-poc feature flag + the rtk-beating compression patch</p>
+    </a>
+  </div>
+
+</DocsLayout>

@@ -621,6 +621,48 @@ score(a, b)   = PMI · log(count + 1)     (rejects rare-word coincidences)
 
 Theoretical basis: Levy & Goldberg, [*Neural Word Embedding as Implicit Matrix Factorization*](https://papers.nips.cc/paper_files/paper/2014/file/feab05aa91085b7a8012516bc3533958-Paper.pdf) (NeurIPS 2014) — direct PMI is *the* objective that skip-gram word2vec with negative sampling implicitly optimises.
 
+### OpenAI embeddings — opt-in POC (v1.14.0)
+
+PMI gives you semantic *expansion* (synonyms learned from your repo) on top of literal matching. For natural-language queries that don't share any token with the target code (`"function that cancels a Stripe subscription"` → `unsubscribe()`), you need **dense embeddings**. v1.14.0 ships a pedagogical POC behind a cargo feature flag, **disabled by default**:
+
+```bash
+cargo build --release --features embed-poc      # opt-in
+ig embed-poc --help                              # only visible with the feature
+```
+
+The POC is intentionally tiny — JSON store, brute-force cosine, 40-line chunker — so the math is readable. **The shipped binary contains zero OpenAI client code** unless you opt in. Users without an API key fall back to the regular trigram path (`ig search "pattern"`) which is sub-ms, no network, no cost.
+
+```
+ig embed-poc index ./src
+   │
+   ├─▶ chunk files (40 lines, 5 overlap)             ──▶ 768 chunks
+   ├─▶ batch-embed via OpenAI text-embedding-3-small  ──▶ 1536 floats / chunk
+   └─▶ persist to .ig/poc-embeddings.json             ──▶ ~30 MB on a 3 k-file repo
+
+ig embed-poc search "function that cancels a Stripe subscription"
+   │
+   ├─▶ embed the query (1 OpenAI call, ~$0.0000002)
+   ├─▶ rayon par_iter cosine over the store
+   └─▶ top-N ranked (file:lines + score + preview)
+```
+
+Five subcommands, all gated behind the feature flag:
+- `embed-poc hello <text>` — single-vector smoke test (Phase 1)
+- `embed-poc index <dir>` — chunk + embed + JSON store (Phase 2)
+- `embed-poc inspect [--limit N]` — human-readable store dump
+- `embed-poc search <query> [--top N]` — cosine top-N
+- `embed-poc serve [--port 7877] [--ui ui/dist]` — `tiny_http` JSON server + optional React SPA
+
+Why this is **not the default**:
+- **Cost guard.** An indexing run on a 3 k-file repo costs ~$0.05; a runaway re-index in a CI loop could rack up real money. PMI/trigram are free.
+- **Network dependency.** Each search is one round-trip to OpenAI (~200–800 ms). The trigram daemon answers in < 1 ms.
+- **API-key handling.** The key lives in `~/.config/ig/config.toml` or `.env` (always gitignored, pre-commit hook blocks `sk-*` strings) — but most users don't have one and shouldn't have to.
+- **Recall is similar at this scale.** On a 3 k-file repo, well-tuned PMI + BM25 (`ig --semantic --top 10`) catches most queries that dense embeddings catch. Embeddings start to dominate at 50 k+ files / multi-language polyglot repos.
+
+The POC stays in-tree (gated) so users curious about embedding-based search can see exactly what an embedding *is* (1 536 floats, L2-normalised, 32×48 heatmap visualisable in the SPA), measure the latency/cost themselves, and decide whether to industrialise.
+
+Read the full design + Phase 0–4 walkthrough at [`/docs/embeddings`](https://instant-grep.pulseview.app/docs/embeddings).
+
 ## Architecture
 
 ```
