@@ -98,7 +98,9 @@ pub fn format_ls(result: &LsResult) -> String {
     .flatten()
     .collect();
 
-    if !parts.is_empty() {
+    // Skip footer when listing is tiny: a 4-entry dir doesn't need a summary.
+    let total_entries = result.total_dirs + result.total_files;
+    if !parts.is_empty() && total_entries > 8 {
         output.push_str(&format!("\n{}\n", parts.join(", ")));
     }
 
@@ -148,16 +150,16 @@ mod tests {
 
     #[test]
     fn test_format_ls_output() {
+        // Footer only appears when total entries > 8.
         let result = LsResult {
-            dirs: vec!["src".into(), "docs".into(), "tests".into()],
-            files: vec![("README.md".into(), 1536), ("Cargo.toml".into(), 512)],
-            total_dirs: 3,
-            total_files: 2,
+            dirs: (0..6).map(|i| format!("d{}", i)).collect(),
+            files: (0..6).map(|i| (format!("f{}.md", i), 1024)).collect(),
+            total_dirs: 6,
+            total_files: 6,
         };
         let output = format_ls(&result);
-        assert!(output.contains("src/"));
-        assert!(output.contains("docs/"));
-        assert!(output.contains("README.md  1.5K"));
-        assert!(output.contains("2 files, 3 dirs"));
+        assert!(output.contains("d0/"));
+        assert!(output.contains("f0.md  1.0K"));
+        assert!(output.contains("6 files, 6 dirs"));
     }
 }

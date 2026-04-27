@@ -7,6 +7,8 @@ mod context;
 mod daemon;
 mod delta;
 mod discover;
+#[cfg(feature = "embed-poc")]
+mod embed_poc;
 mod filter;
 mod gain;
 mod git;
@@ -42,6 +44,8 @@ use anyhow::{Context, Result};
 use clap::Parser;
 
 use cli::{Cli, Commands, TeeOp};
+#[cfg(feature = "embed-poc")]
+use cli::EmbedPocOp;
 use index::metadata::{INDEX_VERSION, IndexMetadata};
 use index::overlay::OverlayReader;
 use index::writer;
@@ -747,6 +751,15 @@ fn main() -> Result<()> {
         Some(Commands::Autoignore { path, force }) => {
             autoignore::run_autoignore(path, force)?;
         }
+
+        #[cfg(feature = "embed-poc")]
+        Some(Commands::EmbedPoc { op }) => match op {
+            EmbedPocOp::Hello { text } => embed_poc::run_hello(&text)?,
+            EmbedPocOp::Index { dir, yes } => embed_poc::run_index(dir, yes)?,
+            EmbedPocOp::Inspect { limit } => embed_poc::run_inspect(limit)?,
+            EmbedPocOp::Search { query, top } => embed_poc::run_search(&query, top)?,
+            EmbedPocOp::Serve { port, ui } => embed_poc::server::run_serve(port, ui)?,
+        },
 
         // No subcommand — shortcut mode: `ig "pattern" [path]`
         None => {

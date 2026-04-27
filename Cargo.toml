@@ -1,6 +1,6 @@
 [package]
 name = "instant-grep"
-version = "1.13.0"
+version = "1.14.0"
 edition = "2024"
 description = "Trigram-indexed regex search CLI — sub-ms code search for AI agents"
 license = "MIT"
@@ -40,6 +40,14 @@ toml = "0.8"
 sha2 = "0.10"
 walkdir = "2"
 lru = "0.12"
+tiny_http = { version = "0.12", optional = true }
+
+[features]
+# Embedding POC (OpenAI semantic search). OFF by default — requires an OpenAI
+# API key. Fallback for users without it: regular `ig search` (trigram).
+# Enable with: cargo build --release --features embed-poc
+default = []
+embed-poc = ["dep:tiny_http"]
 
 [dev-dependencies]
 

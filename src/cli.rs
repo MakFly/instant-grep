@@ -453,6 +453,15 @@ pub enum Commands {
         since: u32,
     },
 
+    /// POC — OpenAI embeddings playground (opt-in, build with `--features embed-poc`).
+    /// Without the feature, falls back to `ig search` (trigram, no API key).
+    #[cfg(feature = "embed-poc")]
+    #[command(hide = true)]
+    EmbedPoc {
+        #[command(subcommand)]
+        op: EmbedPocOp,
+    },
+
     /// Generate a .ignore file tailored to the detected project stack
     Autoignore {
         /// Directory to generate .ignore for (default: current dir)
@@ -461,6 +470,47 @@ pub enum Commands {
         /// Overwrite an existing .ignore file
         #[arg(long)]
         force: bool,
+    },
+}
+
+#[cfg(feature = "embed-poc")]
+#[derive(Subcommand)]
+pub enum EmbedPocOp {
+    /// Embed a single text input and print the vector summary (Phase 1)
+    Hello {
+        /// Text to embed
+        text: String,
+    },
+    /// Chunk + embed a directory, store JSON at .ig/poc-embeddings.json (Phase 2)
+    Index {
+        /// Directory to index (default: current dir)
+        dir: Option<String>,
+        /// Skip the y/N cost confirmation
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
+    /// Inspect the local store (human-readable)
+    Inspect {
+        /// How many chunks to preview (default: 10)
+        #[arg(long, default_value = "10")]
+        limit: usize,
+    },
+    /// Cosine top-N search over the local store
+    Search {
+        /// Query in natural language
+        query: String,
+        /// Top-N results (default: 5)
+        #[arg(long, default_value = "5")]
+        top: usize,
+    },
+    /// Phase 3 — start a tiny_http JSON server (+ optional static SPA)
+    Serve {
+        /// Bind port (127.0.0.1 only — POC)
+        #[arg(long, default_value = "7877")]
+        port: u16,
+        /// Path to a built SPA directory (e.g. `ui/dist`). If absent, a landing page is served.
+        #[arg(long)]
+        ui: Option<String>,
     },
 }
 

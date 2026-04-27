@@ -116,35 +116,116 @@ fn git_status(args: &[String]) {
     );
 }
 
-/// `ig git log` — compact oneline format with stats
+/// `ig git log` — compact oneline + collapsed shortstat (no per-file blocks).
 fn git_log(args: &[String]) {
     let native_full = run_git_capture(&[&["log"], args_as_str(args).as_slice()].concat());
 
-    // Build compact log command
+    // Detect verbose flags that explode size (per-file blocks, full diffs).
+    // We collapse them all to a single `--shortstat` line per commit.
+    // Flags that trigger per-file blocks → collapse to one shortstat line.
+    let stat_flags = [
+        "--stat",
+        "--numstat",
+        "--name-only",
+        "--name-status",
+        "--shortstat",
+        "--patch",
+        "-p",
+        "--patch-with-stat",
+        "--raw",
+    ];
+    // Cosmetic format flags that override our --format= → just strip them.
+    let cosmetic_flags = ["--oneline", "--graph"];
+    let user_wants_stat = args.iter().any(|a| {
+        let head = a.split('=').next().unwrap_or(a);
+        stat_flags.contains(&head)
+    });
+    let verbose_flags: Vec<&str> = stat_flags.iter().chain(cosmetic_flags.iter()).copied().collect();
+
     let mut cmd_args = vec![
         "log".to_string(),
-        "--format=%h %s (%ar) <%an>".to_string(),
         "--no-color".to_string(),
     ];
 
-    // If no -N or --max-count specified, default to 10
+    // Compact custom format. --oneline → tightest "%h %s".
+    let user_wants_oneline = args.iter().any(|a| {
+        let head = a.split('=').next().unwrap_or(a);
+        cosmetic_flags.contains(&head)
+    });
+    if user_wants_oneline {
+        cmd_args.push("--format=%h %s".to_string());
+    } else {
+        cmd_args.push("--format=%h %s (%ar) <%an>".to_string());
+    }
+    if user_wants_stat {
+        cmd_args.push("--shortstat".to_string());
+    }
+
+    // Default cap if user didn't specify one.
     let has_limit = args.iter().any(|a| {
-        a.starts_with('-') && a.chars().nth(1).is_some_and(|c| c.is_ascii_digit())
+        (a.starts_with('-') && a.chars().nth(1).is_some_and(|c| c.is_ascii_digit()))
             || a == "--max-count"
             || a == "-n"
+            || a.starts_with("--max-count=")
     });
     if !has_limit {
         cmd_args.push("-10".to_string());
     }
 
-    // Pass through user args (except format-related ones)
+    // Pass through user args except: format/pretty (we set our own), and the
+    // verbose flags we already collapsed to --shortstat.
     for arg in args {
-        if !arg.starts_with("--format") && !arg.starts_with("--pretty") {
-            cmd_args.push(arg.clone());
+        let head = arg.split('=').next().unwrap_or(arg);
+        if arg.starts_with("--format") || arg.starts_with("--pretty") {
+            continue;
         }
+        if verbose_flags.contains(&head) {
+            continue;
+        }
+        cmd_args.push(arg.clone());
     }
 
-    let output = run_git_capture(&cmd_args.iter().map(|s| s.as_str()).collect::<Vec<_>>());
+    let raw_unbounded = run_git_capture(&cmd_args.iter().map(|s| s.as_str()).collect::<Vec<_>>());
+
+    // Per-line width cap: long subjects (merge commits, generated messages) are
+    // mostly noise past 120 chars.
+    const MAX_LINE: usize = 120;
+    let raw: String = raw_unbounded
+        .lines()
+        .map(|l| {
+            if l.chars().count() > MAX_LINE {
+                let mut s: String = l.chars().take(MAX_LINE - 1).collect();
+                s.push('…');
+                s
+            } else {
+                l.to_string()
+            }
+        })
+        .map(|l| l + "\n")
+        .collect();
+
+    // Hard byte cap for large logs: keep first N commits, indicate truncation.
+    const MAX_BYTES: usize = 16 * 1024;
+    let output = if raw.len() <= MAX_BYTES {
+        raw
+    } else {
+        let mut acc = String::with_capacity(MAX_BYTES + 64);
+        let mut commits = 0usize;
+        for line in raw.lines() {
+            if acc.len() + line.len() + 1 > MAX_BYTES {
+                break;
+            }
+            // Heuristic: a "header" line starts with a 7-12 hex sha + space.
+            if !line.starts_with(' ') && line.len() > 8 {
+                commits += 1;
+            }
+            acc.push_str(line);
+            acc.push('\n');
+        }
+        acc.push_str(&format!("... truncated after {} commits\n", commits));
+        acc
+    };
+
     print!("{}", output);
     track("ig git log", native_full.len() as u64, output.len() as u64);
 }

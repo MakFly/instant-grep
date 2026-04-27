@@ -4,6 +4,10 @@ match = "^wc "
 strip_ansi = true
 replace = [
   { find = "^\\s+", with = "" },
+  # Drop the path (caller already typed it). `LINES WORDS BYTES PATH` →
+  # `LINES_L WORDS_W BYTES_B`. Compact unit-suffixed format.
+  { find = "^(\\d+)\\s+(\\d+)\\s+(\\d+)\\s+\\S.*$", with = "${1}L ${2}W ${3}B" },
+  { find = "^(\\d+)\\s+(\\d+)\\s+(\\d+)\\s*$", with = "${1}L ${2}W ${3}B" },
 ]
 max_lines = 50
 
@@ -20,3 +24,17 @@ match = "^wget "
 strip_ansi = true
 keep_lines = "(saved|ERROR|failed|\\d{4}-)"
 max_lines = 20
+
+[[filters]]
+name = "env"
+match = "^env( |$)"
+strip_ansi = true
+# Drop ultra-noisy env vars that ALWAYS leak into LLM context for zero value:
+# shell internals (LS_COLORS, TERMCAP), tooling caches, completion machinery.
+drop_lines = "^(LS_COLORS|TERMCAP|_|SHLVL|OLDPWD|TMPDIR|SECURITYSESSIONID|SSH_AUTH_SOCK|HISTFILE|LESS|PAGER|MANPATH|INFOPATH|FPATH|BUN_INSTALL|CARGO_HOME|RUSTUP_HOME|GOPATH|GOROOT|JAVA_HOME|DOCKER_HOST|COLORTERM|EDITOR|VISUAL|PWD|PATH|TZ|COREPACK_ENABLE_AUTO_PIN|NoDefaultCurrentDirectoryInExePath|XPC_\\w+|__CF\\w*|TERM_PROGRAM\\w*|TERM_SESSION_ID|ITERM_\\w+|CMUX_\\w+|CLAUDE_?\\w*|CLAUDECODE|VSCODE_\\w+|HOMEBREW_\\w+|PYENV_\\w+|RBENV_\\w+|NVM_\\w+|VOLTA_\\w+|ANDROID_\\w+|FLUTTER_\\w+|LC_\\w+|LANG|OTEL_\\w+|GIT_EDITOR|ENABLE_TOOL_SEARCH)="
+# Mask anything that smells like a secret.
+replace = [
+  { find = "(?i)(api[_-]?key|token|secret|password|passwd|auth|credential)\\s*=\\s*\\S+", with = "${1}=***" },
+]
+truncate_at = 200
+max_lines = 60

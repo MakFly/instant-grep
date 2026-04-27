@@ -1,5 +1,11 @@
 /target
 .ig/
+
+# secrets — POC embed-poc reads .env at project root
+.env
+.env.*
+!.env.example
+
 documentation/node_modules
 documentation/dist
 documentation/.astro

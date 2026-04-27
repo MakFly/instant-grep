@@ -88,11 +88,20 @@ fn route_to_dedicated(args: &[String]) -> Result<Option<i32>> {
         _ => return Ok(None),
     };
 
-    let first_ig_subcmd = rewritten
-        .strip_prefix("ig ")
-        .and_then(|s| s.split_whitespace().next())
-        .unwrap_or("");
-    if !DEDICATED.contains(&first_ig_subcmd) {
+    // Strip optional env-var prefix (e.g. `IG_COMPACT=1 ig "pat" path`) before
+    // identifying the ig subcommand.
+    let stripped = rewritten
+        .split_whitespace()
+        .skip_while(|t| t.contains('=') && !t.starts_with('"'))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let after_ig = stripped.strip_prefix("ig ").unwrap_or("");
+    let first_token = after_ig.split_whitespace().next().unwrap_or("");
+
+    // Also allow "ig <pattern>" (positional content search shortcut) — the
+    // first token starts with a quote.
+    let is_search_shortcut = first_token.starts_with('"');
+    if !DEDICATED.contains(&first_token) && !is_search_shortcut {
         return Ok(None);
     }
 
