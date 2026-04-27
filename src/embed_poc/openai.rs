@@ -28,11 +28,27 @@ struct ApiUsage {
     prompt_tokens: u32,
 }
 
-/// Single-input embedding (Phase 1). Phase 2 will introduce batching.
+/// Single-input embedding (Phase 1). Wraps `embed_batch` for convenience.
 pub fn embed_one(api_key: &str, model: &str, text: &str) -> Result<EmbedResponse> {
+    let mut batch = embed_batch(api_key, model, &[text.to_string()])?;
+    let v = batch.embeddings.pop().ok_or_else(|| anyhow!("empty"))?;
+    Ok(EmbedResponse {
+        embedding: v,
+        prompt_tokens: batch.prompt_tokens,
+    })
+}
+
+#[derive(Debug)]
+pub struct BatchResponse {
+    pub embeddings: Vec<Vec<f32>>,
+    pub prompt_tokens: u32,
+}
+
+/// Batch up to ~100 inputs per call (OpenAI hard limit is 2048; 100 is conservative).
+pub fn embed_batch(api_key: &str, model: &str, inputs: &[String]) -> Result<BatchResponse> {
     let body = json!({
         "model": model,
-        "input": text,
+        "input": inputs,
         "encoding_format": "float",
     });
 
@@ -60,13 +76,16 @@ pub fn embed_one(api_key: &str, model: &str, text: &str) -> Result<EmbedResponse
     let parsed: ApiResponse =
         serde_json::from_str(&body_str).with_context(|| "parse embeddings response JSON")?;
 
-    let datum = parsed
-        .data
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow!("OpenAI returned 0 embeddings"))?;
-    Ok(EmbedResponse {
-        embedding: datum.embedding,
+    if parsed.data.len() != inputs.len() {
+        return Err(anyhow!(
+            "OpenAI returned {} embeddings for {} inputs",
+            parsed.data.len(),
+            inputs.len()
+        ));
+    }
+
+    Ok(BatchResponse {
+        embeddings: parsed.data.into_iter().map(|d| d.embedding).collect(),
         prompt_tokens: parsed.usage.prompt_tokens,
     })
 }

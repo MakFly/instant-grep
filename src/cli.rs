@@ -478,6 +478,28 @@ pub enum EmbedPocOp {
         /// Text to embed
         text: String,
     },
+    /// Chunk + embed a directory, store JSON at .ig/poc-embeddings.json (Phase 2)
+    Index {
+        /// Directory to index (default: current dir)
+        dir: Option<String>,
+        /// Skip the y/N cost confirmation
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
+    /// Inspect the local store (human-readable)
+    Inspect {
+        /// How many chunks to preview (default: 10)
+        #[arg(long, default_value = "10")]
+        limit: usize,
+    },
+    /// Cosine top-N search over the local store
+    Search {
+        /// Query in natural language
+        query: String,
+        /// Top-N results (default: 5)
+        #[arg(long, default_value = "5")]
+        top: usize,
+    },
 }
 
 #[derive(Subcommand)]

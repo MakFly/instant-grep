@@ -750,9 +750,10 @@ fn main() -> Result<()> {
         }
 
         Some(Commands::EmbedPoc { op }) => match op {
-            EmbedPocOp::Hello { text } => {
-                embed_poc::run_hello(&text)?;
-            }
+            EmbedPocOp::Hello { text } => embed_poc::run_hello(&text)?,
+            EmbedPocOp::Index { dir, yes } => embed_poc::run_index(dir, yes)?,
+            EmbedPocOp::Inspect { limit } => embed_poc::run_inspect(limit)?,
+            EmbedPocOp::Search { query, top } => embed_poc::run_search(&query, top)?,
         },
 
         // No subcommand — shortcut mode: `ig "pattern" [path]`
