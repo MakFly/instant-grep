@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Block any commit that stages a .env file or contains an OpenAI/Anthropic-style key.
+# Activated locally with: git config core.hooksPath .githooks
+set -euo pipefail
+
+red()   { printf '\033[31m%s\033[0m\n' "$*" >&2; }
+green() { printf '\033[32m%s\033[0m\n' "$*" >&2; }
+
+# 1. Refuse staged .env / .env.* (allow .env.example)
+staged_env=$(git diff --cached --name-only --diff-filter=AM \
+             | grep -E '(^|/)\.env(\..+)?$' \
+             | grep -v '\.env\.example$' || true)
+if [[ -n "$staged_env" ]]; then
+  red "✗ pre-commit: refuse to commit env file(s):"
+  red "$staged_env"
+  red "  Unstage with: git restore --staged <file>"
+  exit 1
+fi
+
+# 2. Scan staged diff for secret-shaped strings
+diff_content=$(git diff --cached -U0 --no-color)
+# OpenAI project / user keys, Anthropic keys, generic long base64-ish secrets after KEY=
+patterns='sk-(proj|svcacct|admin)?-?[A-Za-z0-9_-]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|(API_KEY|SECRET|TOKEN|PASSWORD)\s*=\s*[A-Za-z0-9_/+=-]{16,}'
+hits=$(printf '%s\n' "$diff_content" | grep -E "$patterns" || true)
+# Filter out the placeholder
+hits=$(printf '%s\n' "$hits" | grep -v 'REPLACE_ME' | grep -v '\.env\.example' || true)
+if [[ -n "$hits" ]]; then
+  red "✗ pre-commit: secret-shaped string detected in staged diff:"
+  red "$hits"
+  red "  If false positive, bypass with --no-verify (only when sure)."
+  exit 1
+fi
+
+green "✓ pre-commit: no env file or secret-shaped string staged."
+exit 0
