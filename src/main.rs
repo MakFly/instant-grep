@@ -754,6 +754,7 @@ fn main() -> Result<()> {
             EmbedPocOp::Index { dir, yes } => embed_poc::run_index(dir, yes)?,
             EmbedPocOp::Inspect { limit } => embed_poc::run_inspect(limit)?,
             EmbedPocOp::Search { query, top } => embed_poc::run_search(&query, top)?,
+            EmbedPocOp::Serve { port, ui } => embed_poc::server::run_serve(port, ui)?,
         },
 
         // No subcommand — shortcut mode: `ig "pattern" [path]`

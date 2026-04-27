@@ -8,6 +8,7 @@ pub mod chunk;
 pub mod config;
 pub mod openai;
 pub mod search;
+pub mod server;
 pub mod store;
 
 use crate::walk;

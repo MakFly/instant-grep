@@ -500,6 +500,15 @@ pub enum EmbedPocOp {
         #[arg(long, default_value = "5")]
         top: usize,
     },
+    /// Phase 3 — start a tiny_http JSON server (+ optional static SPA)
+    Serve {
+        /// Bind port (127.0.0.1 only — POC)
+        #[arg(long, default_value = "7877")]
+        port: u16,
+        /// Path to a built SPA directory (e.g. `ui/dist`). If absent, a landing page is served.
+        #[arg(long)]
+        ui: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
