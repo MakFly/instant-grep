@@ -453,6 +453,13 @@ pub enum Commands {
         since: u32,
     },
 
+    /// POC — OpenAI embeddings playground (hidden, branch feat/ui-embeddings)
+    #[command(hide = true)]
+    EmbedPoc {
+        #[command(subcommand)]
+        op: EmbedPocOp,
+    },
+
     /// Generate a .ignore file tailored to the detected project stack
     Autoignore {
         /// Directory to generate .ignore for (default: current dir)
@@ -461,6 +468,15 @@ pub enum Commands {
         /// Overwrite an existing .ignore file
         #[arg(long)]
         force: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum EmbedPocOp {
+    /// Embed a single text input and print the vector summary (Phase 1)
+    Hello {
+        /// Text to embed
+        text: String,
     },
 }
 

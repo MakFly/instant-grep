@@ -7,6 +7,7 @@ mod context;
 mod daemon;
 mod delta;
 mod discover;
+mod embed_poc;
 mod filter;
 mod gain;
 mod git;
@@ -41,7 +42,7 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use clap::Parser;
 
-use cli::{Cli, Commands, TeeOp};
+use cli::{Cli, Commands, EmbedPocOp, TeeOp};
 use index::metadata::{INDEX_VERSION, IndexMetadata};
 use index::overlay::OverlayReader;
 use index::writer;
@@ -747,6 +748,12 @@ fn main() -> Result<()> {
         Some(Commands::Autoignore { path, force }) => {
             autoignore::run_autoignore(path, force)?;
         }
+
+        Some(Commands::EmbedPoc { op }) => match op {
+            EmbedPocOp::Hello { text } => {
+                embed_poc::run_hello(&text)?;
+            }
+        },
 
         // No subcommand — shortcut mode: `ig "pattern" [path]`
         None => {
