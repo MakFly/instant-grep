@@ -98,16 +98,18 @@ curl -fsSL https://raw.githubusercontent.com/MakFly/instant-grep/main/install.sh
 
 > Installs the binary and runs `ig setup` to configure all detected AI agents.
 
-### Download binary
+### Download binaries
 
-Grab the latest from [Releases](https://github.com/MakFly/instant-grep/releases/latest):
+Since **v1.13.0**, `ig` ships as two artefacts per platform — a tiny C shim (in your `PATH`) and a hidden Rust backend. Grab both from [Releases](https://github.com/MakFly/instant-grep/releases/latest):
 
-| Platform                | Binary             |
-| ----------------------- | ------------------ |
-| Linux x86_64            | `ig-linux-x86_64`  |
-| Linux ARM64             | `ig-linux-aarch64` |
-| macOS x86_64            | `ig-macos-x86_64`  |
-| macOS ARM (M1/M2/M3/M4) | `ig-macos-aarch64` |
+| Platform                | Shim (→ `~/.local/bin/ig`)  | Backend (→ `~/.local/share/ig/bin/ig-rust`) |
+| ----------------------- | --------------------------- | ------------------------------------------- |
+| Linux x86_64            | `ig-shim-linux-x86_64`      | `ig-backend-linux-x86_64`                   |
+| Linux ARM64             | `ig-shim-linux-aarch64`     | `ig-backend-linux-aarch64`                  |
+| macOS x86_64            | `ig-shim-macos-x86_64`      | `ig-backend-macos-x86_64`                   |
+| macOS ARM (M1/M2/M3/M4) | `ig-shim-macos-aarch64`     | `ig-backend-macos-aarch64`                  |
+
+The shim resolves the backend through `$IG_BACKEND` → `~/.local/share/ig/bin/ig-rust` → `/usr/local/share/ig/bin/ig-rust` → first `ig-rust` on `PATH`. Use `install.sh` to do this layout automatically (recommended).
 
 ### Build from source
 
@@ -518,6 +520,24 @@ The optimal strategy: `ig symbols | grep KEYWORD` for definitions, `ig -l "KEYWO
 | **Total** | **63/65** | **100% executed** (2 voluntary skips) |
 
 ## How it works
+
+### Distribution: C shim + hidden Rust backend (v1.13.0)
+
+```
+┌────────────────────────┐
+│ ~/.local/bin/ig        │   35 KB C shim, in $PATH
+│ (C shim, in PATH)      │
+└───────────┬────────────┘
+            │ hot path: argv → daemon socket (no execve)
+            │ cold path: execve($IG_BACKEND or fallback)
+            ▼
+┌──────────────────────────────────────┐
+│ ~/.local/share/ig/bin/ig-rust        │   5.1 MB Rust backend, hors $PATH
+│ (Rust backend)                       │
+└──────────────────────────────────────┘
+```
+
+A single `ig` name in your `PATH`. The shim handles the hot subcommands (`search`, `grep`, `files`, `count`) entirely in C — argv parse, root resolve, daemon socket round-trip — for sub-2 ms cold start. Cold-path subcommands (`index`, `setup`, `update`, …) `execve` the backend. Backend resolution: `$IG_BACKEND` → user share → system share → first `ig-rust` on `PATH`.
 
 ### The pipeline
 

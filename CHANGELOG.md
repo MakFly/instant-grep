@@ -2,6 +2,54 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.13.0] — 2026-04-27
+
+### Added — pure sparse n-grams (Phase 1, INDEX_VERSION 11)
+
+Removed the legacy fixed trigram fallback path. Index relies entirely on the danlark1/sparse_ngrams covering algorithm — fewer, longer keys → smaller posting lists, smaller candidate sets, smaller `.ig/`. Lexicon and postings shrink ~25–35 % on the iautos monorepo (3049 files: 31 MB → 22 MB lexicon, 7.1 MB → 5.0 MB postings). `INDEX_VERSION` bumped to **11**; existing v10 indexes are auto-rebuilt on the first query (no user action required).
+
+### Added — C shim + hidden Rust backend (dual-binary install)
+
+`ig` is now distributed as two artefacts:
+
+- **`~/.local/bin/ig`** — a 35 KB C shim in the user `PATH`. Hot path (`search`, `grep`, `files`, `count`) parses argv, resolves the project root, opens the daemon socket, and prints results without ever leaving C (cold start < 2 ms vs ~12 ms for a full Rust boot). Cold path (`index`, `setup`, `update`, …) `execve`s the backend.
+- **`~/.local/share/ig/bin/ig-rust`** — the 5.1 MB Rust backend, *outside* the `PATH`. Resolved by the shim through a 4-step fallback: `$IG_BACKEND` → user share → system share (`/usr/local/share/ig/bin/`) → first `ig-rust` on `PATH`.
+
+Net effect: a single `ig` name in the user's `PATH` (no leaked `ig-rust` shadowing other tools), faster hot queries, and a clean uninstall surface. New tests in `shim/test_fallback_paths.c` (5/5) cover every fallback branch.
+
+### Added — native `.ignore` autoignore (`src/autoignore.rs`)
+
+`ig` now writes a `.ignore` at project root on first run, mirroring the 38 default-excluded directories (`node_modules`, `target`, `vendor`, `.git`, …). Lets `rg` and friends respect the same exclusions, and lets users edit it without touching `ig` config. Idempotent (skipped if the file already exists).
+
+### Changed — `install.sh` rewrite for dual-binary layout
+
+- Detects and migrates legacy single-binary installs (`~/.cargo/bin/ig`, `/usr/local/bin/ig-rust` are removed, `~/.local/bin/ig` is replaced by the shim).
+- Downloads `ig-shim-<platform>` → `~/.local/bin/ig`, downloads `ig-backend-<platform>` → `~/.local/share/ig/bin/ig-rust`.
+- Atomic file writes (temp + rename) for both artefacts.
+- Idempotent: re-running upgrades both binaries in place without leaving a half-installed state on hook/SIGINT.
+
+### Changed — `ig update` and `ig uninstall` are dual-binary aware
+
+- `ig update`: `resolve_install_targets()` discovers both the running shim path *and* the backend path (env var, share dirs, `PATH` lookup). Downloads both artefacts, falls back to a single-binary release tarball if the v1.13.0 split assets 404 (forward-compatible with older self-hosted mirrors). Writes both atomically.
+- `ig uninstall`: removes shim + backend + the `~/.local/share/ig/bin/` parent dir if empty. 4 new tests cover the hidden-backend branch.
+
+### Tests
+
+- `cargo test --lib` — 442 passing (was 438), including 4 new uninstall tests.
+- `make -C shim test` — 13/13 (8 fallback + 5 fallback_paths).
+- `which ig-rust` → not found (correct: backend hors `PATH`).
+
+### Migration notes
+
+Users on 1.11.x who run `ig update`:
+
+1. Download split artefacts (shim + backend).
+2. Atomically replace `~/.local/bin/ig` with the shim.
+3. Install the backend at `~/.local/share/ig/bin/ig-rust`.
+4. Remove any legacy `ig-rust` from `~/.cargo/bin/` or `/usr/local/bin/` to avoid PATH shadowing.
+
+Existing `.ig/` indexes (v10) are auto-rebuilt on the next query — no manual `ig index`.
+
 ## [1.11.0] — 2026-04-25
 
 ### Added — auto-route CLI through daemon (transparent)

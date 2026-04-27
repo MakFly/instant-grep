@@ -452,6 +452,16 @@ pub enum Commands {
         #[arg(long, default_value = "30")]
         since: u32,
     },
+
+    /// Generate a .ignore file tailored to the detected project stack
+    Autoignore {
+        /// Directory to generate .ignore for (default: current dir)
+        path: Option<std::path::PathBuf>,
+
+        /// Overwrite an existing .ignore file
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand)]

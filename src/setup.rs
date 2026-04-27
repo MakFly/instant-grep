@@ -1215,6 +1215,100 @@ pub(crate) fn resolve_real_home() -> Option<PathBuf> {
 
 // ─── Public entry point ───────────────────────────────────────────────────────
 
+const SHELL_HOOK_OPEN: &str = "# >>> ig managed >>>";
+const SHELL_HOOK_CLOSE: &str = "# <<< ig managed <<<";
+
+const SHELL_HOOK_ZSH: &str = r#"# >>> ig managed >>>
+_ig_autostart() {
+    [[ -d .ig ]] || return 0
+    if [[ ! -f .ignore ]] && command -v ig >/dev/null 2>&1; then
+        ig autoignore "$PWD" >/dev/null 2>&1 &!
+    fi
+    if ! ig daemon status >/dev/null 2>&1; then
+        (ig daemon start >/dev/null 2>&1 &)
+    fi
+}
+if [[ -n "$ZSH_VERSION" ]]; then
+    chpwd_functions+=(_ig_autostart)
+fi
+# <<< ig managed <<<"#;
+
+const SHELL_HOOK_BASH: &str = r#"# >>> ig managed >>>
+_ig_autostart() {
+    [[ -d .ig ]] || return 0
+    if [[ ! -f .ignore ]] && command -v ig >/dev/null 2>&1; then
+        ig autoignore "$PWD" >/dev/null 2>&1 &
+    fi
+    if ! ig daemon status >/dev/null 2>&1; then
+        (ig daemon start >/dev/null 2>&1 &)
+    fi
+}
+PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }_ig_autostart"
+# <<< ig managed <<<"#;
+
+const SHELL_HOOK_FISH: &str = r#"# >>> ig managed >>>
+function _ig_autostart --on-variable PWD
+    test -d .ig; or return
+    if not test -f .ignore; and command -q ig
+        ig autoignore $PWD >/dev/null 2>&1 &
+    end
+    if not ig daemon status >/dev/null 2>&1
+        ig daemon start >/dev/null 2>&1 &
+    end
+end
+# <<< ig managed <<<"#;
+
+fn install_shell_hook(home: &Path, dry_run: bool) -> ConfigResult {
+    let shell = std::env::var("SHELL").unwrap_or_default();
+    let (rc_path, hook_content) = if shell.contains("zsh") {
+        (home.join(".zshrc"), SHELL_HOOK_ZSH)
+    } else if shell.contains("fish") {
+        (
+            home.join(".config/fish/config.fish"),
+            SHELL_HOOK_FISH,
+        )
+    } else {
+        (home.join(".bashrc"), SHELL_HOOK_BASH)
+    };
+
+    let existing = fs::read_to_string(&rc_path).unwrap_or_default();
+    if existing.contains(SHELL_HOOK_OPEN) && existing.contains(SHELL_HOOK_CLOSE) {
+        return ConfigResult::AlreadyDone(format!(
+            "Shell hook already present in {}",
+            rc_path.display()
+        ));
+    }
+
+    if dry_run {
+        return ConfigResult::Configured(format!(
+            "Would install shell hook in {}",
+            rc_path.display()
+        ));
+    }
+
+    if let Some(parent) = rc_path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    let new_content = if existing.is_empty() {
+        format!("{}\n", hook_content)
+    } else {
+        format!("{}\n{}\n", existing.trim_end_matches('\n'), hook_content)
+    };
+
+    match fs::write(&rc_path, new_content.as_bytes()) {
+        Ok(_) => ConfigResult::Configured(format!(
+            "Shell hook installed in {}",
+            rc_path.display()
+        )),
+        Err(e) => ConfigResult::Error(format!(
+            "Could not write {}: {}",
+            rc_path.display(),
+            e
+        )),
+    }
+}
+
 pub fn run_setup(dry_run: bool) {
     if dry_run {
         eprintln!("\x1b[1;33m🔧 ig setup [DRY RUN] — Showing what would be configured...\x1b[0m\n");
@@ -1255,6 +1349,15 @@ pub fn run_setup(dry_run: bool) {
         } else {
             eprintln!("\x1b[2m⊘ {} — not detected\x1b[0m", agent.name());
         }
+    }
+
+    // Install shell auto-warmup hook
+    eprintln!("\x1b[32m✓ Shell hook\x1b[0m");
+    let hook_result = install_shell_hook(&home, dry_run);
+    match &hook_result {
+        ConfigResult::Configured(msg) => eprintln!("  → {}", msg),
+        ConfigResult::AlreadyDone(msg) => eprintln!("  \x1b[2m→ {}\x1b[0m", msg),
+        ConfigResult::Error(msg) => eprintln!("  \x1b[31m✗ {}\x1b[0m", msg),
     }
 
     // --- Summary ---

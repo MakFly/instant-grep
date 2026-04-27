@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# instant-grep installer — downloads the latest release binary for your platform
+# instant-grep installer
+# Layout (option B — single user-facing binary):
+#   ~/.local/bin/ig                        ← C shim, in PATH (the only thing the user sees)
+#   ~/.local/share/ig/bin/ig-rust          ← Rust backend, hidden (invoked by the shim)
+#
+# Sudo install:
+#   /usr/local/bin/ig
+#   /usr/local/share/ig/bin/ig-rust
+#
 # Usage: curl -fsSL https://raw.githubusercontent.com/MakFly/instant-grep/main/install.sh | bash
 
 REPO="MakFly/instant-grep"
 
-# When running under sudo, resolve the real user's home directory.
-# Only use getent (reads /etc/passwd); never fall back to shell expansion
-# since `eval echo ~$SUDO_USER` is a command-injection sink if SUDO_USER
-# is attacker-controlled.
+# When running under sudo, resolve the real user's home directory via getent.
 if [ -n "${SUDO_USER:-}" ]; then
   REAL_HOME=$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || true)
   if [ -z "$REAL_HOME" ]; then
@@ -20,21 +25,33 @@ else
   REAL_HOME="$HOME"
 fi
 
-# Detect existing ig location — update in-place if found
-if [ -z "${IG_INSTALL_DIR:-}" ]; then
+# Determine install dirs ──────────────────────────────────────────────────────
+# IG_INSTALL_DIR overrides the shim location; SHARE_DIR is derived from it.
+if [ -n "${IG_INSTALL_DIR:-}" ]; then
+  BIN_DIR="$IG_INSTALL_DIR"
+elif [ -n "${SUDO_USER:-}" ] || [ "$(id -u)" = "0" ]; then
+  BIN_DIR="/usr/local/bin"
+else
+  # Detect existing shim location for in-place upgrade
   EXISTING_IG=$(command -v ig 2>/dev/null || true)
   if [ -n "$EXISTING_IG" ]; then
-    # Resolve symlinks to get the real path
     EXISTING_IG=$(readlink -f "$EXISTING_IG" 2>/dev/null || realpath "$EXISTING_IG" 2>/dev/null || echo "$EXISTING_IG")
-    INSTALL_DIR="$(dirname "$EXISTING_IG")"
+    BIN_DIR="$(dirname "$EXISTING_IG")"
   else
-    INSTALL_DIR="$REAL_HOME/.local/bin"
+    BIN_DIR="$REAL_HOME/.local/bin"
   fi
-else
-  INSTALL_DIR="$IG_INSTALL_DIR"
 fi
 
-# Detect platform
+# Derive SHARE_DIR from BIN_DIR
+case "$BIN_DIR" in
+  /usr/local/bin)              SHARE_DIR="/usr/local/share/ig/bin" ;;
+  /opt/homebrew/bin)           SHARE_DIR="/opt/homebrew/share/ig/bin" ;;
+  "$REAL_HOME/.local/bin")     SHARE_DIR="$REAL_HOME/.local/share/ig/bin" ;;
+  "$REAL_HOME/.cargo/bin")     SHARE_DIR="$REAL_HOME/.local/share/ig/bin" ;;
+  *)                           SHARE_DIR="$REAL_HOME/.local/share/ig/bin" ;;
+esac
+
+# Detect platform ─────────────────────────────────────────────────────────────
 OS="$(uname -s)"
 ARCH="$(uname -m)"
 
@@ -56,49 +73,82 @@ case "$OS" in
   *) echo "Unsupported OS: $OS"; exit 1 ;;
 esac
 
-# Get latest release tag
+ARTIFACT_RUST="${ARTIFACT}-rust"
+
+# Get latest release tag ──────────────────────────────────────────────────────
 TAG=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
 if [ -z "$TAG" ]; then
   echo "Failed to fetch latest release tag"
   exit 1
 fi
 
-URL="https://github.com/$REPO/releases/download/$TAG/$ARTIFACT"
+URL_SHIM="https://github.com/$REPO/releases/download/$TAG/$ARTIFACT"
+URL_RUST="https://github.com/$REPO/releases/download/$TAG/$ARTIFACT_RUST"
 
 echo "Installing instant-grep $TAG ($ARTIFACT)..."
-echo "  → $INSTALL_DIR/ig"
+echo "  shim    → $BIN_DIR/ig"
+echo "  backend → $SHARE_DIR/ig-rust"
 
-mkdir -p "$INSTALL_DIR"
-curl -fsSL "$URL" -o "$INSTALL_DIR/ig"
-chmod +x "$INSTALL_DIR/ig"
+mkdir -p "$BIN_DIR" "$SHARE_DIR"
 
-# Verify
-if "$INSTALL_DIR/ig" --version >/dev/null 2>&1; then
-  echo "✓ Installed: $("$INSTALL_DIR/ig" --version)"
-else
-  echo "✗ Installation failed"
+# Download shim
+if ! curl -fsSL "$URL_SHIM" -o "$BIN_DIR/ig"; then
+  echo "✗ Failed to download $ARTIFACT" >&2
   exit 1
 fi
+chmod +x "$BIN_DIR/ig"
 
-# Clean up stale binaries in other locations
-for dir in "$REAL_HOME/.local/bin" "$REAL_HOME/.cargo/bin"; do
-  other="$dir/ig"
-  if [ -f "$other" ] && [ "$(readlink -f "$other" 2>/dev/null || realpath "$other" 2>/dev/null || echo "$other")" != "$(readlink -f "$INSTALL_DIR/ig" 2>/dev/null || realpath "$INSTALL_DIR/ig" 2>/dev/null || echo "$INSTALL_DIR/ig")" ]; then
-    echo "  → Removed stale binary: $other"
-    rm -f "$other"
+# Download Rust backend (if release ships it; legacy releases may not)
+if curl -fsSL "$URL_RUST" -o "$SHARE_DIR/ig-rust" 2>/dev/null; then
+  chmod +x "$SHARE_DIR/ig-rust"
+else
+  echo "  ⚠ $ARTIFACT_RUST not in release — backend missing, shim will refuse to run"
+  echo "    This usually means you hit an old release; ask the maintainer to re-release."
+  rm -f "$SHARE_DIR/ig-rust"
+fi
+
+# Migration: clean up legacy ig-rust placed next to the shim ──────────────────
+for legacy in "$REAL_HOME/.local/bin/ig-rust" "$REAL_HOME/.cargo/bin/ig-rust" "/usr/local/bin/ig-rust"; do
+  if [ -f "$legacy" ]; then
+    echo "  → Removing legacy backend: $legacy"
+    rm -f "$legacy" 2>/dev/null || true
   fi
 done
 
-# Check PATH
-if ! echo "$PATH" | grep -q "$INSTALL_DIR"; then
+# Migration: clean up stale ig binaries elsewhere in the user's PATH ──────────
+for dir in "$REAL_HOME/.local/bin" "$REAL_HOME/.cargo/bin"; do
+  other="$dir/ig"
+  if [ -f "$other" ]; then
+    other_canon=$(readlink -f "$other" 2>/dev/null || realpath "$other" 2>/dev/null || echo "$other")
+    bin_canon=$(readlink -f "$BIN_DIR/ig" 2>/dev/null || realpath "$BIN_DIR/ig" 2>/dev/null || echo "$BIN_DIR/ig")
+    if [ "$other_canon" != "$bin_canon" ]; then
+      echo "  → Removed stale shim: $other"
+      rm -f "$other"
+    fi
+  fi
+done
+
+# Verify ──────────────────────────────────────────────────────────────────────
+if "$BIN_DIR/ig" --version >/dev/null 2>&1; then
+  echo "✓ Installed: $("$BIN_DIR/ig" --version)"
+elif [ -x "$SHARE_DIR/ig-rust" ] && "$SHARE_DIR/ig-rust" --version >/dev/null 2>&1; then
+  echo "✓ Installed (backend only): $("$SHARE_DIR/ig-rust" --version)"
+  echo "  Note: shim could not invoke backend; check \$IG_BACKEND or paths."
+else
+  echo "✗ Installation failed" >&2
+  exit 1
+fi
+
+# PATH check ──────────────────────────────────────────────────────────────────
+if ! echo "$PATH" | grep -q "$BIN_DIR"; then
   echo ""
   echo "Add to your shell config:"
-  echo "  export PATH=\"$INSTALL_DIR:\$PATH\""
+  echo "  export PATH=\"$BIN_DIR:\$PATH\""
 fi
 
 echo ""
 echo "Ready! Try: ig \"hello\" ."
 
-# Auto-configure AI CLI agents
+# Auto-configure AI CLI agents + shell hook
 echo ""
-"$INSTALL_DIR/ig" setup
+"$BIN_DIR/ig" setup || true

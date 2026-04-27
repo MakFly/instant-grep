@@ -443,16 +443,35 @@ fn remove_tracking_data(home: &Path, dry_run: bool) -> RemoveResult {
 // ─── Binary ─────────────────────────────────────────────────────────────────
 
 fn remove_binary(home: &Path, dry_run: bool) -> RemoveResult {
-    let bin = home.join(".local/bin/ig");
+    let shim = home.join(".local/bin/ig");
+    let backend = home.join(".local/share/ig/bin/ig-rust");
+    let backend_dir = home.join(".local/share/ig/bin");
 
-    if !bin.exists() {
-        return RemoveResult::NotFound("Binary not found at ~/.local/bin/ig".to_string());
+    let mut removed: Vec<String> = Vec::new();
+
+    if shim.exists() {
+        if !dry_run {
+            let _ = fs::remove_file(&shim);
+        }
+        removed.push(format!("Removed {}", shim.display()));
     }
-    // On Unix, removing a running binary is safe (inode stays until process exits)
-    if !dry_run {
-        let _ = fs::remove_file(&bin);
+
+    if backend.exists() {
+        // On Unix, removing a running binary is safe (inode stays until process exits)
+        if !dry_run {
+            let _ = fs::remove_file(&backend);
+            // Best-effort cleanup of the now-empty parent dir
+            let _ = fs::remove_dir(&backend_dir);
+        }
+        removed.push(format!("Removed {}", backend.display()));
     }
-    RemoveResult::Removed(format!("Removed {}", bin.display()))
+
+    if removed.is_empty() {
+        return RemoveResult::NotFound(
+            "Binary not found at ~/.local/bin/ig or ~/.local/share/ig/bin/ig-rust".to_string(),
+        );
+    }
+    RemoveResult::Removed(removed.join("; "))
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
@@ -716,6 +735,66 @@ mod tests {
         let result = remove_binary(dir.path(), false);
         assert!(matches!(result, RemoveResult::Removed(_)));
         assert!(!bin_dir.join("ig").exists());
+    }
+
+    #[test]
+    fn test_remove_binary_with_hidden_backend() {
+        let dir = TempDir::new().unwrap();
+        let bin_dir = dir.path().join(".local/bin");
+        let backend_dir = dir.path().join(".local/share/ig/bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        fs::create_dir_all(&backend_dir).unwrap();
+        fs::write(bin_dir.join("ig"), "shim").unwrap();
+        fs::write(backend_dir.join("ig-rust"), "rust binary").unwrap();
+
+        let result = remove_binary(dir.path(), false);
+        match result {
+            RemoveResult::Removed(msg) => {
+                assert!(msg.contains(".local/bin/ig"), "msg should mention shim: {msg}");
+                assert!(
+                    msg.contains(".local/share/ig/bin/ig-rust"),
+                    "msg should mention backend: {msg}"
+                );
+            }
+            RemoveResult::NotFound(_) => panic!("expected Removed"),
+        }
+        assert!(!bin_dir.join("ig").exists());
+        assert!(!backend_dir.join("ig-rust").exists());
+    }
+
+    #[test]
+    fn test_remove_binary_backend_only() {
+        let dir = TempDir::new().unwrap();
+        let backend_dir = dir.path().join(".local/share/ig/bin");
+        fs::create_dir_all(&backend_dir).unwrap();
+        fs::write(backend_dir.join("ig-rust"), "rust binary").unwrap();
+
+        let result = remove_binary(dir.path(), false);
+        assert!(matches!(result, RemoveResult::Removed(_)));
+        assert!(!backend_dir.join("ig-rust").exists());
+    }
+
+    #[test]
+    fn test_remove_binary_dry_run_preserves_files() {
+        let dir = TempDir::new().unwrap();
+        let bin_dir = dir.path().join(".local/bin");
+        let backend_dir = dir.path().join(".local/share/ig/bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        fs::create_dir_all(&backend_dir).unwrap();
+        fs::write(bin_dir.join("ig"), "shim").unwrap();
+        fs::write(backend_dir.join("ig-rust"), "rust binary").unwrap();
+
+        let result = remove_binary(dir.path(), true);
+        assert!(matches!(result, RemoveResult::Removed(_)));
+        assert!(bin_dir.join("ig").exists());
+        assert!(backend_dir.join("ig-rust").exists());
+    }
+
+    #[test]
+    fn test_remove_binary_not_found_when_absent() {
+        let dir = TempDir::new().unwrap();
+        let result = remove_binary(dir.path(), false);
+        assert!(matches!(result, RemoveResult::NotFound(_)));
     }
 
     #[test]

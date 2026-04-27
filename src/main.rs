@@ -1,4 +1,5 @@
 mod analytics;
+mod autoignore;
 mod cli;
 mod cmds;
 mod config;
@@ -741,6 +742,10 @@ fn main() -> Result<()> {
 
         Some(Commands::Economics { since }) => {
             analytics::economics::run_economics(since);
+        }
+
+        Some(Commands::Autoignore { path, force }) => {
+            autoignore::run_autoignore(path, force)?;
         }
 
         // No subcommand — shortcut mode: `ig "pattern" [path]`
