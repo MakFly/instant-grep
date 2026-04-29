@@ -21,6 +21,25 @@
 
 ---
 
+## TL;DR
+
+- **Trigram-indexed regex** that beats `ripgrep` 2–8× on warm caches with byte-identical match parity.
+- **Token-compressed CLI** (`ig git status/log/diff`, `ig read -s`, `ig ls`, …) shipped as drop-ins for AI agents.
+- **Indexes live in the XDG cache** (`~/.cache/ig/`) since v1.15.0 — your projects stay clean (no `.ig/` folder to gitignore). `find_root` also recognises `package.json`, `Cargo.toml`, `go.mod`, etc., so non-versioned projects no longer scatter stray indexes.
+- **One global daemon** since v1.16.0 — multi-tenant, single Unix socket, single systemd-user / launchd unit. Replaces the previous one-daemon-per-project design. **~14× less RAM** in real-world use (5–20 MB total instead of 60 MB × N).
+- **Two-step install on a new machine**: `curl … install.sh | bash`, then `ig daemon install`. New projects are served the moment they're queried — no preboot.
+
+```
+ig                  ──── ~/.cache/ig/ ──── one daemon, one socket, all your projects
+ │                       │
+ ├── search/             ├── <hash-of-rootA>/   ← lexicon.bin, postings.bin, …
+ ├── git proxy           ├── <hash-of-rootB>/
+ ├── ls / read / pack    ├── daemon.sock        ← single multi-tenant socket
+ └── gc / migrate        └── daemon.{pid,log}
+```
+
+---
+
 **One binary. ~5MB. Zero runtime dependencies.** `ig` replaces `grep`, `cat`, `ls`, `tree`, `find`, and `git status/log/diff` with token-optimized alternatives — built for AI coding agents (Claude Code, Codex, OpenCode, Cursor).
 
 ```
@@ -338,14 +357,51 @@ ig git show HEAD                  # stat + compact diff (-51%)
 ig git branch -a                  # passthrough (already compact)
 ```
 
-### Daemon mode (sub-millisecond)
+### Daemon mode (sub-millisecond, multi-tenant since v1.16.0)
+
+A single global daemon serves searches for **every** indexed project on the
+machine. One process, one socket, one systemd / launchd unit. Tenants are
+opened lazily on first query and kept in an LRU cache (default cap 32, set
+`IG_DAEMON_TENANTS_MAX` to override).
 
 ```bash
-ig daemon start .                 # persistent search process
-ig query "pattern" .              # 0.2ms response via Unix socket
-ig daemon stop .
-ig daemon install .               # auto-restart on macOS reboot
+ig daemon start                   # start the global daemon (foreground or backgrounded)
+ig daemon status                  # PID + socket
+ig daemon stop                    # SIGTERM the daemon
+ig daemon install                 # systemd-user (Linux) or launchd (macOS), auto-start on login
+
+ig query "pattern" /path/to/proj  # 0.06–1.3 ms response via the global Unix socket
 ```
+
+**RAM**: ~6 MB idle, ~12 MB with 3 hot tenants, ~19 MB with 5. Compared to the
+pre-v1.16.0 per-project model, this is **~14× less** in typical workstation
+use (16 cached projects went from 995 MB to 19 MB).
+
+**Wire format**: each query carries the project root in its JSON payload
+(`{"root": "/abs/path", "pattern": "...", …}`), so the daemon dispatches
+internally without needing per-project sockets.
+
+**Boot-time cleanup**: when v1.16.0+ starts, it SIGTERMs any leftover
+per-project daemons, removes their `/tmp/ig-*.sock` files, and takes over.
+Idempotent.
+
+### Cache management (since v1.15.0)
+
+Indexes live in `~/.cache/ig/<hash-of-root>/` (XDG-compliant). Set
+`IG_LOCAL_INDEX=1` to fall back to `<root>/.ig/` for a project, or
+`IG_CACHE_DIR=/path` to relocate the whole cache.
+
+```bash
+ig cache-ls                       # list every cached project (size, last_used)
+ig migrate [--dry-run]            # move <root>/.ig/ to the XDG cache
+ig gc [--days N] [--dry-run]      # drop entries whose root is gone, or unused for N days
+```
+
+**Project root detection** (`find_root`) recognises both `.git/` and project
+markers (`package.json`, `Cargo.toml`, `pyproject.toml`, `go.mod`,
+`deno.json`, `composer.json`, `bun.lock`, …). Searches from any subdirectory
+of a Next.js / Cargo / Go monorepo resolve to the same root → one shared
+index, no duplicates.
 
 ### Index management
 
@@ -704,7 +760,8 @@ ig
 ├── symbols.rs      — Symbol definition extraction
 ├── pack.rs         — Project context generator
 ├── ls.rs           — Compact directory listing
-├── daemon.rs       — Unix socket server (sub-ms)
+├── cache.rs        — XDG cache (~/.cache/ig/) + gc/migrate (v1.15.0)
+├── daemon.rs       — Single global Unix-socket server, multi-tenant LRU (v1.16.0)
 ├── watch.rs        — File watcher + auto-rebuild
 └── walk.rs         — Gitignore-aware walking
 ```
