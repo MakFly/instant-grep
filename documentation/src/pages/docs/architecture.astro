@@ -258,12 +258,12 @@ import DocsLayout from "@/layouts/docs.astro"
     <!-- On-disk format -->
     <section class="mb-12">
       <h2 class="text-2xl font-semibold text-foreground mb-4">
-        On-disk Format (.ig/ directory) — INDEX_VERSION 10
+        On-disk Format (.ig/ directory) — INDEX_VERSION 13
       </h2>
       <p class="text-sm text-muted-foreground mb-5">
         Five binary files, all memory-mapped for zero-copy access.
         <code class="font-mono">INDEX_VERSION</code> must be bumped when the format changes.
-        v10: 18-byte lexicon entries with bloom mask + locMask; <code class="font-mono">bigram_df.bin</code> and <code class="font-mono">filedata.bin</code> added for IDF-weighted boundaries and pre-computed per-file metadata.
+        v13: 18-byte lexicon entries keep aggregate bloom + locMask metadata, while <code class="font-mono">postings.bin</code> stores tagged per-document posting entries with bloom, loc and position-zone masks. Dense posting lists add skip-block metadata for selective intersections.
       </p>
 
       <div class="code-block rounded-lg overflow-hidden">
@@ -271,7 +271,7 @@ import DocsLayout from "@/layouts/docs.astro"
 <span class="theme-gold">├── metadata.bin</span>    <span class="pipeline-comment">— bincode: paths, mtimes, git SHA, IDF flag                 112 KB</span>
 <span class="theme-blue">├── lexicon.bin</span>     <span class="pipeline-comment">— Hash table: [key:u64, offset:u32, len:u32,                 35 MB</span>
 <span class="theme-blue">│                      bloom:u8, loc_mask:u8] (18 bytes/entry)</span>
-<span class="theme-orange-bright">├── postings.bin</span>    <span class="pipeline-comment">— Delta + VByte encoded, concatenated                        7.8 MB</span>
+<span class="theme-orange-bright">├── postings.bin</span>    <span class="pipeline-comment">— Tagged VByte PostingEntry stream + skip blocks              7.8 MB</span>
 <span class="theme-green">├── bigram_df.bin</span>   <span class="pipeline-comment">— bincode: corpus bigram document frequencies               95 KB</span>
 <span class="theme-orange">├── filedata.bin</span>    <span class="pipeline-comment">— bincode: line offsets, symbols, block boundaries          1.8 MB</span>
 <span class="theme-green">├── tree.txt</span>        <span class="pipeline-comment">— Compact directory tree snapshot (auto-generated)</span>
@@ -285,11 +285,11 @@ import DocsLayout from "@/layouts/docs.astro"
         </div>
         <div class="p-4 rounded-lg border border-border bg-secondary/30">
           <div class="text-xs font-mono font-bold mb-2 theme-orange-bright">postings.bin</div>
-          <div class="text-xs text-muted-foreground">VByte delta-encoded sorted file ID lists. Reader decodes lazily during intersection via streaming PostingIterator. Zero heap allocation in the decode phase.</div>
+          <div class="text-xs text-muted-foreground">Tagged VByte delta-encoded sorted posting entries. Small lists use a compact stream; dense lists add skip-block metadata with aggregate masks so the reader can jump toward candidate doc IDs.</div>
         </div>
         <div class="p-4 rounded-lg border border-border bg-secondary/30">
           <div class="text-xs font-mono font-bold mb-2 theme-gold">metadata.bin</div>
-          <div class="text-xs text-muted-foreground">Maps file IDs to paths. Stores mtimes and git SHAs for incremental detection. First 4 bytes: INDEX_VERSION (10). IDF flag marks whether bigram weights are available.</div>
+          <div class="text-xs text-muted-foreground">Maps file IDs to paths. Stores mtimes and git SHAs for incremental detection. First 4 bytes: INDEX_VERSION (13). IDF flag marks whether bigram weights are available.</div>
         </div>
         <div class="p-4 rounded-lg border border-border bg-secondary/30">
           <div class="text-xs font-mono font-bold mb-2 theme-green">bigram_df.bin</div>
@@ -433,19 +433,19 @@ import DocsLayout from "@/layouts/docs.astro"
       </div>
     </section>
 
-    <!-- Cursor Parity — 3.5-gram Architecture -->
+    <!-- Cursor-inspired 3.5-gram metadata -->
     <section class="mb-12">
       <h2 class="text-2xl font-semibold text-foreground mb-2">
-        Cursor Parity — The 3.5-gram Architecture
+        Cursor-Inspired 3.5-gram Metadata
       </h2>
       <div class="flex items-center gap-2 text-xs font-mono mb-4 theme-orange">
-        <span>Three layers of selectivity, stacked for maximum false-positive elimination</span>
+        <span>Sparse n-grams plus active bloom and locMask filtering before regex verification</span>
       </div>
 
       <p class="text-sm text-muted-foreground mb-5 leading-relaxed">
-        Standard trigram search gives 3.0 bits of selectivity per n-gram.
-        The v10 index extends this to <strong class="text-foreground">3.5 effective grams</strong> by layering two cheap
-        sub-byte filters directly into each 18-byte lexicon entry — no extra I/O, no extra mmap region.
+        The v13 index stores cheap masks per posting entry. Query execution uses sparse n-gram lookup,
+        next-byte bloom filtering, modulo-8 location compatibility, exact small-position compatibility, posting-list intersection,
+        and final regex verification. The masks only narrow candidates; regex remains authoritative.
       </p>
 
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
@@ -460,23 +460,23 @@ import DocsLayout from "@/layouts/docs.astro"
         <div class="rounded-lg border border p-5">
           <div class="text-xs font-mono font-bold mb-2 theme-blue">Layer 2 · Bloom Mask (+0.25)</div>
           <p class="text-xs text-muted-foreground leading-relaxed">
-            An 8-bit mask stored in the lexicon entry encodes the 4th character that follows
-            each trigram in the indexed text. At query time, the mask is checked before the
-            posting list is even touched — one bitwise AND eliminates false positives instantly.
+            An 8-bit mask on each posting entry encodes the byte that follows
+            an indexed n-gram occurrence. Query-time masked n-grams can reject
+            files whose following byte cannot match.
           </p>
         </div>
         <div class="rounded-lg border border p-5">
           <div class="text-xs font-mono font-bold mb-2 theme-green">Layer 3 · locMask (+0.25)</div>
           <p class="text-xs text-muted-foreground leading-relaxed">
-            An 8-bit mask encodes the position modulo 8 of each trigram occurrence.
-            Patterns with a known alignment (e.g. start-of-line tokens) can filter
-            candidates purely in the lexicon layer, before posting list decode.
+            An 8-bit mask encodes the position modulo 8 of each n-gram occurrence.
+            The reader checks relative alignment across multiple n-grams before
+            touching file contents.
           </p>
         </div>
       </div>
 
       <div class="code-block rounded-lg p-6 overflow-x-auto">
-        <div class="text-xs font-mono font-bold mb-4 theme-gold">Query Pipeline — v10 Detail</div>
+        <div class="text-xs font-mono font-bold mb-4 theme-gold">Query Pipeline — v13 Detail</div>
         <pre class="font-mono text-xs sm:text-sm leading-relaxed"><code set:html={`<span class="theme-orange-bright">regex pattern</span>
     │
     ▼
@@ -489,13 +489,16 @@ import DocsLayout from "@/layouts/docs.astro"
 <span class="theme-blue">FNV-1a hash</span> → NgramKey (u64) → lookup in mmap'd hash table
     │
     ▼
-<span class="theme-blue">Bloom mask check</span> → quick false-positive filter  <span class="pipeline-comment">(1 AND, no I/O)</span>
+<span class="theme-blue">Next-byte bloom mask</span> → reject incompatible per-file postings
     │
     ▼
-<span class="theme-blue">locMask check</span>   → alignment filter              <span class="pipeline-comment">(1 AND, no I/O)</span>
+<span class="theme-blue">locMask alignment</span>   → keep compatible modulo-8 positions
     │
     ▼
-<span class="theme-orange-bright">Intersect posting lists</span> (streaming VByte, zero allocation)
+<span class="theme-blue">Small-position mask</span> → reject incompatible exact early-file positions
+    │
+    ▼
+<span class="theme-orange-bright">Intersect posting entries</span> (VByte decoded or skip-block advanced)
     │
     ▼
 <span class="theme-orange">Parallel regex verification</span> (rayon, per-thread regex clone)
@@ -601,20 +604,20 @@ import DocsLayout from "@/layouts/docs.astro"
       </div>
     </section>
 
-    <!-- Streaming PostingIterator -->
+    <!-- Posting Entry Decode -->
     <section class="mb-4">
       <h2 class="text-2xl font-semibold text-foreground mb-2">
-        Streaming PostingIterator — Zero-Allocation Intersection
+        Posting Entry Decode — Masked Candidate Intersection
       </h2>
       <div class="flex items-center gap-2 text-xs font-mono mb-4 theme-orange">
-        <span>Posting lists decoded lazily — no heap allocation during intersection</span>
+        <span>Posting entries carry file IDs plus per-document bloom and loc masks</span>
       </div>
 
       <p class="text-sm text-muted-foreground mb-5 leading-relaxed">
-        Rather than decoding entire posting lists into <code class="font-mono">Vec&lt;u32&gt;</code> before intersecting,
-        the v10 reader uses a streaming <code class="font-mono">PostingIterator</code> that decodes VByte deltas
-        one document ID at a time — directly from the mmap'd <code class="font-mono">postings.bin</code> slice.
-        The result: zero heap allocation during the intersection phase, and cache-friendly sequential access.
+        The v13 reader decodes <code class="font-mono">PostingEntry</code> records from the mmap'd
+        <code class="font-mono">postings.bin</code> slice. Each record contains a delta-encoded file ID,
+        a next-byte bloom mask, a modulo-8 location mask, and an exact small-position mask with overflow. Dense lists include skip blocks so
+        selective intersections can advance directly toward candidate file IDs before regex verification.
       </p>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-5">
@@ -622,33 +625,35 @@ import DocsLayout from "@/layouts/docs.astro"
           <div class="text-sm font-mono font-bold mb-3 theme-blue">Lazy VByte Decode</div>
           <ul class="text-xs text-muted-foreground space-y-2">
             <li>• Posting list slice is borrowed directly from mmap — no copy</li>
-            <li>• Each <code class="font-mono">next()</code> call decodes the next VByte delta in-place</li>
-            <li>• Iterator tracks cumulative delta sum for absolute doc IDs</li>
-            <li>• Branchless decode path for common 1-byte values</li>
+            <li>• Each record decodes one VByte doc-ID delta plus bloom, loc and zone masks</li>
+            <li>• Decoder tracks cumulative delta sum for absolute doc IDs</li>
+            <li>• One-byte VByte deltas stay compact for adjacent file IDs</li>
           </ul>
         </div>
         <div class="rounded-lg border border p-5">
-          <div class="text-sm font-mono font-bold mb-3 theme-orange-bright">Galloping Intersection</div>
+          <div class="text-sm font-mono font-bold mb-3 theme-orange-bright">Masked Intersection</div>
           <ul class="text-xs text-muted-foreground space-y-2">
-            <li>• <code class="font-mono">advance_to(target)</code> skips forward efficiently on compressed data</li>
-            <li>• Multi-way intersection chains iterators against a materialized candidate set</li>
+            <li>• Next-byte bloom removes files whose following byte cannot match</li>
+            <li>• locMask keeps only relative modulo-8 alignments that can coexist</li>
             <li>• Rarest posting list is consumed first — fewest bytes decoded overall</li>
-            <li>• Branchless merge loop for cache-friendly final intersection</li>
+            <li>• Regex verification still decides the final result set</li>
           </ul>
         </div>
       </div>
 
       <div class="code-block rounded-lg p-5 text-xs font-mono leading-relaxed overflow-x-auto">
-        <div class="text-muted-foreground/60 mb-3">PostingIterator — conceptual interface:</div>
-        <pre><code set:html={`<span class="theme-blue">struct</span> PostingIterator&lt;<span class="theme-green">'a</span>&gt; {
-    data:    <span class="theme-green">&'a [u8]</span>,   <span class="pipeline-comment">// borrowed mmap slice — zero copy</span>
-    cursor:  <span class="theme-blue">usize</span>,
-    current: <span class="theme-blue">u32</span>,       <span class="pipeline-comment">// running delta sum</span>
+        <div class="text-muted-foreground/60 mb-3">PostingEntry — conceptual layout:</div>
+        <pre><code set:html={`<span class="theme-blue">struct</span> PostingEntry {
+    doc_id:    <span class="theme-blue">u32</span>,  <span class="pipeline-comment">// delta-encoded in postings.bin</span>
+    next_mask: <span class="theme-blue">u8</span>,   <span class="pipeline-comment">// hashed byte after the n-gram</span>
+    loc_mask:  <span class="theme-blue">u8</span>,   <span class="pipeline-comment">// occurrence positions modulo 8</span>
 }
 
-<span class="theme-blue">impl</span> PostingIterator<span class="theme-gold">&lt;'_&gt;</span> {
-    <span class="theme-blue">fn</span> <span class="theme-orange-bright">next</span>(&amp;mut self) → <span class="theme-blue">Option</span>&lt;<span class="theme-blue">u32</span>&gt;  <span class="pipeline-comment">{ /* decode 1 VByte delta */ }</span>
-    <span class="theme-blue">fn</span> <span class="theme-orange-bright">advance_to</span>(&amp;mut self, target: <span class="theme-blue">u32</span>)  <span class="pipeline-comment">{ /* gallop forward */ }</span>
+<span class="theme-blue">fn</span> resolve_and_masked(query_ngrams) {
+    <span class="theme-orange-bright">filter</span> postings by next_mask
+    <span class="theme-orange-bright">intersect</span> doc_id sets
+    <span class="theme-orange-bright">check</span> loc_mask compatibility
+    <span class="theme-orange-bright">verify</span> candidates with regex
 }`}></code></pre>
       </div>
     </section>

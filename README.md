@@ -411,6 +411,77 @@ ig status .                       # show stats
 ig watch .                        # auto-rebuild on file changes
 ```
 
+### Update management
+
+`ig update` has two jobs:
+
+1. update the `ig` binary itself from the latest GitHub release;
+2. refresh project indexes when the index format changed or new projects need
+   an index.
+
+By default, `ig update` only updates the binary:
+
+```bash
+ig update                         # update ig itself
+ig update --self-only             # same, explicit binary-only mode
+```
+
+Refresh indexes without touching the binary:
+
+```bash
+ig update --indexes               # refresh the current project index
+ig update .                       # same: path implies index refresh
+ig update /path/to/project        # refresh one explicit project
+```
+
+Detect projects under a directory and refresh all of them:
+
+```bash
+ig update --all ~/Documents/lab/sandbox
+ig update --all ~/work
+```
+
+`--all` detects project roots by looking for markers such as `.git`,
+`package.json`, `Cargo.toml`, `pyproject.toml`, `go.mod`, `composer.json`,
+`pnpm-workspace.yaml`, `bun.lock`, `Gemfile`, `pom.xml`, and similar files.
+It then builds missing indexes and rebuilds stale indexes whose metadata does
+not match the current `INDEX_VERSION`.
+
+Safety rules for broad scans:
+
+- hidden directories under the scanned root are skipped (`.bun`, `.cache`,
+  `.cargo`, `.nvm`, `.oh-my-zsh`, `.vscode-server`, etc.);
+- dependency/build folders are skipped (`node_modules`, `target`, `vendor`,
+  `dist`, `build`, `.next`, `.turbo`, coverage folders, virtualenvs, etc.);
+- XDG cache entries pointing to those skipped locations are ignored;
+- if you explicitly pass a hidden directory as the root, `ig` treats that as an
+  intentional target.
+
+For remote machines, install/update the binary once, then refresh indexes with
+one command:
+
+```bash
+ssh kev@192.168.1.57 '~/.local/bin/ig update --all ~/Documents/lab/sandbox'
+```
+
+Scanning the whole home is allowed, but usually less useful than targeting the
+workspace folder:
+
+```bash
+ssh kev@192.168.1.57 '~/.local/bin/ig update --all ~'
+```
+
+Manual alternatives remain available when you want tighter control:
+
+```bash
+ig status /path/to/project        # check whether an index exists/stale
+ig index /path/to/project         # force a full rebuild for one project
+ig watch /path/to/project         # keep one project rebuilt on file changes
+ig cache-ls                       # inspect cached indexes
+ig gc --dry-run                   # preview orphan/stale cache cleanup
+ig gc                             # remove orphan cache entries
+```
+
 ## Agent Integration
 
 ### One-shot setup
@@ -628,15 +699,15 @@ Trigrams:     23 keys → 47 candidate files
 Sparse grams:  3 keys →  4 candidate files (12x better)
 ```
 
-### On-disk format (v10)
+### On-disk format (v13)
 
 | File | Format | Size (1,552 files) |
 |------|--------|-------------------|
 | `metadata.bin` | bincode — file paths, mtimes, git SHA | 111 KB |
-| `lexicon.bin` | Hash table: `[NgramKey:u64, offset:u32, byte_len:u32]` | 31 MB |
-| `postings.bin` | Delta + VByte encoded, concatenated | 7.1 MB |
+| `lexicon.bin` | Hash table: `[NgramKey:u64, offset:u32, byte_len:u32, bloom:u8, loc_mask:u8]` | 31 MB |
+| `postings.bin` | Tagged VByte `PostingEntry { doc_id, next_mask, loc_mask, zone_mask }` streams; dense lists include skip blocks | 7.1 MB |
 
-Memory-mapped. Streaming SPIMI pipeline (128MB budget). Overlay index for incremental updates.
+Memory-mapped. Streaming SPIMI pipeline (128MB budget). Overlay index for incremental updates. Query execution uses per-document bloom, loc and exact small-position masks as Cursor-style prefilters; v13 skip blocks carry aggregate masks so selective intersections can jump through dense posting lists before final regex verification.
 
 ### BM25 ranking (v1.10.0)
 

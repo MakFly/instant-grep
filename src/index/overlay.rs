@@ -10,7 +10,7 @@ use super::merge;
 use super::metadata::IndexedFile;
 use super::ngram::NgramKey;
 use super::postings::DocId;
-use super::vbyte;
+use super::vbyte::{self, PostingEntry};
 
 /// Metadata for an overlay index (small incremental layer on top of base).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,7 +92,15 @@ impl OverlayReader {
     }
 
     /// Look up a single n-gram key in the overlay hash table.
+    #[allow(dead_code)]
     pub fn lookup_ngram(&self, key: NgramKey) -> Vec<DocId> {
+        self.lookup_entries(key)
+            .into_iter()
+            .map(|entry| entry.doc_id)
+            .collect()
+    }
+
+    pub fn lookup_entries(&self, key: NgramKey) -> Vec<PostingEntry> {
         if self.table_size == 0 {
             return Vec::new();
         }
@@ -140,7 +148,7 @@ impl OverlayReader {
                     return Vec::new();
                 }
 
-                return vbyte::decode_posting_list(&self.postings, offset, byte_len);
+                return vbyte::decode_posting_entries(&self.postings, offset, byte_len);
             }
 
             slot = (slot + 1) % self.table_size;
@@ -163,13 +171,13 @@ impl OverlayReader {
 ///
 /// `base_file_count`: number of files in the base index (for DocId offset).
 /// `base_files`: the base index file list (to find tombstone DocIds for modified/deleted files).
-/// `changed_file_data`: (rel_path, size, mtime, ngrams) for new/modified files.
+/// `changed_file_data`: (rel_path, size, mtime, ngrams with masks) for new/modified files.
 /// `deleted_paths`: relative paths of files deleted since base index.
 pub fn build_overlay(
     ig_dir: &Path,
     base_file_count: u32,
     base_files: &[IndexedFile],
-    changed_file_data: &[(String, u64, u64, Vec<NgramKey>)],
+    changed_file_data: &[(String, u64, u64, Vec<(NgramKey, u8, u8, u32)>)],
     deleted_paths: &[String],
     base_git_commit: &Option<String>,
     overlay_git_commit: &Option<String>,
@@ -204,7 +212,7 @@ pub fn build_overlay(
     };
 
     // Build postings for overlay files with DocIds starting at base_file_count
-    let mut postings_map: ahash::AHashMap<NgramKey, Vec<DocId>> = ahash::AHashMap::new();
+    let mut postings_map: ahash::AHashMap<NgramKey, Vec<PostingEntry>> = ahash::AHashMap::new();
     let mut added_files: Vec<IndexedFile> = Vec::new();
 
     for (idx, (rel_path, size, mtime, ngrams)) in changed_file_data.iter().enumerate() {
@@ -214,19 +222,24 @@ pub fn build_overlay(
             mtime: *mtime,
             size: *size,
         });
-        for &key in ngrams {
-            postings_map.entry(key).or_default().push(doc_id);
+        for &(key, bloom, loc, zone) in ngrams {
+            postings_map.entry(key).or_default().push(PostingEntry {
+                doc_id,
+                next_mask: bloom,
+                loc_mask: loc,
+                zone_mask: zone,
+            });
         }
     }
 
     // Sort and dedup posting lists
     for list in postings_map.values_mut() {
-        list.sort_unstable();
-        list.dedup();
+        list.sort_unstable_by_key(|p| p.doc_id);
+        list.dedup_by_key(|p| p.doc_id);
     }
 
     // Sort by key and build postings + lexicon
-    let mut sorted_entries: Vec<(NgramKey, &Vec<DocId>)> = postings_map
+    let mut sorted_entries: Vec<(NgramKey, &Vec<PostingEntry>)> = postings_map
         .iter()
         .map(|(&key, list)| (key, list))
         .collect();
@@ -238,16 +251,18 @@ pub fn build_overlay(
     let mut merged_entries: Vec<merge::MergedEntry> = Vec::new();
     let mut current_offset: u32 = 0;
 
-    for (key, doc_ids) in &sorted_entries {
-        let encoded = vbyte::encode_posting_list(doc_ids);
+    for (key, postings) in &sorted_entries {
+        let encoded = vbyte::encode_posting_entries(postings);
         let byte_len = encoded.len() as u32;
+        let bloom_mask = postings.iter().fold(0u8, |acc, p| acc | p.next_mask);
+        let loc_mask = postings.iter().fold(0u8, |acc, p| acc | p.loc_mask);
         postings_writer.write_all(&encoded)?;
         merged_entries.push(merge::MergedEntry {
             key: *key,
             byte_offset: current_offset,
             byte_length: byte_len,
-            bloom_mask: 0,
-            loc_mask: 0,
+            bloom_mask,
+            loc_mask,
         });
         current_offset += byte_len;
     }

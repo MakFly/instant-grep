@@ -36,7 +36,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::index::ngram::BigramDfTable;
 use crate::index::reader::IndexReader;
-use crate::query::extract::regex_to_query;
+use crate::query::extract::regex_to_query_costed;
 use crate::query::plan::NgramQuery;
 use crate::search::matcher::{self, SearchConfig};
 use crate::util::ig_dir;
@@ -394,7 +394,12 @@ fn process_query_cached(req: &QueryRequest, tenant: &TenantState, reloaded: bool
         match cached {
             Some(q) => q,
             None => {
-                match regex_to_query(&req.pattern, req.case_insensitive, rv.df_table.as_ref()) {
+                match regex_to_query_costed(
+                    &req.pattern,
+                    req.case_insensitive,
+                    rv.df_table.as_ref(),
+                    |query| rv.reader.estimate_query_cost(query),
+                ) {
                     Ok(q) => {
                         tenant
                             .query_cache
@@ -933,19 +938,20 @@ fn process_query(line: &str, reader: &IndexReader, root: &Path, reloaded: bool) 
     };
     let start = Instant::now();
     let total_files = reader.total_file_count() as usize;
-    let query = match regex_to_query(&req.pattern, req.case_insensitive, None) {
-        Ok(q) => q,
-        Err(e) => {
-            return QueryResponse {
-                results: None,
-                error: Some(format!("invalid regex: {}", e)),
-                candidates: 0,
-                total_files,
-                search_ms: 0.0,
-                reloaded,
-            };
-        }
-    };
+    let query =
+        match crate::query::extract::regex_to_query(&req.pattern, req.case_insensitive, None) {
+            Ok(q) => q,
+            Err(e) => {
+                return QueryResponse {
+                    results: None,
+                    error: Some(format!("invalid regex: {}", e)),
+                    candidates: 0,
+                    total_files,
+                    search_ms: 0.0,
+                    reloaded,
+                };
+            }
+        };
     let candidates = reader.resolve(&query);
     let candidate_count = candidates.len();
     let regex = match RegexBuilder::new(&req.pattern)

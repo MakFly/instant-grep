@@ -6,8 +6,7 @@ use ahash::AHashMap;
 use anyhow::{Context, Result};
 
 use super::ngram::NgramKey;
-use super::postings::DocId;
-use super::vbyte;
+use super::vbyte::{self, PostingEntry};
 
 /// Magic bytes for segment files: "IGSG"
 const SEGMENT_MAGIC: u32 = 0x4947_5347;
@@ -64,13 +63,13 @@ pub struct SegmentInfo {
 
 /// Flush the current postings map (with masks) to a segment file.
 pub fn flush_segment(
-    postings_map: &mut AHashMap<NgramKey, (Vec<DocId>, u8, u8)>,
+    postings_map: &mut AHashMap<NgramKey, Vec<PostingEntry>>,
     segment_dir: &Path,
     segment_id: u32,
 ) -> Result<SegmentInfo> {
     // Sort entries by key for sequential merge later
     #[allow(clippy::type_complexity)]
-    let mut entries: Vec<(NgramKey, (Vec<DocId>, u8, u8))> = postings_map.drain().collect();
+    let mut entries: Vec<(NgramKey, Vec<PostingEntry>)> = postings_map.drain().collect();
     entries.sort_unstable_by_key(|(k, _)| *k);
 
     let path = segment_dir.join(format!("seg_{:04}.bin", segment_id));
@@ -82,16 +81,18 @@ pub fn flush_segment(
     writer.write_all(&(entries.len() as u32).to_le_bytes())?;
     writer.write_all(&0u32.to_le_bytes())?; // reserved
 
-    // Write sorted entries: key(u64) + byte_len(u32) + bloom(u8) + loc(u8) + posting_bytes
-    for (key, (doc_ids, bloom_mask, loc_mask)) in &mut entries {
-        doc_ids.sort_unstable();
-        doc_ids.dedup();
+    // Write sorted entries: key(u64) + byte_len(u32) + aggregate bloom(u8) + aggregate loc(u8) + posting bytes.
+    for (key, postings) in &mut entries {
+        postings.sort_unstable_by_key(|p| p.doc_id);
+        postings.dedup_by_key(|p| p.doc_id);
+        let bloom_mask = postings.iter().fold(0u8, |acc, p| acc | p.next_mask);
+        let loc_mask = postings.iter().fold(0u8, |acc, p| acc | p.loc_mask);
 
-        let encoded = vbyte::encode_posting_list(doc_ids);
+        let encoded = vbyte::encode_posting_entries(postings);
 
         writer.write_all(&key.to_le_bytes())?;
         writer.write_all(&(encoded.len() as u32).to_le_bytes())?;
-        writer.write_all(&[*bloom_mask, *loc_mask])?;
+        writer.write_all(&[bloom_mask, loc_mask])?;
         writer.write_all(&encoded)?;
     }
 
@@ -190,18 +191,19 @@ pub fn build_segments(
     fs::create_dir_all(segment_dir).context("create segment directory")?;
 
     let mut budget = MemoryBudget::new(memory_budget);
-    let mut postings_map: AHashMap<NgramKey, (Vec<DocId>, u8, u8)> = AHashMap::new();
+    let mut postings_map: AHashMap<NgramKey, Vec<PostingEntry>> = AHashMap::new();
     let mut segments: Vec<SegmentInfo> = Vec::new();
     let mut segment_id: u32 = 0;
 
     for (new_id, (_rel_path, _size, _mtime, ngrams)) in file_data.iter().enumerate() {
         for &key in ngrams {
             let is_new = !postings_map.contains_key(&key);
-            postings_map
-                .entry(key)
-                .or_insert_with(|| (Vec::new(), 0u8, 0u8))
-                .0
-                .push(new_id as DocId);
+            postings_map.entry(key).or_default().push(PostingEntry {
+                doc_id: new_id as crate::index::postings::DocId,
+                next_mask: 0,
+                loc_mask: 0,
+                zone_mask: 0,
+            });
             budget.track_posting(is_new);
         }
 
@@ -276,7 +278,10 @@ mod tests {
 
         // Verify posting lists
         let decode = |e: &SegmentEntry| {
-            vbyte::decode_posting_list(&e.posting_bytes, 0, e.posting_bytes.len())
+            vbyte::decode_posting_entries(&e.posting_bytes, 0, e.posting_bytes.len())
+                .into_iter()
+                .map(|entry| entry.doc_id)
+                .collect::<Vec<_>>()
         };
 
         // Key 1: files a.rs (0) and c.rs (2)

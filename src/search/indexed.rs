@@ -6,8 +6,8 @@ use rayon::prelude::*;
 use regex::bytes::RegexBuilder;
 
 use crate::index::ngram::BigramDfTable;
-use crate::index::reader::IndexReader;
-use crate::query::extract::regex_to_query;
+use crate::index::reader::{IndexReader, ResolveStats};
+use crate::query::extract::regex_to_query_costed;
 use crate::search::fallback;
 use crate::search::matcher::{self, FileMatches, SearchConfig};
 use crate::util::ig_dir;
@@ -17,6 +17,7 @@ pub struct SearchStats {
     pub candidate_files: usize,
     pub search_duration: std::time::Duration,
     pub used_index: bool,
+    pub resolve_stats: Option<ResolveStats>,
 }
 
 /// Search using the trigram index.
@@ -44,7 +45,9 @@ pub fn search_indexed(
     } else {
         None
     };
-    let query = regex_to_query(pattern, case_insensitive, df_table.as_ref())?;
+    let query = regex_to_query_costed(pattern, case_insensitive, df_table.as_ref(), |query| {
+        reader.estimate_query_cost(query)
+    })?;
 
     if query.is_all() {
         let results = fallback::search_brute_force(
@@ -62,11 +65,12 @@ pub fn search_indexed(
             candidate_files: total_files,
             search_duration: start.elapsed(),
             used_index: false,
+            resolve_stats: None,
         };
         return Ok((results, stats));
     }
 
-    let candidates = reader.resolve(&query);
+    let (candidates, resolve_stats) = reader.resolve_with_stats(&query);
 
     // Escape hatch: if index can't filter enough (>85% of files are candidates),
     // fall back to brute-force. Raised from 60% because lazy line_starts makes
@@ -88,6 +92,7 @@ pub fn search_indexed(
             candidate_files: candidates.len(),
             search_duration: start.elapsed(),
             used_index: false,
+            resolve_stats: Some(resolve_stats),
         };
         return Ok((results, stats));
     }
@@ -172,6 +177,7 @@ pub fn search_indexed(
         candidate_files: filtered_count,
         search_duration: start.elapsed(),
         used_index: true,
+        resolve_stats: Some(resolve_stats),
     };
 
     Ok((results, stats))

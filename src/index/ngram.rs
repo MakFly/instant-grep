@@ -106,6 +106,24 @@ pub fn loc_bit(position: usize) -> u8 {
     1u8 << (position % 8)
 }
 
+pub const POSITION_ZONE_SIZE: usize = 1;
+pub const POSITION_ZONE_COUNT: usize = 31;
+pub const POSITION_ZONE_OVERFLOW_BIT: u32 = 1u32 << 31;
+
+/// Compute an exact small-position bit for an n-gram occurrence.
+///
+/// Bits 0..30 cover byte positions 0..30. Bit 31 means overflow/unknown and
+/// must be treated as "cannot reject" by query-time filters.
+#[inline]
+pub fn zone_bit(position: usize) -> u32 {
+    let zone = position / POSITION_ZONE_SIZE;
+    if zone < POSITION_ZONE_COUNT {
+        1u32 << zone
+    } else {
+        POSITION_ZONE_OVERFLOW_BIT
+    }
+}
+
 /// Hash an n-gram (variable-length byte slice) into a NgramKey.
 /// Uses FNV-1a for good distribution and speed.
 pub fn hash_ngram(bytes: &[u8]) -> NgramKey {
@@ -303,6 +321,7 @@ pub fn build_covering_ngrams(
 ///
 /// When `df_table` is `Some`, IDF-weighted boundary selection produces more
 /// selective n-grams, reducing false positives at query time.
+#[allow(dead_code)]
 pub fn extract_sparse_ngrams(data: &[u8], df_table: Option<&BigramDfTable>) -> Vec<NgramKey> {
     let ranges = build_all_ngrams(data, df_table);
     let mut keys: Vec<NgramKey> = ranges
@@ -334,41 +353,44 @@ pub fn extract_sparse_ngrams(data: &[u8], df_table: Option<&BigramDfTable>) -> V
 pub fn extract_sparse_ngrams_with_masks(
     data: &[u8],
     df_table: Option<&BigramDfTable>,
-) -> Vec<(NgramKey, u8, u8)> {
+) -> Vec<(NgramKey, u8, u8, u32)> {
     let ranges = build_all_ngrams(data, df_table);
-    let mut mask_map: AHashMap<NgramKey, (u8, u8)> = AHashMap::new();
+    let mut mask_map: AHashMap<NgramKey, (u8, u8, u32)> = AHashMap::new();
 
     for &(start, end) in &ranges {
         let key = hash_ngram(&data[start..end]);
-        let entry = mask_map.entry(key).or_insert((0u8, 0u8));
+        let entry = mask_map.entry(key).or_insert((0u8, 0u8, 0u32));
         // bloom: hash the follow character (byte after the ngram)
         if end < data.len() {
             entry.0 |= bloom_bit(data[end]);
         }
         // loc: position of this ngram occurrence
         entry.1 |= loc_bit(start);
+        // zone: exact small-position mask, with overflow for later bytes
+        entry.2 |= zone_bit(start);
     }
 
     // Also add bigram keys with masks
     if data.len() >= 2 {
         for (i, window) in data.windows(2).enumerate() {
             let key = hash_ngram(window);
-            let entry = mask_map.entry(key).or_insert((0u8, 0u8));
+            let entry = mask_map.entry(key).or_insert((0u8, 0u8, 0u32));
             // bloom: follow char after the bigram
             if i + 2 < data.len() {
                 entry.0 |= bloom_bit(data[i + 2]);
             }
             // loc: position of this bigram
             entry.1 |= loc_bit(i);
+            entry.2 |= zone_bit(i);
         }
     }
 
-    let mut result: Vec<(NgramKey, u8, u8)> = mask_map
+    let mut result: Vec<(NgramKey, u8, u8, u32)> = mask_map
         .into_iter()
-        .map(|(key, (bloom, loc))| (key, bloom, loc))
+        .map(|(key, (bloom, loc, zone))| (key, bloom, loc, zone))
         .collect();
-    result.sort_unstable_by_key(|(k, _, _)| *k);
-    result.dedup_by_key(|(k, _, _)| *k);
+    result.sort_unstable_by_key(|(k, _, _, _)| *k);
+    result.dedup_by_key(|(k, _, _, _)| *k);
     result
 }
 
@@ -376,6 +398,7 @@ pub fn extract_sparse_ngrams_with_masks(
 ///
 /// When `df_table` is `Some`, IDF-weighted boundary selection produces
 /// covering n-grams that better match the index-time boundaries.
+#[allow(dead_code)]
 pub fn extract_covering_ngrams(
     data: &[u8],
     max_len: usize,
@@ -683,13 +706,15 @@ mod tests {
         }
 
         // Every entry should have some mask bits set (for non-trivial data)
-        let has_bloom = results.iter().any(|(_, bloom, _)| *bloom != 0);
-        let has_loc = results.iter().any(|(_, _, loc)| *loc != 0);
+        let has_bloom = results.iter().any(|(_, bloom, _, _)| *bloom != 0);
+        let has_loc = results.iter().any(|(_, _, loc, _)| *loc != 0);
+        let has_zone = results.iter().any(|(_, _, _, zone)| *zone != 0);
         assert!(has_bloom, "some ngrams should have bloom bits set");
         assert!(has_loc, "some ngrams should have loc bits set");
+        assert!(has_zone, "some ngrams should have zone bits set");
 
         // The set of keys should match extract_sparse_ngrams (same keys, just with masks)
-        let keys_with_masks: Vec<NgramKey> = results.iter().map(|(k, _, _)| *k).collect();
+        let keys_with_masks: Vec<NgramKey> = results.iter().map(|(k, _, _, _)| *k).collect();
         let keys_plain = extract_sparse_ngrams(data, None);
         assert_eq!(keys_with_masks, keys_plain, "same key set expected");
     }
