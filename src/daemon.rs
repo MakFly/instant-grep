@@ -288,6 +288,13 @@ pub fn start_daemon(_legacy_path: &Path) -> Result<()> {
     }
     let _ = std::fs::remove_file(&sock);
 
+    // Record our PID so `ig daemon status` can find us regardless of how we
+    // were launched (systemd unit, launchd, manual `daemon foreground`, …).
+    let pid_file = pid_path();
+    if let Err(e) = std::fs::write(&pid_file, std::process::id().to_string()) {
+        eprintln!("warn: write {} failed: {}", pid_file.display(), e);
+    }
+
     ctrlc_cleanup(sock.clone());
 
     let listener =
@@ -909,8 +916,10 @@ pub fn try_query_daemon(
 // ─── Signal handler ─────────────────────────────────────────────────────────
 
 fn ctrlc_cleanup(sock_path: PathBuf) {
+    let pid = pid_path();
     let _ = ctrlc::set_handler(move || {
         let _ = std::fs::remove_file(&sock_path);
+        let _ = std::fs::remove_file(&pid);
         std::process::exit(0);
     });
 }
