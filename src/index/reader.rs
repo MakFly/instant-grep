@@ -364,48 +364,6 @@ impl IndexReader {
         &self.metadata.files[doc_id as usize].path
     }
 
-    /// Pre-fault the lexicon mmap into the OS page cache. Lexicon is hot for
-    /// every query (hash lookup → linear probing), so we touch one byte per
-    /// page sequentially. MADV_WILLNEED at open() *requests* prefetch but the
-    /// kernel may delay it; this loop guarantees the pages are resident.
-    pub fn warm_lexicon(&self) {
-        let page_size = 4096;
-        let mut sum: u8 = 0;
-        for offset in (0..self.lexicon.len()).step_by(page_size) {
-            sum = sum.wrapping_add(self.lexicon[offset]);
-        }
-        std::hint::black_box(sum);
-    }
-
-    /// Pre-fault the postings mmap into the OS page cache via sequential scan.
-    pub fn warm_postings(&self) {
-        #[cfg(unix)]
-        unsafe {
-            // Temporarily set sequential for readahead
-            libc::madvise(
-                self.postings.as_ptr() as *mut libc::c_void,
-                self.postings.len(),
-                libc::MADV_SEQUENTIAL,
-            );
-        }
-        // Touch one byte per page to trigger page faults
-        let page_size = 4096;
-        let mut sum: u8 = 0;
-        for offset in (0..self.postings.len()).step_by(page_size) {
-            sum = sum.wrapping_add(self.postings[offset]);
-        }
-        std::hint::black_box(sum);
-        #[cfg(unix)]
-        unsafe {
-            // Reset to random for query-time access
-            libc::madvise(
-                self.postings.as_ptr() as *mut libc::c_void,
-                self.postings.len(),
-                libc::MADV_RANDOM,
-            );
-        }
-    }
-
     /// Total file count including overlay.
     pub fn total_file_count(&self) -> u32 {
         if let Some(ref overlay) = self.overlay {

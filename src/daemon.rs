@@ -199,8 +199,14 @@ impl TenantState {
                     rv.last_mtime = current;
                     old
                 };
-                self.regex_cache.lock().unwrap_or_else(|e| e.into_inner()).clear();
-                self.query_cache.lock().unwrap_or_else(|e| e.into_inner()).clear();
+                self.regex_cache
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clear();
+                self.query_cache
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clear();
                 eprintln!(
                     "[{}] reloaded: {} → {} files",
                     self.root.display(),
@@ -260,11 +266,6 @@ impl GlobalState {
         }
         Ok(tenant)
     }
-
-    fn cached_roots(&self) -> Vec<PathBuf> {
-        let guard = self.tenants.lock().unwrap_or_else(|e| e.into_inner());
-        guard.iter().map(|(k, _)| k.clone()).collect()
-    }
 }
 
 // ─── Server entry points ────────────────────────────────────────────────────
@@ -297,8 +298,7 @@ pub fn start_daemon(_legacy_path: &Path) -> Result<()> {
 
     ctrlc_cleanup(sock.clone());
 
-    let listener =
-        UnixListener::bind(&sock).with_context(|| format!("bind {}", sock.display()))?;
+    let listener = UnixListener::bind(&sock).with_context(|| format!("bind {}", sock.display()))?;
 
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&sock, std::fs::Permissions::from_mode(0o600))
@@ -378,16 +378,9 @@ fn process_request(line: &str, state: &GlobalState) -> QueryResponse {
     process_query_cached(&req, &tenant, reloaded)
 }
 
-fn process_query_cached(
-    req: &QueryRequest,
-    tenant: &TenantState,
-    reloaded: bool,
-) -> QueryResponse {
+fn process_query_cached(req: &QueryRequest, tenant: &TenantState, reloaded: bool) -> QueryResponse {
     let start = Instant::now();
-    let rv = tenant
-        .reader_view
-        .read()
-        .unwrap_or_else(|e| e.into_inner());
+    let rv = tenant.reader_view.read().unwrap_or_else(|e| e.into_inner());
     let total_files = rv.reader.total_file_count() as usize;
     let cache_key = (req.pattern.clone(), req.case_insensitive);
 
@@ -400,26 +393,28 @@ fn process_query_cached(
             .cloned();
         match cached {
             Some(q) => q,
-            None => match regex_to_query(&req.pattern, req.case_insensitive, rv.df_table.as_ref()) {
-                Ok(q) => {
-                    tenant
-                        .query_cache
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .put(cache_key.clone(), q.clone());
-                    q
+            None => {
+                match regex_to_query(&req.pattern, req.case_insensitive, rv.df_table.as_ref()) {
+                    Ok(q) => {
+                        tenant
+                            .query_cache
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .put(cache_key.clone(), q.clone());
+                        q
+                    }
+                    Err(e) => {
+                        return QueryResponse {
+                            results: None,
+                            error: Some(format!("invalid regex: {}", e)),
+                            candidates: 0,
+                            total_files,
+                            search_ms: 0.0,
+                            reloaded,
+                        };
+                    }
                 }
-                Err(e) => {
-                    return QueryResponse {
-                        results: None,
-                        error: Some(format!("invalid regex: {}", e)),
-                        candidates: 0,
-                        total_files,
-                        search_ms: 0.0,
-                        reloaded,
-                    };
-                }
-            },
+            }
         }
     };
 
@@ -740,7 +735,10 @@ pub fn install_launchd(_legacy_path: &Path) -> Result<()> {
         eprintln!("Installed: {}", plist_path.display());
         eprintln!("Daemon will auto-start on login.");
     } else {
-        eprintln!("launchctl load failed (exit {})", status.code().unwrap_or(-1));
+        eprintln!(
+            "launchctl load failed (exit {})",
+            status.code().unwrap_or(-1)
+        );
     }
     Ok(())
 }
@@ -909,7 +907,8 @@ pub fn try_query_daemon(
     let mut reader = BufReader::new(&stream);
     let mut response = String::new();
     reader.read_line(&mut response)?;
-    let parsed: DaemonResponse = serde_json::from_str(&response).context("parse daemon response")?;
+    let parsed: DaemonResponse =
+        serde_json::from_str(&response).context("parse daemon response")?;
     Ok(Some(parsed))
 }
 
@@ -987,44 +986,44 @@ fn process_query(line: &str, reader: &IndexReader, root: &Path, reloaded: bool) 
         .collect();
     let results: Vec<MatchResult> = candidate_paths
         .par_iter()
-        .filter_map(|(_doc_id, rel_path)| match matcher::match_file(
-            root, rel_path, &regex, &config,
-        ) {
-            Ok(Some(file_matches)) => {
-                if req.files_only {
-                    Some(vec![MatchResult {
-                        file: file_matches.path,
-                        line: None,
-                        text: None,
-                        count: None,
-                    }])
-                } else if req.count_only {
-                    Some(vec![MatchResult {
-                        file: file_matches.path,
-                        line: None,
-                        text: None,
-                        count: Some(file_matches.match_count),
-                    }])
-                } else {
-                    let matches: Vec<MatchResult> = file_matches
-                        .matches
-                        .iter()
-                        .filter(|m| !m.is_context)
-                        .map(|m| MatchResult {
-                            file: file_matches.path.clone(),
-                            line: Some(m.line_number),
-                            text: Some(String::from_utf8_lossy(&m.line).to_string()),
+        .filter_map(|(_doc_id, rel_path)| {
+            match matcher::match_file(root, rel_path, &regex, &config) {
+                Ok(Some(file_matches)) => {
+                    if req.files_only {
+                        Some(vec![MatchResult {
+                            file: file_matches.path,
+                            line: None,
+                            text: None,
                             count: None,
-                        })
-                        .collect();
-                    if matches.is_empty() {
-                        None
+                        }])
+                    } else if req.count_only {
+                        Some(vec![MatchResult {
+                            file: file_matches.path,
+                            line: None,
+                            text: None,
+                            count: Some(file_matches.match_count),
+                        }])
                     } else {
-                        Some(matches)
+                        let matches: Vec<MatchResult> = file_matches
+                            .matches
+                            .iter()
+                            .filter(|m| !m.is_context)
+                            .map(|m| MatchResult {
+                                file: file_matches.path.clone(),
+                                line: Some(m.line_number),
+                                text: Some(String::from_utf8_lossy(&m.line).to_string()),
+                                count: None,
+                            })
+                            .collect();
+                        if matches.is_empty() {
+                            None
+                        } else {
+                            Some(matches)
+                        }
                     }
                 }
+                _ => None,
             }
-            _ => None,
         })
         .flatten()
         .collect();
@@ -1100,7 +1099,13 @@ mod tests {
         let (dir, root) = setup_test_project();
         let canonical = root.canonicalize().unwrap();
         let tenant = TenantState::open(&canonical).unwrap();
-        let initial = tenant.reader_view.read().unwrap().reader.metadata.file_count;
+        let initial = tenant
+            .reader_view
+            .read()
+            .unwrap()
+            .reader
+            .metadata
+            .file_count;
 
         // Add a file and rebuild.
         fs::write(root.join("src/extra.rs"), b"pub fn x() {}\n").unwrap();
@@ -1112,7 +1117,13 @@ mod tests {
         crate::index::writer::build_index(&canonical, false, 1_048_576).unwrap();
 
         assert!(tenant.reload_if_changed(), "should detect rebuild");
-        let after = tenant.reader_view.read().unwrap().reader.metadata.file_count;
+        let after = tenant
+            .reader_view
+            .read()
+            .unwrap()
+            .reader
+            .metadata
+            .file_count;
         assert!(after > initial, "{} should be > {}", after, initial);
         drop(dir);
     }
@@ -1129,7 +1140,12 @@ mod tests {
         );
         let resp = process_query(&req, &reader, &canonical, false);
         assert!(resp.error.is_none(), "{:?}", resp.error);
-        assert!(resp.results.unwrap().iter().any(|m| m.text.as_deref().unwrap_or("").contains("hello")));
+        assert!(
+            resp.results
+                .unwrap()
+                .iter()
+                .any(|m| m.text.as_deref().unwrap_or("").contains("hello"))
+        );
         drop(dir);
     }
 }

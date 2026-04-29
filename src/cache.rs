@@ -82,7 +82,10 @@ fn now_secs() -> u64 {
 
 /// True when `cache_dir` is an entry inside the XDG cache (not a local `<root>/.ig/`).
 fn is_xdg_entry(cache_dir: &Path) -> bool {
-    cache_dir.parent().map(|p| p == cache_root()).unwrap_or(false)
+    cache_dir
+        .parent()
+        .map(|p| p == cache_root())
+        .unwrap_or(false)
 }
 
 /// Write the cache meta file. Idempotent: preserves `created_at` if present.
@@ -259,7 +262,11 @@ pub fn migrate_root(root: &Path, dry_run: bool) -> Result<MigrateReport> {
     let size = dir_size(&local).unwrap_or(0);
     eprintln!(
         "{} {} -> {}  ({})",
-        if dry_run { "would migrate:" } else { "migrate:" },
+        if dry_run {
+            "would migrate:"
+        } else {
+            "migrate:"
+        },
         local.display(),
         dest.display(),
         crate::util::format_bytes(size),
