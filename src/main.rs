@@ -172,11 +172,11 @@ fn main() -> Result<()> {
                 eprintln!("Git commit: {}", &commit[..7.min(commit.len())]);
             }
 
-            let sock = daemon::socket_path(&root);
+            let sock = daemon::socket_path();
             if sock.exists() {
-                eprintln!("Daemon: running ({})", sock.display());
+                eprintln!("Daemon (global): running ({})", sock.display());
             } else {
-                eprintln!("Daemon: not running");
+                eprintln!("Daemon (global): not running");
             }
         }
 
@@ -186,24 +186,21 @@ fn main() -> Result<()> {
         }
 
         Some(Commands::Daemon { action, path }) => {
-            let root = resolve_root(path.as_deref());
+            // The global daemon doesn't bind to a single project, so the path
+            // arg is ignored (kept for backward compat with old CLI/launchd
+            // invocations). It also doesn't require a pre-built index — each
+            // tenant opens its index lazily on first query.
+            let placeholder = path
+                .as_deref()
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::path::PathBuf::from("/"));
             match action.as_deref() {
-                Some("stop") => daemon::stop_daemon(&root)?,
-                Some("status") => daemon::daemon_status(&root)?,
-                Some("install") => {
-                    ensure_index(&root, true, DEFAULT_MAX_FILE_SIZE)?;
-                    daemon::install_launchd(&root)?;
-                }
-                Some("uninstall") => daemon::uninstall_launchd(&root)?,
-                Some("start") => {
-                    ensure_index(&root, true, DEFAULT_MAX_FILE_SIZE)?;
-                    daemon::start_daemon_background(&root)?;
-                }
-                None | Some("foreground") => {
-                    // Default: foreground mode (backward compat, also used by launchd)
-                    ensure_index(&root, true, DEFAULT_MAX_FILE_SIZE)?;
-                    daemon::start_daemon(&root)?;
-                }
+                Some("stop") => daemon::stop_daemon(&placeholder)?,
+                Some("status") => daemon::daemon_status(&placeholder)?,
+                Some("install") => daemon::install_launchd(&placeholder)?,
+                Some("uninstall") => daemon::uninstall_launchd(&placeholder)?,
+                Some("start") => daemon::start_daemon_background(&placeholder)?,
+                None | Some("foreground") => daemon::start_daemon(&placeholder)?,
                 Some(other) => {
                     eprintln!("Unknown daemon action: {}", other);
                     eprintln!("Available: start, stop, status, install, uninstall");
@@ -1157,7 +1154,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
     // Daemon was not reachable — best-effort auto-spawn for next call.
     if daemon_eligible
         && std::env::var_os("IG_NO_AUTO_DAEMON").is_none()
-        && !daemon::is_daemon_available(&root)
+        && !daemon::is_daemon_available()
     {
         let _ = daemon::start_daemon_background_silent(&root);
     }

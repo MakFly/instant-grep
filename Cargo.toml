@@ -1,6 +1,6 @@
 [package]
 name = "instant-grep"
-version = "1.15.0"
+version = "1.16.0"
 edition = "2024"
 description = "Trigram-indexed regex search CLI — sub-ms code search for AI agents"
 license = "MIT"
