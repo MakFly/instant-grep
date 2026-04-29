@@ -236,6 +236,11 @@ fn full_rebuild(
     let ig = ig_dir(root);
     fs::create_dir_all(&ig).context("create .ig directory")?;
 
+    // Best-effort cleanup of `.ig-entries-*.tmp` orphans left by killed runs
+    // (SIGKILL, OOM, panic). The merge step does its own sweep too — this is
+    // the earliest opportunity, before the index dir grows large.
+    merge::sweep_orphan_entries(&ig);
+
     let paths = walk_files(root, use_default_excludes, max_file_size, None, None)
         .context("walking files")?;
 

@@ -34,6 +34,58 @@ impl Drop for StreamingMergeResult {
     }
 }
 
+/// Sweep orphan `.ig-entries-*.tmp` files at the root of `index_dir`.
+///
+/// `tempfile::NamedTempFile::persist()` detaches RAII cleanup, so abrupt
+/// termination (SIGKILL, OOM, uncaught panic) leaves these temp files behind.
+/// They accumulate fast on busy projects and slow down every new build because
+/// `tempfile_in()` has to find a unique name in a saturated directory.
+///
+/// Non-recursive, only matches the exact `.ig-entries-` prefix + `.tmp` suffix.
+/// Per-file errors (e.g. concurrent run already deleted the file) are logged
+/// under `IG_DEBUG` and do not abort the caller.
+pub fn sweep_orphan_entries(index_dir: &Path) {
+    let entries = match fs::read_dir(index_dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    let debug = std::env::var("IG_DEBUG").is_ok();
+    let mut removed = 0usize;
+
+    for entry in entries.flatten() {
+        let file_name = entry.file_name();
+        let name = file_name.to_string_lossy();
+        if !name.starts_with(".ig-entries-") || !name.ends_with(".tmp") {
+            continue;
+        }
+        match entry.file_type() {
+            Ok(ft) if ft.is_file() => {}
+            _ => continue,
+        }
+        match fs::remove_file(entry.path()) {
+            Ok(_) => removed += 1,
+            Err(e) => {
+                if debug {
+                    eprintln!(
+                        "sweep_orphan_entries: could not remove {}: {}",
+                        entry.path().display(),
+                        e
+                    );
+                }
+            }
+        }
+    }
+
+    if debug && removed > 0 {
+        eprintln!(
+            "sweep_orphan_entries: removed {} orphan(s) in {}",
+            removed,
+            index_dir.display()
+        );
+    }
+}
+
 /// Entry in the min-heap for k-way merge.
 #[derive(Eq, PartialEq)]
 struct HeapEntry {
@@ -70,6 +122,9 @@ pub fn merge_segments_streaming(
 ) -> Result<StreamingMergeResult> {
     // Create temp file for entries in same directory as postings (same filesystem)
     let entries_dir = postings_path.parent().unwrap_or(Path::new("."));
+    // Reap orphans from previous killed/crashed runs before allocating a new
+    // temp name — keeps the directory size bounded under repeated SIGKILLs.
+    sweep_orphan_entries(entries_dir);
     let entries_file = tempfile::Builder::new()
         .prefix(".ig-entries-")
         .suffix(".tmp")
@@ -435,6 +490,25 @@ fn is_prime(n: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_sweep_orphan_entries_removes_only_matching_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+
+        let orphan1 = dir.join(".ig-entries-fake1.tmp");
+        let orphan2 = dir.join(".ig-entries-fake2.tmp");
+        let keep = dir.join("keepme.txt");
+        fs::write(&orphan1, b"x").unwrap();
+        fs::write(&orphan2, b"y").unwrap();
+        fs::write(&keep, b"z").unwrap();
+
+        sweep_orphan_entries(dir);
+
+        assert!(!orphan1.exists(), "orphan1 should be removed");
+        assert!(!orphan2.exists(), "orphan2 should be removed");
+        assert!(keep.exists(), "keepme.txt must be untouched");
+    }
 
     #[test]
     fn test_build_lexicon() {
