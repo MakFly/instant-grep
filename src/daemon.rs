@@ -1072,6 +1072,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_path_buf();
 
+        // Pre-create <root>/.ig/ so the index stays local for this test —
+        // avoids races with the shared XDG cache when tests run in parallel.
+        fs::create_dir_all(root.join(".ig")).unwrap();
+
         // Create some source files
         let src = root.join("src");
         fs::create_dir_all(&src).unwrap();
@@ -1122,9 +1126,12 @@ mod tests {
         let src = root.join("src");
         fs::write(src.join("new_file.rs"), b"pub fn new_func() { todo!() }\n").unwrap();
 
-        // Delete existing index to force a full rebuild (not incremental skip)
+        // Delete existing index to force a full rebuild (not incremental skip).
+        // Recreate the empty .ig/ dir so ig_dir keeps resolving to the local
+        // path (otherwise the rebuild would land in the XDG cache).
         let ig = ig_dir(&root);
         let _ = fs::remove_dir_all(&ig);
+        fs::create_dir_all(&ig).unwrap();
 
         // Small sleep to ensure mtime differs (filesystem granularity)
         std::thread::sleep(Duration::from_millis(50));

@@ -1,5 +1,6 @@
 mod analytics;
 mod autoignore;
+mod cache;
 mod cli;
 mod cmds;
 mod config;
@@ -753,6 +754,51 @@ fn main() -> Result<()> {
             autoignore::run_autoignore(path, force)?;
         }
 
+        Some(Commands::Gc { days, dry_run }) => {
+            let report = cache::gc(days, dry_run)?;
+            eprintln!(
+                "{} orphan(s), {} stale, {} freed{}",
+                report.orphan_count,
+                report.stale_count,
+                util::format_bytes(report.freed_bytes),
+                if dry_run { " (dry-run)" } else { "" },
+            );
+        }
+
+        Some(Commands::Migrate { path, dry_run }) => {
+            let root = resolve_root(path.as_deref());
+            let report = cache::migrate_root(&root, dry_run)?;
+            eprintln!(
+                "{} project(s) migrated, {} skipped, {} moved{}",
+                report.moved,
+                report.skipped,
+                util::format_bytes(report.bytes_moved),
+                if dry_run { " (dry-run)" } else { "" },
+            );
+        }
+
+        Some(Commands::CacheLs) => {
+            let entries = cache::list_entries()?;
+            if entries.is_empty() {
+                eprintln!("cache empty: {}", cache::cache_root().display());
+            } else {
+                println!("{}", cache::cache_root().display());
+                for e in &entries {
+                    let (root, last) = match &e.meta {
+                        Some(m) => (m.root_path.clone(), m.last_used_at),
+                        None => ("?".to_string(), 0),
+                    };
+                    println!(
+                        "  {}  {}  {}  (last_used={})",
+                        e.dir.file_name().and_then(|s| s.to_str()).unwrap_or("?"),
+                        util::format_bytes(e.size_bytes),
+                        root,
+                        last,
+                    );
+                }
+            }
+        }
+
         #[cfg(feature = "embed-poc")]
         Some(Commands::EmbedPoc { op }) => {
             // Runtime guard: even when the cargo feature is built in, refuse
@@ -1260,6 +1306,10 @@ fn ensure_index(root: &std::path::Path, use_excludes: bool, max_size: u64) -> Re
             "Indexed {} files, {} trigrams",
             meta.file_count, meta.ngram_count
         );
+        // (build_index already wrote cache-meta.json — no extra work here.)
+    } else {
+        // Touch last_used_at so `ig gc --days N` doesn't reap an active project.
+        cache::touch(&ig);
     }
     Ok(())
 }

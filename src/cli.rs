@@ -469,6 +469,30 @@ pub enum Commands {
         state: Option<String>,
     },
 
+    /// Garbage-collect the XDG cache (~/.cache/ig/) — drop orphans and stale entries
+    Gc {
+        /// Also remove entries unused for more than N days
+        #[arg(long, value_name = "N")]
+        days: Option<u64>,
+
+        /// Show what would be removed without deleting anything
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// Migrate the current project's `.ig/` to the XDG cache
+    Migrate {
+        /// Project root to migrate (default: current dir)
+        path: Option<String>,
+
+        /// Show what would be migrated without moving anything
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// List XDG cache entries (~/.cache/ig/) with size + last-used info
+    CacheLs,
+
     /// Generate a .ignore file tailored to the detected project stack
     Autoignore {
         /// Directory to generate .ignore for (default: current dir)

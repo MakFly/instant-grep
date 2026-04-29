@@ -94,6 +94,9 @@ pub fn build_index(
     // index is what users rely on; semantic expansion is a bonus.
     let _ = crate::semantic::cooccur::build_for_root(&root, use_default_excludes, max_file_size);
 
+    // Record provenance in the cache entry (no-op if `ig` is a local .ig/).
+    let _ = crate::cache::write_meta(&ig, &root);
+
     Ok(result)
 }
 
@@ -619,6 +622,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
 
+        // Pre-create <root>/.ig/ to keep the index local — avoids races with
+        // the shared XDG cache when tests run in parallel.
+        fs::create_dir_all(root.join(".ig")).unwrap();
+
         // Create a few source files with known content
         let src = root.join("src");
         fs::create_dir_all(&src).unwrap();
@@ -635,8 +642,9 @@ mod tests {
         // Build index
         let meta = build_index(root, false, 10_000_000).unwrap();
 
-        // Verify bigram_df.bin exists
-        let ig = root.join(".ig");
+        // Verify bigram_df.bin exists (resolve via ig_dir so the test works
+        // whether the index lives under <root>/.ig/ or in the XDG cache).
+        let ig = ig_dir(root);
         let df_path = ig.join("bigram_df.bin");
         assert!(df_path.exists(), "bigram_df.bin should be created");
 
