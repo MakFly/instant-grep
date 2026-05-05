@@ -35,12 +35,15 @@ if [[ -n "$CURRENT_VERSION" ]]; then
 fi
 
 # ── 2. ig gain one-liner ──
-if command -v ig &>/dev/null && command -v jq &>/dev/null; then
-  GAIN_JSON=$(ig gain --json 2>/dev/null | head -1)
-  if [[ -n "$GAIN_JSON" ]]; then
-    SAVED=$(echo "$GAIN_JSON" | jq -r '.total_tokens_saved // empty' 2>/dev/null)
-    if [[ -n "$SAVED" && "$SAVED" != "0" && "$SAVED" != "null" ]]; then
-      echo "ig: ${SAVED} tokens saved (ig gain for details)" >&2
+if command -v ig &>/dev/null; then
+  ig warm --silent "$PWD" >/dev/null 2>&1 &
+  if command -v jq &>/dev/null; then
+    GAIN_JSON=$(ig gain --json 2>/dev/null | head -1)
+    if [[ -n "$GAIN_JSON" ]]; then
+      SAVED=$(echo "$GAIN_JSON" | jq -r '.total_tokens_saved // empty' 2>/dev/null)
+      if [[ -n "$SAVED" && "$SAVED" != "0" && "$SAVED" != "null" ]]; then
+        echo "ig: ${SAVED} tokens saved (ig gain for details)" >&2
+      fi
     fi
   fi
 fi

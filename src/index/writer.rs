@@ -100,6 +100,113 @@ pub fn build_index(
     Ok(result)
 }
 
+/// Update the overlay index from an explicit set of changed paths.
+///
+/// This is the daemon/watch hot path: callers already know which files changed,
+/// so we avoid the full project scan in `detect_changed_files`. Existing overlay
+/// entries are folded into the new changed set before rebuilding the overlay so
+/// successive file events do not lose earlier un-compacted changes.
+pub fn update_index_for_paths(
+    root: &Path,
+    use_default_excludes: bool,
+    max_file_size: u64,
+    changed_paths: &[std::path::PathBuf],
+) -> Result<IndexMetadata> {
+    let root = root.canonicalize().context("canonicalize root")?;
+    let ig = ig_dir(&root);
+
+    let Some(base_meta) = load_existing_metadata(&ig) else {
+        return build_index(&root, use_default_excludes, max_file_size);
+    };
+    if base_meta.version != INDEX_VERSION {
+        return build_index(&root, use_default_excludes, max_file_size);
+    }
+
+    let current_git_commit = get_git_head(&root);
+    let mut changed: AHashSet<String> = AHashSet::new();
+
+    if let Ok(Some(overlay_reader)) = OverlayReader::open(&ig) {
+        if overlay_reader.metadata.overlay_file_count as usize > OVERLAY_THRESHOLD {
+            overlay::clear_overlay(&ig);
+            return full_rebuild(
+                &root,
+                use_default_excludes,
+                max_file_size,
+                &current_git_commit,
+            );
+        }
+
+        for file in &overlay_reader.metadata.added_files {
+            changed.insert(file.path.clone());
+        }
+        for doc_id in &overlay_reader.metadata.tombstone_doc_ids {
+            if let Some(file) = base_meta.files.get(*doc_id as usize) {
+                changed.insert(file.path.clone());
+            }
+        }
+    }
+
+    for path in changed_paths {
+        if let Some(rel) = normalize_changed_path(&root, path) {
+            changed.insert(rel);
+        }
+    }
+
+    if changed.is_empty() {
+        crate::cache::touch(&ig);
+        return Ok(base_meta);
+    }
+
+    let mut changed_paths: Vec<String> = changed.into_iter().collect();
+    changed_paths.sort();
+
+    if changed_paths.len() > OVERLAY_THRESHOLD {
+        eprintln!(
+            "Detected {} changed files (>{} threshold), full rebuild...",
+            changed_paths.len(),
+            OVERLAY_THRESHOLD
+        );
+        overlay::clear_overlay(&ig);
+        return full_rebuild(
+            &root,
+            use_default_excludes,
+            max_file_size,
+            &current_git_commit,
+        );
+    }
+
+    eprintln!(
+        "Detected {} changed files from watcher, building overlay...",
+        changed_paths.len()
+    );
+    let meta = incremental_overlay(
+        &root,
+        use_default_excludes,
+        max_file_size,
+        &current_git_commit,
+        &base_meta,
+        &changed_paths,
+    )?;
+    let _ = crate::cache::write_meta(&ig, &root);
+    Ok(meta)
+}
+
+fn normalize_changed_path(root: &Path, path: &Path) -> Option<String> {
+    let abs = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    let rel = abs.strip_prefix(root).ok()?;
+    if rel.as_os_str().is_empty() {
+        return None;
+    }
+    if rel.components().any(|c| c.as_os_str() == ".ig") {
+        return None;
+    }
+    Some(rel.to_string_lossy().to_string())
+}
+
 fn check_and_rebuild(
     root: &Path,
     ig: &Path,
@@ -558,7 +665,7 @@ fn detect_git_diff_files(root: &Path, old: &str, new: &str) -> Option<Vec<String
 fn incremental_overlay(
     root: &Path,
     _use_default_excludes: bool,
-    _max_file_size: u64,
+    max_file_size: u64,
     git_commit: &Option<String>,
     base_meta: &IndexMetadata,
     changed_paths: &[String],
@@ -576,7 +683,7 @@ fn incremental_overlay(
         if full_path.exists() {
             match fs::read(&full_path) {
                 Ok(bytes) => {
-                    if is_binary(&bytes) {
+                    if bytes.len() as u64 > max_file_size || is_binary(&bytes) {
                         continue;
                     }
                     let ngrams = extract_sparse_ngrams(&bytes, df_table.as_ref());
@@ -682,5 +789,52 @@ mod tests {
                 w[1].0
             );
         }
+    }
+
+    #[test]
+    fn test_update_index_for_paths_preserves_existing_overlay_changes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join(".ig")).unwrap();
+        let src = root.join("src");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(
+            src.join("a.rs"),
+            "pub fn a() -> &'static str { \"old_a\" }\n",
+        )
+        .unwrap();
+        fs::write(
+            src.join("b.rs"),
+            "pub fn b() -> &'static str { \"old_b\" }\n",
+        )
+        .unwrap();
+
+        build_index(root, false, 10_000_000).unwrap();
+
+        fs::write(
+            src.join("a.rs"),
+            "pub fn a() -> &'static str { \"new_a\" }\n",
+        )
+        .unwrap();
+        update_index_for_paths(root, false, 10_000_000, &[src.join("a.rs")]).unwrap();
+
+        fs::write(
+            src.join("b.rs"),
+            "pub fn b() -> &'static str { \"new_b\" }\n",
+        )
+        .unwrap();
+        update_index_for_paths(root, false, 10_000_000, &[src.join("b.rs")]).unwrap();
+
+        let overlay = overlay::OverlayReader::open(&ig_dir(root))
+            .unwrap()
+            .expect("overlay should exist");
+        let mut paths: Vec<_> = overlay
+            .metadata
+            .added_files
+            .iter()
+            .map(|f| f.path.as_str())
+            .collect();
+        paths.sort_unstable();
+        assert_eq!(paths, vec!["src/a.rs", "src/b.rs"]);
     }
 }

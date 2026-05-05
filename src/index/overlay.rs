@@ -232,7 +232,7 @@ pub fn build_overlay(
         .collect();
     sorted_entries.sort_unstable_by_key(|(key, _)| *key);
 
-    let postings_path = ig_dir.join("overlay.bin");
+    let postings_path = ig_dir.join("overlay.bin.tmp");
     let mut postings_writer =
         BufWriter::new(File::create(&postings_path).context("create overlay.bin")?);
     let mut merged_entries: Vec<merge::MergedEntry> = Vec::new();
@@ -255,10 +255,12 @@ pub fn build_overlay(
 
     // Build and write overlay lexicon
     let lexicon_data = merge::build_lexicon(&merged_entries);
-    fs::write(ig_dir.join("overlay_lex.bin"), &lexicon_data).context("write overlay_lex.bin")?;
+    fs::write(ig_dir.join("overlay_lex.bin.tmp"), &lexicon_data)
+        .context("write overlay_lex.bin")?;
 
     // Write tombstones
-    fs::write(ig_dir.join("tombstones.bin"), &tombstone_bytes).context("write tombstones.bin")?;
+    fs::write(ig_dir.join("tombstones.bin.tmp"), &tombstone_bytes)
+        .context("write tombstones.bin")?;
 
     // Write overlay metadata
     let overlay_meta = OverlayMetadata {
@@ -273,7 +275,27 @@ pub fn build_overlay(
     };
 
     let encoded = bincode::serialize(&overlay_meta).context("serialize overlay_meta")?;
-    fs::write(ig_dir.join("overlay_meta.bin"), &encoded).context("write overlay_meta.bin")?;
+    fs::write(ig_dir.join("overlay_meta.bin.tmp"), &encoded).context("write overlay_meta.bin")?;
+
+    // Publish atomically. `overlay_meta.bin` is renamed last because readers use
+    // its mtime as the reload signal.
+    fs::rename(ig_dir.join("overlay.bin.tmp"), ig_dir.join("overlay.bin"))
+        .context("publish overlay.bin")?;
+    fs::rename(
+        ig_dir.join("overlay_lex.bin.tmp"),
+        ig_dir.join("overlay_lex.bin"),
+    )
+    .context("publish overlay_lex.bin")?;
+    fs::rename(
+        ig_dir.join("tombstones.bin.tmp"),
+        ig_dir.join("tombstones.bin"),
+    )
+    .context("publish tombstones.bin")?;
+    fs::rename(
+        ig_dir.join("overlay_meta.bin.tmp"),
+        ig_dir.join("overlay_meta.bin"),
+    )
+    .context("publish overlay_meta.bin")?;
 
     Ok(overlay_meta)
 }
@@ -284,4 +306,8 @@ pub fn clear_overlay(ig_dir: &Path) {
     let _ = fs::remove_file(ig_dir.join("overlay_lex.bin"));
     let _ = fs::remove_file(ig_dir.join("overlay_meta.bin"));
     let _ = fs::remove_file(ig_dir.join("tombstones.bin"));
+    let _ = fs::remove_file(ig_dir.join("overlay.bin.tmp"));
+    let _ = fs::remove_file(ig_dir.join("overlay_lex.bin.tmp"));
+    let _ = fs::remove_file(ig_dir.join("overlay_meta.bin.tmp"));
+    let _ = fs::remove_file(ig_dir.join("tombstones.bin.tmp"));
 }

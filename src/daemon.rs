@@ -21,32 +21,39 @@
 //!
 //! Response: the existing `QueryResponse` shape (results / error / candidates).
 
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::num::NonZeroUsize;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use lru::LruCache;
+use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use rayon::prelude::*;
 use regex::bytes::RegexBuilder;
 use serde::{Deserialize, Serialize};
 
 use crate::index::ngram::BigramDfTable;
 use crate::index::reader::IndexReader;
+use crate::index::writer;
 use crate::query::extract::regex_to_query;
 use crate::query::plan::NgramQuery;
 use crate::search::matcher::{self, SearchConfig};
 use crate::util::ig_dir;
+use crate::walk::DEFAULT_MAX_FILE_SIZE;
 
 #[derive(Deserialize)]
 struct QueryRequest {
+    #[serde(default = "default_op")]
+    op: String,
     /// Project root the query applies to (canonical absolute path). The daemon
     /// uses it to locate the right `TenantState` in its LRU cache.
     #[serde(default)]
     root: String,
+    #[serde(default)]
     pattern: String,
     #[serde(default)]
     case_insensitive: bool,
@@ -60,7 +67,11 @@ struct QueryRequest {
     file_type: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+fn default_op() -> String {
+    "query".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct DaemonResponse {
     #[serde(default)]
@@ -73,9 +84,15 @@ pub struct DaemonResponse {
     pub total_files: usize,
     #[serde(default)]
     pub search_ms: f64,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub root: Option<String>,
+    #[serde(default)]
+    pub projects: Option<Vec<ProjectStatus>>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonMatch {
     pub file: String,
     #[serde(default)]
@@ -101,6 +118,18 @@ struct QueryResponse {
     search_ms: f64,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     reloaded: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    projects: Option<Vec<ProjectStatus>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectStatus {
+    pub root: String,
+    pub seconds_since_seen: u64,
 }
 
 #[derive(Serialize)]
@@ -226,18 +255,33 @@ impl TenantState {
 fn metadata_mtime(ig_dir: &Path) -> SystemTime {
     let bin = ig_dir.join("metadata.bin");
     let json = ig_dir.join("metadata.json");
-    std::fs::metadata(&bin)
+    let base = std::fs::metadata(&bin)
         .or_else(|_| std::fs::metadata(&json))
         .and_then(|m| m.modified())
-        .unwrap_or(SystemTime::UNIX_EPOCH)
+        .unwrap_or(SystemTime::UNIX_EPOCH);
+    let overlay = std::fs::metadata(ig_dir.join("overlay_meta.bin"))
+        .and_then(|m| m.modified())
+        .unwrap_or(SystemTime::UNIX_EPOCH);
+    base.max(overlay)
 }
 
 // ─── Global state (multi-tenant) ────────────────────────────────────────────
 
 const DEFAULT_MAX_TENANTS: usize = 32;
+const DEFAULT_ACTIVE_PROJECT_IDLE_SECS: u64 = 30 * 60;
+const WATCH_DEBOUNCE: Duration = Duration::from_millis(750);
+
+struct ActiveProject {
+    root: PathBuf,
+    last_seen: Arc<Mutex<Instant>>,
+    _watcher: Mutex<RecommendedWatcher>,
+}
 
 struct GlobalState {
     tenants: Mutex<LruCache<PathBuf, Arc<TenantState>>>,
+    active_projects: Mutex<HashMap<PathBuf, Arc<ActiveProject>>>,
+    idle_timeout: Duration,
+    active_projects_max: usize,
 }
 
 impl GlobalState {
@@ -245,6 +289,14 @@ impl GlobalState {
         let cap = NonZeroUsize::new(max_tenants.max(1)).unwrap();
         Self {
             tenants: Mutex::new(LruCache::new(cap)),
+            active_projects: Mutex::new(HashMap::new()),
+            idle_timeout: Duration::from_secs(
+                std::env::var("IG_DAEMON_PROJECT_IDLE_SECS")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(DEFAULT_ACTIVE_PROJECT_IDLE_SECS),
+            ),
+            active_projects_max: max_tenants.max(1),
         }
     }
 
@@ -266,6 +318,212 @@ impl GlobalState {
         }
         Ok(tenant)
     }
+
+    fn reload_tenant_if_open(&self, root: &Path) {
+        let canonical = match root.canonicalize() {
+            Ok(p) => p,
+            Err(_) => return,
+        };
+        let tenant = {
+            let mut guard = self.tenants.lock().unwrap_or_else(|e| e.into_inner());
+            guard.get(&canonical).map(Arc::clone)
+        };
+        if let Some(tenant) = tenant {
+            tenant.reload_if_changed();
+        }
+    }
+
+    fn warm_project(self: &Arc<Self>, root: &Path) -> Result<ProjectStatus> {
+        let canonical = root
+            .canonicalize()
+            .with_context(|| format!("canonicalize {}", root.display()))?;
+        guard_suspicious_root(&canonical)?;
+
+        if let Some(project) = self
+            .active_projects
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&canonical)
+            .cloned()
+        {
+            *project.last_seen.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
+            self.touch_index(&canonical);
+            return Ok(project.status());
+        }
+
+        self.catch_up_index(&canonical)?;
+        let project = Arc::new(ActiveProject::start(&canonical, Arc::clone(self))?);
+        let status = project.status();
+        let mut projects = self
+            .active_projects
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if projects.len() >= self.active_projects_max
+            && let Some(oldest) = projects
+                .iter()
+                .max_by_key(|(_, p)| {
+                    p.last_seen
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .elapsed()
+                })
+                .map(|(root, _)| root.clone())
+        {
+            projects.remove(&oldest);
+        }
+        projects.insert(canonical, project);
+        Ok(status)
+    }
+
+    fn catch_up_index(&self, root: &Path) -> Result<()> {
+        writer::build_index(root, true, DEFAULT_MAX_FILE_SIZE)?;
+        Ok(())
+    }
+
+    fn touch_index(&self, root: &Path) {
+        crate::cache::touch(&ig_dir(root));
+    }
+
+    fn list_projects(&self) -> Vec<ProjectStatus> {
+        let mut projects: Vec<_> = self
+            .active_projects
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .map(|p| p.status())
+            .collect();
+        projects.sort_by(|a, b| a.root.cmp(&b.root));
+        projects
+    }
+
+    fn forget_project(&self, root: &Path) -> Result<bool> {
+        let canonical = root
+            .canonicalize()
+            .with_context(|| format!("canonicalize {}", root.display()))?;
+        Ok(self
+            .active_projects
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&canonical)
+            .is_some())
+    }
+
+    fn prune_idle(&self) {
+        let timeout = self.idle_timeout;
+        self.active_projects
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|_, project| {
+                project
+                    .last_seen
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .elapsed()
+                    <= timeout
+            });
+    }
+}
+
+impl ActiveProject {
+    fn start(root: &Path, state: Arc<GlobalState>) -> Result<Self> {
+        let root = root.to_path_buf();
+        let last_seen = Arc::new(Mutex::new(Instant::now()));
+        let (tx, rx) = mpsc::channel::<Vec<PathBuf>>();
+        let watched_root = root.clone();
+        let mut watcher =
+            notify::recommended_watcher(move |res: std::result::Result<Event, notify::Error>| {
+                if let Ok(event) = res {
+                    let paths: Vec<PathBuf> = event
+                        .paths
+                        .into_iter()
+                        .filter(|p| !is_ig_internal_path(&watched_root, p))
+                        .collect();
+                    if !paths.is_empty() {
+                        let _ = tx.send(paths);
+                    }
+                }
+            })
+            .context("create file watcher")?;
+        watcher
+            .watch(&root, RecursiveMode::Recursive)
+            .with_context(|| format!("watch {}", root.display()))?;
+
+        let worker_root = root.clone();
+        std::thread::spawn(move || watch_worker(worker_root, rx, state));
+
+        Ok(Self {
+            root,
+            last_seen,
+            _watcher: Mutex::new(watcher),
+        })
+    }
+
+    fn status(&self) -> ProjectStatus {
+        ProjectStatus {
+            root: self.root.to_string_lossy().to_string(),
+            seconds_since_seen: self
+                .last_seen
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .elapsed()
+                .as_secs(),
+        }
+    }
+}
+
+fn watch_worker(root: PathBuf, rx: mpsc::Receiver<Vec<PathBuf>>, state: Arc<GlobalState>) {
+    let mut dirty: Vec<PathBuf> = Vec::new();
+    while let Ok(paths) = rx.recv() {
+        dirty.extend(paths);
+        while let Ok(paths) = rx.recv_timeout(WATCH_DEBOUNCE) {
+            dirty.extend(paths);
+        }
+        dirty.sort();
+        dirty.dedup();
+        if dirty.is_empty() {
+            continue;
+        }
+        if let Err(e) = writer::update_index_for_paths(&root, true, DEFAULT_MAX_FILE_SIZE, &dirty) {
+            eprintln!("[{}] watcher update failed: {}", root.display(), e);
+        } else {
+            state.reload_tenant_if_open(&root);
+        }
+        dirty.clear();
+    }
+}
+
+fn is_ig_internal_path(root: &Path, path: &Path) -> bool {
+    path.strip_prefix(root)
+        .ok()
+        .is_some_and(|rel| rel.components().any(|c| c.as_os_str() == ".ig"))
+}
+
+fn guard_suspicious_root(root: &Path) -> Result<()> {
+    if std::env::var("IG_ALLOW_HOME_INDEX").as_deref() == Ok("1") {
+        return Ok(());
+    }
+    let canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let mut suspicious = vec![
+        PathBuf::from("/"),
+        PathBuf::from("/usr"),
+        PathBuf::from("/home"),
+        PathBuf::from("/var"),
+        PathBuf::from("/tmp"),
+        PathBuf::from("/Users"),
+    ];
+    if let Some(home) = dirs::home_dir() {
+        suspicious.push(home);
+    }
+    for path in suspicious {
+        let path = path.canonicalize().unwrap_or(path);
+        if canonical == path {
+            anyhow::bail!(
+                "refusing to warm {} because it is not a project root",
+                canonical.display()
+            );
+        }
+    }
+    Ok(())
 }
 
 // ─── Server entry points ────────────────────────────────────────────────────
@@ -309,6 +567,16 @@ pub fn start_daemon(_legacy_path: &Path) -> Result<()> {
         sock.display(),
         max_tenants
     );
+
+    {
+        let state = Arc::clone(&state);
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(Duration::from_secs(60));
+                state.prune_idle();
+            }
+        });
+    }
 
     for stream in listener.incoming() {
         match stream {
@@ -355,25 +623,95 @@ fn err_response(msg: String) -> QueryResponse {
         total_files: 0,
         search_ms: 0.0,
         reloaded: false,
+        status: None,
+        root: None,
+        projects: None,
     }
 }
 
-fn process_request(line: &str, state: &GlobalState) -> QueryResponse {
+fn process_request(line: &str, state: &Arc<GlobalState>) -> QueryResponse {
     let req: QueryRequest = match serde_json::from_str(line) {
         Ok(r) => r,
         Err(e) => return err_response(format!("invalid request: {}", e)),
     };
+
+    if req.op == "projects_list" {
+        return QueryResponse {
+            results: None,
+            error: None,
+            candidates: 0,
+            total_files: 0,
+            search_ms: 0.0,
+            reloaded: false,
+            status: Some("ok".to_string()),
+            root: None,
+            projects: Some(state.list_projects()),
+        };
+    }
 
     if req.root.is_empty() {
         return err_response("missing 'root' field".into());
     }
     let root = PathBuf::from(&req.root);
 
+    if req.op == "warm" {
+        return match state.warm_project(&root) {
+            Ok(status) => QueryResponse {
+                results: None,
+                error: None,
+                candidates: 0,
+                total_files: 0,
+                search_ms: 0.0,
+                reloaded: false,
+                status: Some("warmed".to_string()),
+                root: Some(status.root),
+                projects: None,
+            },
+            Err(e) => err_response(format!("warm project: {}", e)),
+        };
+    }
+
+    if req.op == "projects_forget" {
+        return match state.forget_project(&root) {
+            Ok(true) => QueryResponse {
+                results: None,
+                error: None,
+                candidates: 0,
+                total_files: 0,
+                search_ms: 0.0,
+                reloaded: false,
+                status: Some("forgotten".to_string()),
+                root: Some(root.to_string_lossy().to_string()),
+                projects: None,
+            },
+            Ok(false) => QueryResponse {
+                results: None,
+                error: None,
+                candidates: 0,
+                total_files: 0,
+                search_ms: 0.0,
+                reloaded: false,
+                status: Some("not_found".to_string()),
+                root: Some(root.to_string_lossy().to_string()),
+                projects: None,
+            },
+            Err(e) => err_response(format!("forget project: {}", e)),
+        };
+    }
+
+    if req.op != "query" {
+        return err_response(format!("unknown op: {}", req.op));
+    }
+    if req.pattern.is_empty() {
+        return err_response("missing 'pattern' field".into());
+    }
+
     let tenant = match state.tenant_for(&root) {
         Ok(t) => t,
         Err(e) => return err_response(format!("open tenant: {}", e)),
     };
 
+    let _ = state.warm_project(&root);
     let reloaded = tenant.reload_if_changed();
     process_query_cached(&req, &tenant, reloaded)
 }
@@ -411,6 +749,9 @@ fn process_query_cached(req: &QueryRequest, tenant: &TenantState, reloaded: bool
                             total_files,
                             search_ms: 0.0,
                             reloaded,
+                            status: None,
+                            root: None,
+                            projects: None,
                         };
                     }
                 }
@@ -452,6 +793,9 @@ fn process_query_cached(req: &QueryRequest, tenant: &TenantState, reloaded: bool
                         total_files,
                         search_ms: start.elapsed().as_secs_f64() * 1000.0,
                         reloaded,
+                        status: None,
+                        root: None,
+                        projects: None,
                     };
                 }
             },
@@ -536,6 +880,9 @@ fn process_query_cached(req: &QueryRequest, tenant: &TenantState, reloaded: bool
         total_files,
         search_ms: start.elapsed().as_secs_f64() * 1000.0,
         reloaded,
+        status: None,
+        root: None,
+        projects: None,
     }
 }
 
@@ -861,20 +1208,11 @@ pub fn query_daemon(root: &Path, pattern: &str, case_insensitive: bool) -> Resul
     Ok(response)
 }
 
-pub fn try_query_daemon(
-    root: &Path,
-    pattern: &str,
-    case_insensitive: bool,
-    files_only: bool,
-    count_only: bool,
-    context: usize,
-    file_type: Option<&str>,
-) -> Result<Option<DaemonResponse>> {
+fn request_daemon(req: serde_json::Value) -> Result<Option<DaemonResponse>> {
     let sock = socket_path();
     if !sock.exists() {
         return Ok(None);
     }
-    let canonical = root.canonicalize().context("canonicalize root")?;
     let stream = match UnixStream::connect(&sock) {
         Ok(s) => s,
         Err(e)
@@ -890,7 +1228,98 @@ pub fn try_query_daemon(
     stream.set_read_timeout(Some(Duration::from_secs(30))).ok();
     stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
 
+    let mut writer = &stream;
+    writeln!(writer, "{}", req)?;
+    writer.flush()?;
+    let mut reader = BufReader::new(&stream);
+    let mut response = String::new();
+    reader.read_line(&mut response)?;
+    let parsed: DaemonResponse =
+        serde_json::from_str(&response).context("parse daemon response")?;
+    Ok(Some(parsed))
+}
+
+pub fn warm_daemon(root: &Path) -> Result<DaemonResponse> {
+    if !is_daemon_available() {
+        let _ = start_daemon_background_silent(root);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !is_daemon_available() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+    let canonical = root.canonicalize().context("canonicalize root")?;
+    let req = serde_json::json!({
+        "op": "warm",
+        "root": canonical.to_string_lossy(),
+    });
+    match request_daemon(req.clone())? {
+        Some(resp) if response_needs_newer_daemon(&resp) => {
+            restart_daemon_for_protocol_upgrade(root)?;
+            request_daemon(req)?.context("daemon is not available")
+        }
+        Some(resp) => Ok(resp),
+        None => anyhow::bail!("daemon is not available"),
+    }
+}
+
+pub fn list_projects_daemon() -> Result<DaemonResponse> {
+    let req = serde_json::json!({ "op": "projects_list" });
+    match request_daemon(req.clone())? {
+        Some(resp) if response_needs_newer_daemon(&resp) => {
+            restart_daemon_for_protocol_upgrade(Path::new("/"))?;
+            request_daemon(req)?.context("daemon is not available")
+        }
+        Some(resp) => Ok(resp),
+        None => anyhow::bail!("daemon is not available"),
+    }
+}
+
+pub fn forget_project_daemon(root: &Path) -> Result<DaemonResponse> {
+    let canonical = root.canonicalize().context("canonicalize root")?;
+    let req = serde_json::json!({
+        "op": "projects_forget",
+        "root": canonical.to_string_lossy(),
+    });
+    match request_daemon(req.clone())? {
+        Some(resp) if response_needs_newer_daemon(&resp) => {
+            restart_daemon_for_protocol_upgrade(root)?;
+            request_daemon(req)?.context("daemon is not available")
+        }
+        Some(resp) => Ok(resp),
+        None => anyhow::bail!("daemon is not available"),
+    }
+}
+
+fn response_needs_newer_daemon(resp: &DaemonResponse) -> bool {
+    resp.error.as_deref().is_some_and(|e| {
+        e.contains("invalid request")
+            || e.contains("missing field `pattern`")
+            || e.contains("unknown op")
+    })
+}
+
+fn restart_daemon_for_protocol_upgrade(root: &Path) -> Result<()> {
+    let _ = stop_daemon(root);
+    start_daemon_background_silent(root)?;
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !is_daemon_available() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    Ok(())
+}
+
+pub fn try_query_daemon(
+    root: &Path,
+    pattern: &str,
+    case_insensitive: bool,
+    files_only: bool,
+    count_only: bool,
+    context: usize,
+    file_type: Option<&str>,
+) -> Result<Option<DaemonResponse>> {
+    let canonical = root.canonicalize().context("canonicalize root")?;
     let mut req = serde_json::json!({
+        "op": "query",
         "root": canonical.to_string_lossy(),
         "pattern": pattern,
         "case_insensitive": case_insensitive,
@@ -901,15 +1330,7 @@ pub fn try_query_daemon(
     if let Some(ft) = file_type {
         req["type"] = serde_json::Value::String(ft.to_string());
     }
-    let mut writer = &stream;
-    writeln!(writer, "{}", req)?;
-    writer.flush()?;
-    let mut reader = BufReader::new(&stream);
-    let mut response = String::new();
-    reader.read_line(&mut response)?;
-    let parsed: DaemonResponse =
-        serde_json::from_str(&response).context("parse daemon response")?;
-    Ok(Some(parsed))
+    request_daemon(req)
 }
 
 // ─── Signal handler ─────────────────────────────────────────────────────────
@@ -943,6 +1364,9 @@ fn process_query(line: &str, reader: &IndexReader, root: &Path, reloaded: bool) 
                 total_files,
                 search_ms: 0.0,
                 reloaded,
+                status: None,
+                root: None,
+                projects: None,
             };
         }
     };
@@ -962,6 +1386,9 @@ fn process_query(line: &str, reader: &IndexReader, root: &Path, reloaded: bool) 
                 total_files,
                 search_ms: start.elapsed().as_secs_f64() * 1000.0,
                 reloaded,
+                status: None,
+                root: None,
+                projects: None,
             };
         }
     };
@@ -1034,6 +1461,9 @@ fn process_query(line: &str, reader: &IndexReader, root: &Path, reloaded: bool) 
         total_files,
         search_ms: start.elapsed().as_secs_f64() * 1000.0,
         reloaded,
+        status: None,
+        root: None,
+        projects: None,
     }
 }
 
@@ -1146,6 +1576,34 @@ mod tests {
                 .iter()
                 .any(|m| m.text.as_deref().unwrap_or("").contains("hello"))
         );
+        drop(dir);
+    }
+
+    #[test]
+    fn test_process_request_warm_list_and_forget_project() {
+        let (dir, root) = setup_test_project();
+        let canonical = root.canonicalize().unwrap();
+        let state = Arc::new(GlobalState::new(8));
+
+        let warm = format!(r#"{{"op":"warm","root":"{}"}}"#, canonical.display());
+        let resp = process_request(&warm, &state);
+        assert_eq!(resp.status.as_deref(), Some("warmed"));
+        assert!(resp.error.is_none(), "{:?}", resp.error);
+
+        let list = process_request(r#"{"op":"projects_list"}"#, &state);
+        let projects = list.projects.unwrap();
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].root, canonical.to_string_lossy());
+
+        let forget = format!(
+            r#"{{"op":"projects_forget","root":"{}"}}"#,
+            canonical.display()
+        );
+        let resp = process_request(&forget, &state);
+        assert_eq!(resp.status.as_deref(), Some("forgotten"));
+
+        let list = process_request(r#"{"op":"projects_list"}"#, &state);
+        assert!(list.projects.unwrap().is_empty());
         drop(dir);
     }
 }

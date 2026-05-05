@@ -135,6 +135,26 @@ pub enum Commands {
         path: Option<String>,
     },
 
+    /// Warm a project in the global daemon and keep it indexed in the background
+    Warm {
+        /// Directory to warm (default: current dir)
+        path: Option<String>,
+
+        /// Suppress human-readable output
+        #[arg(long)]
+        silent: bool,
+
+        /// Print the daemon response as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// List or forget projects watched by the daemon
+    Projects {
+        #[command(subcommand)]
+        op: ProjectsOp,
+    },
+
     /// List project files (respects .gitignore and excludes)
     Files {
         /// Directory to list (default: current dir)
@@ -558,6 +578,21 @@ pub enum TeeOp {
     Clear,
 }
 
+#[derive(Subcommand)]
+pub enum ProjectsOp {
+    /// List projects currently active in the daemon
+    List {
+        /// Print machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Stop watching a project
+    Forget {
+        /// Directory to forget (default: current dir)
+        path: Option<String>,
+    },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -569,6 +604,29 @@ mod tests {
         match cli.command {
             Some(Commands::Gain { full, .. }) => assert!(full),
             _ => panic!("expected gain command"),
+        }
+    }
+
+    #[test]
+    fn warm_silent_flag_parses() {
+        let cli = Cli::try_parse_from(["ig", "warm", "--silent", "."]).unwrap();
+        match cli.command {
+            Some(Commands::Warm { silent, path, .. }) => {
+                assert!(silent);
+                assert_eq!(path.as_deref(), Some("."));
+            }
+            _ => panic!("expected warm command"),
+        }
+    }
+
+    #[test]
+    fn projects_list_json_parses() {
+        let cli = Cli::try_parse_from(["ig", "projects", "list", "--json"]).unwrap();
+        match cli.command {
+            Some(Commands::Projects {
+                op: ProjectsOp::List { json },
+            }) => assert!(json),
+            _ => panic!("expected projects list command"),
         }
     }
 }

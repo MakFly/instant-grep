@@ -368,6 +368,24 @@ fn rewrite_grep(parts: &[String]) -> Option<String> {
     }
 
     let pattern = pattern?;
+    let fixed_flag = if parts.iter().any(|p| {
+        p == "-F"
+            || p == "--fixed-strings"
+            || (p.starts_with('-') && !p.starts_with("--") && p.contains('F'))
+    }) {
+        " -F"
+    } else {
+        ""
+    };
+    let files_flag = if parts.iter().any(|p| {
+        p == "-l"
+            || p == "--files-with-matches"
+            || (p.starts_with('-') && !p.starts_with("--") && p.contains('l'))
+    }) {
+        " -l"
+    } else {
+        ""
+    };
     let case_flag = if parts
         .iter()
         .any(|p| p == "-i" || (p.starts_with('-') && !p.starts_with("--") && p.contains('i')))
@@ -379,10 +397,13 @@ fn rewrite_grep(parts: &[String]) -> Option<String> {
 
     match path {
         Some(p) if p != "." => Some(format!(
-            "IG_COMPACT=1 ig{} \"{}\" {}",
-            case_flag, pattern, p
+            "IG_COMPACT=1 ig{}{}{} \"{}\" {}",
+            case_flag, fixed_flag, files_flag, pattern, p
         )),
-        _ => Some(format!("IG_COMPACT=1 ig{} \"{}\"", case_flag, pattern)),
+        _ => Some(format!(
+            "IG_COMPACT=1 ig{}{}{} \"{}\"",
+            case_flag, fixed_flag, files_flag, pattern
+        )),
     }
 }
 
@@ -893,6 +914,14 @@ mod tests {
         assert!(matches!(
             classify_command("grep -ri pattern ."),
             RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig -i \"pattern\""
+        ));
+        assert!(matches!(
+            classify_command("grep -rln useActionState components/auth"),
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig -l \"useActionState\" components/auth"
+        ));
+        assert!(matches!(
+            classify_command("/usr/bin/grep -rlnF \"formAction(objectToFormData\" components/auth"),
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig -F -l \"formAction(objectToFormData\" components/auth"
         ));
     }
 

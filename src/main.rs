@@ -47,7 +47,7 @@ use clap::Parser;
 
 #[cfg(feature = "embed-poc")]
 use cli::EmbedPocOp;
-use cli::{Cli, Commands, TeeOp};
+use cli::{Cli, Commands, ProjectsOp, TeeOp};
 use index::metadata::{INDEX_VERSION, IndexMetadata};
 use index::overlay::OverlayReader;
 use index::writer;
@@ -208,6 +208,60 @@ fn main() -> Result<()> {
                 }
             }
         }
+
+        Some(Commands::Warm {
+            path,
+            silent,
+            json: warm_json,
+        }) => {
+            let root = resolve_root(path.as_deref());
+            let resp = daemon::warm_daemon(&root)?;
+            if let Some(err) = resp.error {
+                anyhow::bail!("{}", err);
+            }
+            if warm_json {
+                println!("{}", serde_json::to_string(&resp)?);
+            } else if !silent {
+                let root = resp.root.unwrap_or_else(|| root.display().to_string());
+                eprintln!("warmed: {}", root);
+            }
+        }
+
+        Some(Commands::Projects { op }) => match op {
+            ProjectsOp::List {
+                json: projects_json,
+            } => {
+                let resp = daemon::list_projects_daemon()?;
+                if let Some(err) = resp.error {
+                    anyhow::bail!("{}", err);
+                }
+                let projects = resp.projects.unwrap_or_default();
+                if projects_json {
+                    println!("{}", serde_json::to_string(&projects)?);
+                } else if projects.is_empty() {
+                    eprintln!("no active projects");
+                } else {
+                    for project in projects {
+                        println!(
+                            "{}  last_seen={}s",
+                            project.root, project.seconds_since_seen
+                        );
+                    }
+                }
+            }
+            ProjectsOp::Forget { path } => {
+                let root = resolve_root(path.as_deref());
+                let resp = daemon::forget_project_daemon(&root)?;
+                if let Some(err) = resp.error {
+                    anyhow::bail!("{}", err);
+                }
+                eprintln!(
+                    "{}: {}",
+                    resp.status.unwrap_or_else(|| "ok".to_string()),
+                    resp.root.unwrap_or_else(|| root.display().to_string())
+                );
+            }
+        },
 
         Some(Commands::Files {
             path,

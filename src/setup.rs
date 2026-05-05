@@ -1220,12 +1220,10 @@ const SHELL_HOOK_CLOSE: &str = "# <<< ig managed <<<";
 
 const SHELL_HOOK_ZSH: &str = r#"# >>> ig managed >>>
 _ig_autostart() {
-    [[ -d .ig ]] || return 0
-    if [[ ! -f .ignore ]] && command -v ig >/dev/null 2>&1; then
+    command -v ig >/dev/null 2>&1 || return 0
+    ig warm --silent "$PWD" >/dev/null 2>&1 &!
+    if [[ -d .ig && ! -f .ignore ]]; then
         ig autoignore "$PWD" >/dev/null 2>&1 &!
-    fi
-    if ! ig daemon status >/dev/null 2>&1; then
-        (ig daemon start >/dev/null 2>&1 &)
     fi
 }
 if [[ -n "$ZSH_VERSION" ]]; then
@@ -1235,12 +1233,10 @@ fi
 
 const SHELL_HOOK_BASH: &str = r#"# >>> ig managed >>>
 _ig_autostart() {
-    [[ -d .ig ]] || return 0
-    if [[ ! -f .ignore ]] && command -v ig >/dev/null 2>&1; then
+    command -v ig >/dev/null 2>&1 || return 0
+    ig warm --silent "$PWD" >/dev/null 2>&1 &
+    if [[ -d .ig && ! -f .ignore ]]; then
         ig autoignore "$PWD" >/dev/null 2>&1 &
-    fi
-    if ! ig daemon status >/dev/null 2>&1; then
-        (ig daemon start >/dev/null 2>&1 &)
     fi
 }
 PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }_ig_autostart"
@@ -1248,12 +1244,10 @@ PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }_ig_autostart"
 
 const SHELL_HOOK_FISH: &str = r#"# >>> ig managed >>>
 function _ig_autostart --on-variable PWD
-    test -d .ig; or return
-    if not test -f .ignore; and command -q ig
+    command -q ig; or return
+    ig warm --silent $PWD >/dev/null 2>&1 &
+    if test -d .ig; and not test -f .ignore
         ig autoignore $PWD >/dev/null 2>&1 &
-    end
-    if not ig daemon status >/dev/null 2>&1
-        ig daemon start >/dev/null 2>&1 &
     end
 end
 # <<< ig managed <<<"#;
@@ -1270,10 +1264,28 @@ fn install_shell_hook(home: &Path, dry_run: bool) -> ConfigResult {
 
     let existing = fs::read_to_string(&rc_path).unwrap_or_default();
     if existing.contains(SHELL_HOOK_OPEN) && existing.contains(SHELL_HOOK_CLOSE) {
-        return ConfigResult::AlreadyDone(format!(
-            "Shell hook already present in {}",
-            rc_path.display()
-        ));
+        if let Some(updated) = replace_managed_shell_hook(&existing, hook_content) {
+            if updated == existing {
+                return ConfigResult::AlreadyDone(format!(
+                    "Shell hook already present in {}",
+                    rc_path.display()
+                ));
+            }
+            if dry_run {
+                return ConfigResult::Configured(format!(
+                    "Would update shell hook in {}",
+                    rc_path.display()
+                ));
+            }
+            return match fs::write(&rc_path, updated.as_bytes()) {
+                Ok(_) => {
+                    ConfigResult::Configured(format!("Shell hook updated in {}", rc_path.display()))
+                }
+                Err(e) => {
+                    ConfigResult::Error(format!("Could not write {}: {}", rc_path.display(), e))
+                }
+            };
+        }
     }
 
     if dry_run {
@@ -1297,6 +1309,17 @@ fn install_shell_hook(home: &Path, dry_run: bool) -> ConfigResult {
         Ok(_) => ConfigResult::Configured(format!("Shell hook installed in {}", rc_path.display())),
         Err(e) => ConfigResult::Error(format!("Could not write {}: {}", rc_path.display(), e)),
     }
+}
+
+fn replace_managed_shell_hook(existing: &str, hook_content: &str) -> Option<String> {
+    let start = existing.find(SHELL_HOOK_OPEN)?;
+    let close_start = existing[start..].find(SHELL_HOOK_CLOSE)? + start;
+    let close_end = close_start + SHELL_HOOK_CLOSE.len();
+    let mut updated = String::new();
+    updated.push_str(&existing[..start]);
+    updated.push_str(hook_content);
+    updated.push_str(&existing[close_end..]);
+    Some(updated)
 }
 
 pub fn run_setup(dry_run: bool) {
@@ -1691,6 +1714,16 @@ mod tests {
         let result = write_if_not_dry(&path, b"hello", false);
         assert!(result.is_ok());
         assert!(path.exists());
+    }
+
+    #[test]
+    fn test_replace_managed_shell_hook_updates_existing_block() {
+        let existing = "# before\n# >>> ig managed >>>\nold\n# <<< ig managed <<<\n# after\n";
+        let updated = replace_managed_shell_hook(existing, SHELL_HOOK_ZSH).unwrap();
+        assert!(updated.contains("# before"));
+        assert!(updated.contains("ig warm --silent"));
+        assert!(!updated.contains("\nold\n"));
+        assert!(updated.contains("# after"));
     }
 
     #[test]

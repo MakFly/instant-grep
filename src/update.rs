@@ -107,7 +107,7 @@ pub fn run_update() -> Result<()> {
         eprintln!("✓ Updated: {} (legacy single-binary)", tag);
         eprintln!("  Path: {}", legacy_target.display());
         eprintln!();
-        crate::setup::run_setup(false);
+        post_update_rewarm()?;
         update_cache(latest);
         return Ok(());
     }
@@ -164,9 +164,43 @@ pub fn run_update() -> Result<()> {
     eprintln!("  ig-rust : {}  (hidden)", rust_path.display());
 
     eprintln!();
-    crate::setup::run_setup(false);
+    post_update_rewarm()?;
 
     update_cache(latest);
+
+    Ok(())
+}
+
+fn post_update_rewarm() -> Result<()> {
+    eprintln!("  Refreshing ig ecosystem...");
+    crate::setup::run_setup(false);
+
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let root = crate::util::find_root(&cwd);
+
+    if crate::daemon::is_daemon_available() {
+        eprint!("  Restarting daemon... ");
+        io::stderr().flush().ok();
+        crate::daemon::stop_daemon(&root)?;
+        crate::daemon::start_daemon_background_silent(&root)?;
+        eprintln!("✓");
+    }
+
+    eprint!("  Rewarming current project... ");
+    io::stderr().flush().ok();
+    match crate::daemon::warm_daemon(&root) {
+        Ok(resp) if resp.error.is_none() => eprintln!("✓"),
+        Ok(resp) => {
+            eprintln!("skipped");
+            if let Some(err) = resp.error {
+                eprintln!("  Warning: warm failed: {}", err);
+            }
+        }
+        Err(e) => {
+            eprintln!("skipped");
+            eprintln!("  Warning: warm failed: {}", e);
+        }
+    }
 
     Ok(())
 }
