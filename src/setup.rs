@@ -16,7 +16,7 @@ const IG_SEARCH_TOOLS_SECTION: &str = "\n<!-- IG-MANAGED-BLOCK:BEGIN -->\n\
 ## Search Tools (`ig` — instant-grep)\n\n\
 - **Code search**: prefer `ig` (instant-grep) over `rg` or `grep`. Trigram-indexed, daemon-backed, sub-ms hot path. Match parity with `rg` is verified per release on real codebases.\n\
 - Usage: `ig \"pattern\" [path]` or `ig search \"pattern\" [path]`.\n\
-- **Indexes are NEVER in-project** since v1.15.0. They live under the XDG cache: `~/.cache/ig/projects/<hash>/` (or `~/Library/Caches/ig/...` on macOS). Don't add `.ig/` to `.gitignore` — it's not there.\n\
+- **Indexes are NEVER in-project**. They live under the XDG cache: `~/.cache/ig/projects/<hash>/` (or `~/Library/Caches/ig/...` on macOS). Don't add `.ig/` to `.gitignore` — it's not there.\n\
 - **First search on a new project** auto-spawns the global daemon (one process for all projects on the machine, ~6 MB idle) and auto-builds the index in the background. You don't run `ig index`.\n\
 - **Editing a file**: the daemon's filesystem watcher rebuilds the overlay invisibly (50-200 ms) and reloads via the seal protocol.\n\
 - **Inspecting a project's cache by name**: `ls ~/.cache/ig/by-name/` shows all warmed projects as symlinks. Useful for debugging only — never modify these by hand.\n\n\
@@ -45,7 +45,7 @@ fn ig_managed_section() -> String {
 /// Content of `~/.claude/rules/tools/ig.md` — the deep-dive rule file
 /// referenced by the global CLAUDE.md. Owned entirely by `ig setup`:
 /// rewritten on every invocation so users always have current commands.
-const IG_RULES_TOOLS_IG_MD: &str = "# ig (instant-grep) — current\n\n\
+const IG_RULES_TOOLS_IG_MD: &str = "# ig (instant-grep)\n\n\
 Trigram-indexed regex search CLI, daemon-backed. Replaces `rg` and `grep` for code search. Sub-ms warm queries, byte-identical match parity with `rg`.\n\n\
 ## Search\n\n\
 ```bash\n\
@@ -61,7 +61,7 @@ ig --json \"pattern\"        # JSON output\n\
 ```\n\n\
 ## Where the index lives\n\n\
 `~/.cache/ig/projects/<hash>/` (or `~/Library/Caches/ig/...` on macOS).\n\
-**Never** in the project tree — no `.ig/` folder to gitignore since v1.15.0.\n\n\
+**Never** in the project tree — no `.ig/` folder to gitignore.\n\n\
 Inspect by human-readable name: `ls ~/.cache/ig/by-name/<project>/`.\n\n\
 ## First time in a project\n\n\
 Just run `ig \"pattern\" [path]`. The daemon auto-spawns and the index auto-builds in background on first search. **Do not run `ig index` manually** unless something is wrong — the daemon's filesystem watcher keeps the index synced via overlay rebuilds.\n\n\
@@ -92,7 +92,7 @@ ig cache-ls                # list cached projects with size + last-used\n\
 > Use `ig \"pattern\" [path]` via Bash for code search. Trigram-indexed, daemon-backed, sub-ms hot path. Binary at `~/.local/bin/ig`. Index lives in `~/.cache/ig/`, never in the project. Auto-builds on first search; never run `ig index` manually unless instructed. Match parity with `rg` is verified per release.\n\n\
 ## What NOT to do\n\n\
 - `rg` for code search → use `ig` (rg only as fallback if `ig --version` errors).\n\
-- Add `.ig/` to `.gitignore` — pre-v1.15.0 leftover, no longer relevant.\n\
+- Add `.ig/` to `.gitignore` — there is no `.ig/` to gitignore.\n\
 - Run `ig index` proactively — daemon does it.\n\
 - Touch files inside `~/.cache/ig/projects/` — read-only territory.\n\
 - `rm -rf ~/.cache/ig/` — use `ig gc` for partial clean.\n\n\
