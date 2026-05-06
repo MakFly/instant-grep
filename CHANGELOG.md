@@ -2,6 +2,22 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.19.3] — 2026-05-06
+
+### Changed — drop version references from managed-block content
+
+The Search Tools section that `ig setup` writes into `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, and `~/.claude/rules/tools/ig.md` no longer mentions specific version numbers ("since v1.15.0", "pre-v1.15.0 leftover"). Versions live in this CHANGELOG, not in steady-state agent rule files. Existing installs auto-detect the drift on next `ig setup` and rewrite the managed block.
+
+### Documentation refresh
+
+- `README.md` — TL;DR gets two new bullets covering the v1.19.0 cache layout (`daemon/`, `projects/`, `by-name/`, `tee/`, `manifest.json`) and the v1.19.1+ self-healing setup. New ASCII tree of the cache root. New subsection in Cache management documenting the migration path. File tree annotated with the v1.19 additions to `cache.rs` and `setup.rs`.
+- `CLAUDE.md` (project) — version prefixes ("since v1.X") removed from the steady-state contract description; added an ASCII diagram of the cache layout and a note on `ig setup --quiet` behaviour.
+- `docs/specs/SPEC-daemon-cache-invalidation.md` — already covers the seal contract introduced in v1.18.0; valid as-is for v1.19.x.
+
+No code changes beyond the string constants. 431 lib tests passing.
+
+---
+
 ## [1.19.2] — 2026-05-06
 
 ### Added — `ig setup --quiet` + auto-sync after `ig update`
