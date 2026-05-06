@@ -2,6 +2,54 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.19.1] — 2026-05-06
+
+### Changed — `ig setup` rewrites stale `Search Tools` sections
+
+Pre-v1.19.1, the setup flow detected an existing `## Search Tools` section in agent rule files and silently skipped — meaning users who installed ig before v1.19 (and lived through the cache layout move from `<root>/.ig/` to `~/.cache/ig/`) kept the **stale instructions referring to non-existent paths** until they manually wiped their CLAUDE.md.
+
+This release introduces **managed-block sentinels** so the section is now find-and-replaced atomically across version bumps:
+
+```markdown
+<!-- IG-MANAGED-BLOCK:BEGIN -->
+## Search Tools (`ig` — instant-grep)
+... current contract: cache layout, daemon, commands ...
+<!-- IG-MANAGED-BLOCK:END -->
+```
+
+Behaviour matrix per `ig setup` invocation against `~/.claude/CLAUDE.md`:
+
+| Existing state | Action |
+|---|---|
+| File missing | Create with `# CLAUDE.md` header + managed block |
+| Has managed-block markers + content matches | `AlreadyDone` (no write) |
+| Has managed-block markers + content drifted | Replace between markers (preserves user content outside) |
+| Has legacy `## Search Tools` heading (no markers) | Replace from heading to next `## ` (or EOF), wrap in managed block |
+| No `## Search Tools` and no `# Global Rules` anchor | Append managed block at EOF |
+| No `## Search Tools` but `# Global Rules` exists | Insert managed block above the anchor |
+
+Same pattern for `~/.claude/agent-md` files (Codex CLI's `AGENTS.md`, Gemini's `GEMINI.md`, the `kilorules.md` for Kilo Code).
+
+### Added — `~/.claude/rules/tools/ig.md` is now setup-managed
+
+The deep-dive rule file referenced from `~/.claude/CLAUDE.md` is now created/overwritten by `ig setup`. Owned entirely by ig: re-running setup always brings the file back to the binary's current contract (commands, paths, anti-patterns). A trailer line declares this:
+
+```markdown
+*This file is auto-managed by `ig setup`. Manual edits are overwritten on the next run.*
+```
+
+### Implementation
+
+- `src/setup.rs::IG_SEARCH_TOOLS_SECTION` — single source of truth, wrapped with `<!-- IG-MANAGED-BLOCK:BEGIN/END -->` sentinels.
+- `src/setup.rs::IG_RULES_TOOLS_IG_MD` — content of the deep-dive rule file.
+- `src/setup.rs::upsert_managed_block` — generic find-and-replace helper. Status discriminated as `Inserted`, `Updated`, `ReplacedLegacy`, `Unchanged`.
+- `src/setup.rs::configure_claude_rules_ig_md` — direct overwrite (no markers needed; the file is fully owned by ig).
+- 2 new tests: `test_claude_md_legacy_section_is_upgraded`, `test_claude_md_idempotent_after_managed_install`. 431 lib tests passing.
+
+Real test on this machine: `ig setup` correctly upgraded a legacy `~/.claude/CLAUDE.md` (`Replaced legacy Search Tools section`), created the new `~/.claude/rules/tools/ig.md`, and a second invocation reported `already up-to-date`. No duplication, no stale content surviving.
+
+---
+
 ## [1.19.0] — 2026-05-06
 
 ### Changed — XDG cache reorganized into a navigable layout

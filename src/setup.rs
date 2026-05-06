@@ -3,14 +3,100 @@ use std::path::{Path, PathBuf};
 
 use crate::hooks::copilot;
 
-const IG_SEARCH_TOOLS_SECTION: &str = "\n## Search Tools\n\
-- **Code search**: prefer `ig` (instant-grep) over `rg` or `grep` for searching code.\n\
-- Usage: `ig \"pattern\" [path]` or `ig search \"pattern\" [path]` — trigram-indexed regex search.\n\
-- If the project has no `.ig/` index yet, `ig` auto-builds one on first search.\n\
-- **Project overview**: read `.ig/context.md` for a complete project map (tree + file summaries + symbols).\n\
-- **Smart read**: `ig read <file> --signatures` for imports and function signatures only.\n\
-- **Smart summary**: `ig smart [path]` for 2-line file summaries.\n\
-- Fall back to `rg` only if `ig` is not installed.\n";
+/// Sentinel markers for a re-writable section. Anything between these tags
+/// is fully owned by `ig setup` and will be replaced on every run.
+const IG_MANAGED_BEGIN: &str = "<!-- IG-MANAGED-BLOCK:BEGIN -->";
+const IG_MANAGED_END: &str = "<!-- IG-MANAGED-BLOCK:END -->";
+
+/// Pre-formatted section as it appears in agent rule files (`CLAUDE.md`,
+/// `AGENTS.md`, `GEMINI.md`, `kilorules.md`). Wrapped with managed-block
+/// sentinels so `ig setup` can find-and-replace it idempotently across
+/// version bumps.
+const IG_SEARCH_TOOLS_SECTION: &str = "\n<!-- IG-MANAGED-BLOCK:BEGIN -->\n\
+## Search Tools (`ig` — instant-grep)\n\n\
+- **Code search**: prefer `ig` (instant-grep) over `rg` or `grep`. Trigram-indexed, daemon-backed, sub-ms hot path. Match parity with `rg` is verified per release on real codebases.\n\
+- Usage: `ig \"pattern\" [path]` or `ig search \"pattern\" [path]`.\n\
+- **Indexes are NEVER in-project** since v1.15.0. They live under the XDG cache: `~/.cache/ig/projects/<hash>/` (or `~/Library/Caches/ig/...` on macOS). Don't add `.ig/` to `.gitignore` — it's not there.\n\
+- **First search on a new project** auto-spawns the global daemon (one process for all projects on the machine, ~6 MB idle) and auto-builds the index in the background. You don't run `ig index`.\n\
+- **Editing a file**: the daemon's filesystem watcher rebuilds the overlay invisibly (50-200 ms) and reloads via the seal protocol.\n\
+- **Inspecting a project's cache by name**: `ls ~/.cache/ig/by-name/` shows all warmed projects as symlinks. Useful for debugging only — never modify these by hand.\n\n\
+### Smart reads (token-compressed for agent context)\n\
+- `ig read <file> -s` — imports + function signatures only.\n\
+- `ig smart [path]` — 2-line summary per file.\n\
+- `ig pack [path]` — generate a full project map under the cache dir.\n\n\
+### Daemon control (rare, normally invisible)\n\
+- `ig daemon status` — PID, socket path, active projects.\n\
+- `ig warm [path]` — add a project to the active set (called automatically by shell hooks on `cd`).\n\
+- `ig projects list` / `ig projects forget <root>` — manage warmed projects.\n\
+- `ig daemon install` — systemd-user (Linux) or launchd (macOS) auto-start. **Do this once per new machine.**\n\n\
+### Cache hygiene (rare)\n\
+- `ig gc [--dry-run]` — prune orphan / stale cache entries.\n\
+- `ig cache-ls` — list per-project cache size + last-used.\n\n\
+Fall back to `rg` only if `ig --version` errors out. Never use plain `grep` for code search.\n\
+<!-- IG-MANAGED-BLOCK:END -->\n";
+
+/// Full managed section as injected into a markdown file. Wrapped with
+/// sentinel markers so `ig setup` can find-and-replace it idempotently.
+/// Returns owned String so callers don't have to clone the const.
+fn ig_managed_section() -> String {
+    IG_SEARCH_TOOLS_SECTION.to_string()
+}
+
+/// Content of `~/.claude/rules/tools/ig.md` — the deep-dive rule file
+/// referenced by the global CLAUDE.md. Owned entirely by `ig setup`:
+/// rewritten on every invocation so users always have current commands.
+const IG_RULES_TOOLS_IG_MD: &str = "# ig (instant-grep) — current\n\n\
+Trigram-indexed regex search CLI, daemon-backed. Replaces `rg` and `grep` for code search. Sub-ms warm queries, byte-identical match parity with `rg`.\n\n\
+## Search\n\n\
+```bash\n\
+ig \"pattern\" [path]        # content search (recommended shortcut)\n\
+ig search \"pattern\" [path] # explicit form\n\
+ig -i \"pattern\"            # case-insensitive\n\
+ig -t rs \"pattern\"         # filter by file type (rs, ts, py, …)\n\
+ig -l \"pattern\"             # file paths only (like rg -l)\n\
+ig -c \"pattern\"             # match count per file\n\
+ig --top 5 \"pattern\"       # BM25 ranking, return top-5 files only\n\
+ig --semantic \"throw\"      # PMI synonym expansion, no ML model\n\
+ig --json \"pattern\"        # JSON output\n\
+```\n\n\
+## Where the index lives\n\n\
+`~/.cache/ig/projects/<hash>/` (or `~/Library/Caches/ig/...` on macOS).\n\
+**Never** in the project tree — no `.ig/` folder to gitignore since v1.15.0.\n\n\
+Inspect by human-readable name: `ls ~/.cache/ig/by-name/<project>/`.\n\n\
+## First time in a project\n\n\
+Just run `ig \"pattern\" [path]`. The daemon auto-spawns and the index auto-builds in background on first search. **Do not run `ig index` manually** unless something is wrong — the daemon's filesystem watcher keeps the index synced via overlay rebuilds.\n\n\
+## Smart reads (token-compressed for agent context)\n\n\
+```bash\n\
+ig read <file> -s          # imports + signatures only\n\
+ig smart [path]            # 2-line file summaries\n\
+ig pack [path]             # full project map → cache_dir/context.md\n\
+ig files [path]            # project file list (compact)\n\
+ig symbols [path]          # symbol definitions (functions/classes)\n\
+ig context <file> <line>   # enclosing block at file:line\n\
+```\n\n\
+## Daemon (one global process for all projects)\n\n\
+```bash\n\
+ig daemon status           # check health (PID, socket, active projects)\n\
+ig daemon install          # systemd-user (Linux) or launchd (macOS) auto-start\n\
+ig warm [path]             # explicitly add project to active set (idempotent)\n\
+ig projects list           # active projects + idle seconds\n\
+```\n\n\
+Socket: `~/.cache/ig/daemon/daemon.sock`. Don't touch.\n\n\
+## Cache hygiene (rare)\n\n\
+```bash\n\
+ig gc                      # prune orphan / unused entries\n\
+ig gc --days 30 --dry-run  # what would be pruned (no delete)\n\
+ig cache-ls                # list cached projects with size + last-used\n\
+```\n\n\
+## Subagent snippet\n\n\
+> Use `ig \"pattern\" [path]` via Bash for code search. Trigram-indexed, daemon-backed, sub-ms hot path. Binary at `~/.local/bin/ig`. Index lives in `~/.cache/ig/`, never in the project. Auto-builds on first search; never run `ig index` manually unless instructed. Match parity with `rg` is verified per release.\n\n\
+## What NOT to do\n\n\
+- `rg` for code search → use `ig` (rg only as fallback if `ig --version` errors).\n\
+- Add `.ig/` to `.gitignore` — pre-v1.15.0 leftover, no longer relevant.\n\
+- Run `ig index` proactively — daemon does it.\n\
+- Touch files inside `~/.cache/ig/projects/` — read-only territory.\n\
+- `rm -rf ~/.cache/ig/` — use `ig gc` for partial clean.\n\n\
+*This file is auto-managed by `ig setup`. Manual edits are overwritten on the next run.*\n";
 
 const IG_PERMISSION: &str = "Bash(ig *)";
 
@@ -235,6 +321,7 @@ impl AgentSetup for ClaudeCodeAgent {
         let mut actions = Vec::new();
         actions.push(configure_claude_settings(&claude_dir));
         actions.push(configure_claude_md(&claude_dir));
+        actions.push(configure_claude_rules_ig_md(&claude_dir));
         actions.extend(configure_claude_hooks_full(&claude_dir, dry_run));
         actions.extend(configure_claude_env_vars(&claude_dir, dry_run));
         actions
@@ -1425,36 +1512,155 @@ fn configure_claude_settings(claude_dir: &Path) -> ConfigResult {
 
 fn configure_claude_md(claude_dir: &Path) -> ConfigResult {
     let md_path = claude_dir.join("CLAUDE.md");
-
     let content = fs::read_to_string(&md_path).unwrap_or_default();
+    let target_section = ig_managed_section();
 
-    if content.contains("ig")
-        && (content.contains("## Search Tools") || content.contains("## Search & Token"))
-    {
+    let (new_content, status) = upsert_managed_block(&content, &target_section, "# Global Rules");
+
+    if let UpsertStatus::Unchanged = status {
         return ConfigResult::AlreadyDone(
-            "Search Tools section already present in CLAUDE.md".to_string(),
+            "Search Tools section already up-to-date in CLAUDE.md".to_string(),
         );
     }
 
-    let new_content = if content.is_empty() {
-        format!("# CLAUDE.md\n{}", IG_SEARCH_TOOLS_SECTION)
-    } else if content.contains("# Global Rules") {
-        // Insert before "# Global Rules"
-        content.replacen(
-            "# Global Rules",
-            &format!("{}\n# Global Rules", IG_SEARCH_TOOLS_SECTION),
-            1,
-        )
+    let initial = if new_content.starts_with("# CLAUDE.md") || new_content.starts_with("# ") {
+        new_content
     } else {
-        // Append at the end
-        format!("{}\n{}", content.trim_end(), IG_SEARCH_TOOLS_SECTION)
+        format!("# CLAUDE.md\n{}", new_content)
     };
 
-    if fs::write(&md_path, new_content.as_bytes()).is_err() {
+    if fs::write(&md_path, initial.as_bytes()).is_err() {
         return ConfigResult::Error("Could not write CLAUDE.md".to_string());
     }
 
-    ConfigResult::Configured("Added Search Tools section to ~/.claude/CLAUDE.md".to_string())
+    let msg = match status {
+        UpsertStatus::Inserted => "Added Search Tools section to ~/.claude/CLAUDE.md",
+        UpsertStatus::Updated => "Updated Search Tools section in ~/.claude/CLAUDE.md",
+        UpsertStatus::ReplacedLegacy => {
+            "Replaced legacy Search Tools section in ~/.claude/CLAUDE.md"
+        }
+        UpsertStatus::Unchanged => unreachable!(),
+    };
+    ConfigResult::Configured(msg.to_string())
+}
+
+/// Configure the `~/.claude/rules/tools/ig.md` deep-dive file. Fully owned
+/// by ig — overwritten on every `ig setup` invocation so the rule content
+/// always matches the current binary's commands.
+fn configure_claude_rules_ig_md(claude_dir: &Path) -> ConfigResult {
+    let path = claude_dir.join("rules").join("tools").join("ig.md");
+    if let Some(parent) = path.parent()
+        && fs::create_dir_all(parent).is_err()
+    {
+        return ConfigResult::Error(format!("Could not create {}", parent.display()));
+    }
+
+    let existing = fs::read_to_string(&path).unwrap_or_default();
+    if existing == IG_RULES_TOOLS_IG_MD {
+        return ConfigResult::AlreadyDone(
+            "~/.claude/rules/tools/ig.md already up-to-date".to_string(),
+        );
+    }
+
+    if fs::write(&path, IG_RULES_TOOLS_IG_MD.as_bytes()).is_err() {
+        return ConfigResult::Error(format!("Could not write {}", path.display()));
+    }
+
+    let msg = if existing.is_empty() {
+        "Created ~/.claude/rules/tools/ig.md"
+    } else {
+        "Updated ~/.claude/rules/tools/ig.md"
+    };
+    ConfigResult::Configured(msg.to_string())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpsertStatus {
+    /// File had no Search Tools section at all — block appended.
+    Inserted,
+    /// Managed-block markers were found and the body matched — no write.
+    Unchanged,
+    /// Managed-block markers were found but the body differed — replaced.
+    Updated,
+    /// Legacy `## Search Tools` heading found (no markers) — region from
+    /// that heading to the next `## ` (or EOF) replaced with the managed
+    /// block.
+    ReplacedLegacy,
+}
+
+/// Insert or update the managed block in `content`. Returns the new content
+/// and a status flag describing what happened.
+///
+/// Strategy (in order):
+/// 1. If the begin/end markers are already present → replace what's between
+///    them. If the new section equals the existing one, return Unchanged.
+/// 2. If a legacy `## Search Tools` heading exists (no markers) → replace
+///    from that heading up to the next `## ` heading or EOF.
+/// 3. Else: append before `anchor` (e.g. `# Global Rules`) if present, or at
+///    EOF.
+fn upsert_managed_block(
+    content: &str,
+    target_section: &str,
+    anchor: &str,
+) -> (String, UpsertStatus) {
+    if let (Some(begin), Some(end_marker_start)) =
+        (content.find(IG_MANAGED_BEGIN), content.find(IG_MANAGED_END))
+        && begin < end_marker_start
+    {
+        let end = end_marker_start + IG_MANAGED_END.len();
+        let mut after_end = end;
+        // Eat one trailing newline so we don't accumulate blank lines.
+        if content[after_end..].starts_with('\n') {
+            after_end += 1;
+        }
+        let mut new_content = String::with_capacity(content.len() + target_section.len());
+        new_content.push_str(&content[..begin]);
+        // Keep the trailing newline if the prefix didn't already supply it.
+        let trimmed_section = target_section.trim_start_matches('\n');
+        if !content[..begin].ends_with('\n') && !content[..begin].is_empty() {
+            new_content.push('\n');
+        }
+        new_content.push_str(trimmed_section);
+        new_content.push_str(&content[after_end..]);
+
+        if new_content == content {
+            (new_content, UpsertStatus::Unchanged)
+        } else {
+            (new_content, UpsertStatus::Updated)
+        }
+    } else if let Some(legacy_pos) = content.find("\n## Search Tools") {
+        let region_start = legacy_pos + 1;
+        let after_heading = region_start + "## Search Tools".len();
+        let region_end = content[after_heading..]
+            .find("\n## ")
+            .map(|off| after_heading + off + 1)
+            .unwrap_or(content.len());
+
+        let mut new_content = String::with_capacity(content.len() + target_section.len());
+        new_content.push_str(&content[..region_start]);
+        let trimmed_section = target_section.trim_start_matches('\n');
+        new_content.push_str(trimmed_section);
+        if !new_content.ends_with('\n') {
+            new_content.push('\n');
+        }
+        new_content.push_str(&content[region_end..]);
+        (new_content, UpsertStatus::ReplacedLegacy)
+    } else if content.is_empty() {
+        (target_section.to_string(), UpsertStatus::Inserted)
+    } else if let Some(anchor_pos) = content.find(anchor) {
+        let mut new_content = String::with_capacity(content.len() + target_section.len());
+        new_content.push_str(&content[..anchor_pos]);
+        new_content.push_str(target_section.trim_start_matches('\n'));
+        if !new_content.ends_with('\n') {
+            new_content.push('\n');
+        }
+        new_content.push_str(&content[anchor_pos..]);
+        (new_content, UpsertStatus::Inserted)
+    } else {
+        let mut new_content = content.trim_end().to_string();
+        new_content.push_str(target_section);
+        (new_content, UpsertStatus::Inserted)
+    }
 }
 
 fn configure_codex_agents_md(codex_dir: &Path) -> ConfigResult {
@@ -1613,7 +1819,9 @@ mod tests {
     }
 
     #[test]
-    fn test_claude_md_idempotent() {
+    fn test_claude_md_legacy_section_is_upgraded() {
+        // A pre-v1.19 CLAUDE.md without managed-block markers must be
+        // upgraded (legacy section replaced) — NOT silently skipped.
         let dir = TempDir::new().unwrap();
         fs::write(
             dir.path().join("CLAUDE.md"),
@@ -1622,7 +1830,29 @@ mod tests {
         .unwrap();
 
         let result = configure_claude_md(dir.path());
-        assert!(matches!(result, ConfigResult::AlreadyDone(_)));
+        assert!(
+            matches!(result, ConfigResult::Configured(_)),
+            "legacy section must be upgraded"
+        );
+        let content = fs::read_to_string(dir.path().join("CLAUDE.md")).unwrap();
+        assert!(content.contains("IG-MANAGED-BLOCK:BEGIN"));
+        assert!(content.contains("IG-MANAGED-BLOCK:END"));
+        assert!(
+            !content.contains("- Use ig\n"),
+            "stale bullet should be gone"
+        );
+    }
+
+    #[test]
+    fn test_claude_md_idempotent_after_managed_install() {
+        // Second run on an already-managed file must be a no-op.
+        let dir = TempDir::new().unwrap();
+        let _ = configure_claude_md(dir.path()); // first run: Configured
+        let result = configure_claude_md(dir.path()); // second run: AlreadyDone
+        assert!(
+            matches!(result, ConfigResult::AlreadyDone(_)),
+            "second invocation must be AlreadyDone"
+        );
     }
 
     #[test]
