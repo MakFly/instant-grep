@@ -35,14 +35,21 @@ pub struct IndexedFile {
 impl IndexMetadata {
     pub fn write_to(&self, ig_dir: &Path) -> Result<()> {
         let bin_path = ig_dir.join("metadata.bin");
+        let bin_tmp = ig_dir.join("metadata.bin.tmp");
         let encoded = bincode::serialize(self).context("serialize metadata")?;
-        std::fs::write(&bin_path, &encoded).context("write metadata.bin")?;
+        // Atomic publish: write tmp + rename. Prevents the daemon from observing
+        // a torn metadata.bin during a rebuild — and from holding a stale mmap-
+        // backed view via in-place truncate (see fix(v1.17.2) H1 hardening).
+        std::fs::write(&bin_tmp, &encoded).context("write metadata.bin.tmp")?;
+        std::fs::rename(&bin_tmp, &bin_path).context("publish metadata.bin")?;
 
         if std::env::var("IG_DEBUG").is_ok() {
             let json_path = ig_dir.join("metadata.json");
-            let file = File::create(&json_path).context("create metadata.json")?;
+            let json_tmp = ig_dir.join("metadata.json.tmp");
+            let file = File::create(&json_tmp).context("create metadata.json.tmp")?;
             serde_json::to_writer_pretty(BufWriter::new(file), self)
-                .context("write metadata.json")?;
+                .context("write metadata.json.tmp")?;
+            std::fs::rename(&json_tmp, &json_path).context("publish metadata.json")?;
         }
 
         Ok(())

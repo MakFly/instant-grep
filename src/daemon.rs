@@ -165,7 +165,27 @@ fn log_path() -> PathBuf {
 struct ReaderView {
     reader: IndexReader,
     df_table: Option<BigramDfTable>,
-    last_mtime: SystemTime,
+    last_fingerprint: IndexFingerprint,
+}
+
+/// `(mtime, size)` snapshot of every artifact the daemon mmaps. Used as a
+/// cache-invalidation key in place of a single `metadata.bin` mtime.
+///
+/// Defense in depth against:
+/// - sub-second mtime granularity collapse on rapid rebuilds (size still
+///   differs even if mtime ties),
+/// - in-place truncate of base artifacts where the daemon would otherwise
+///   keep stale mmaps until `metadata.bin` mtime alone changes,
+/// - overlay file partial states (every overlay file is tracked).
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct IndexFingerprint {
+    metadata: (SystemTime, u64),
+    lexicon: (SystemTime, u64),
+    postings: (SystemTime, u64),
+    overlay_meta: (SystemTime, u64),
+    overlay_lex: (SystemTime, u64),
+    overlay_post: (SystemTime, u64),
+    tombstones: (SystemTime, u64),
 }
 
 /// Per-project state. One per opened project root, kept in an LRU under
@@ -188,13 +208,13 @@ impl TenantState {
         } else {
             None
         };
-        let last_mtime = metadata_mtime(&ig);
+        let last_fingerprint = index_fingerprint(&ig);
         let cap = NonZeroUsize::new(128).unwrap();
         Ok(Self {
             reader_view: RwLock::new(ReaderView {
                 reader,
                 df_table,
-                last_mtime,
+                last_fingerprint,
             }),
             ig_dir: ig,
             root,
@@ -203,13 +223,15 @@ impl TenantState {
         })
     }
 
-    /// Reload the reader if `metadata.bin` mtime changed since last open.
-    /// Cheap (one stat per call) — replaces the per-tenant `notify` watcher.
+    /// Reload the reader if any tracked index artifact's `(mtime, size)`
+    /// changed since the last open. Cheap (a handful of `stat(2)` calls per
+    /// query) and immune to sub-second mtime collapse: if `mtime` is the same
+    /// across a rebuild, `size` still differs.
     fn reload_if_changed(&self) -> bool {
-        let current = metadata_mtime(&self.ig_dir);
+        let current = index_fingerprint(&self.ig_dir);
         let needs = {
             let rv = self.reader_view.read().unwrap_or_else(|e| e.into_inner());
-            current != rv.last_mtime
+            current != rv.last_fingerprint
         };
         if !needs {
             return false;
@@ -227,7 +249,7 @@ impl TenantState {
                     let old = rv.reader.metadata.file_count;
                     rv.reader = new_reader;
                     rv.df_table = new_df;
-                    rv.last_mtime = current;
+                    rv.last_fingerprint = current;
                     old
                 };
                 self.regex_cache
@@ -254,17 +276,33 @@ impl TenantState {
     }
 }
 
-fn metadata_mtime(ig_dir: &Path) -> SystemTime {
-    let bin = ig_dir.join("metadata.bin");
-    let json = ig_dir.join("metadata.json");
-    let base = std::fs::metadata(&bin)
-        .or_else(|_| std::fs::metadata(&json))
-        .and_then(|m| m.modified())
-        .unwrap_or(SystemTime::UNIX_EPOCH);
-    let overlay = std::fs::metadata(ig_dir.join("overlay_meta.bin"))
-        .and_then(|m| m.modified())
-        .unwrap_or(SystemTime::UNIX_EPOCH);
-    base.max(overlay)
+/// Stat a single artifact, returning `(mtime, size)`. Missing files map to
+/// `(UNIX_EPOCH, 0)` so the absent-vs-present transition is always observable.
+fn stat_artifact(path: &Path) -> (SystemTime, u64) {
+    match std::fs::metadata(path) {
+        Ok(m) => (m.modified().unwrap_or(SystemTime::UNIX_EPOCH), m.len()),
+        Err(_) => (SystemTime::UNIX_EPOCH, 0),
+    }
+}
+
+fn index_fingerprint(ig_dir: &Path) -> IndexFingerprint {
+    let metadata = {
+        let bin = stat_artifact(&ig_dir.join("metadata.bin"));
+        if bin == (SystemTime::UNIX_EPOCH, 0) {
+            stat_artifact(&ig_dir.join("metadata.json"))
+        } else {
+            bin
+        }
+    };
+    IndexFingerprint {
+        metadata,
+        lexicon: stat_artifact(&ig_dir.join("lexicon.bin")),
+        postings: stat_artifact(&ig_dir.join("postings.bin")),
+        overlay_meta: stat_artifact(&ig_dir.join("overlay_meta.bin")),
+        overlay_lex: stat_artifact(&ig_dir.join("overlay_lex.bin")),
+        overlay_post: stat_artifact(&ig_dir.join("overlay.bin")),
+        tombstones: stat_artifact(&ig_dir.join("tombstones.bin")),
+    }
 }
 
 // ─── Global state (multi-tenant) ────────────────────────────────────────────
@@ -1502,11 +1540,50 @@ mod tests {
     }
 
     #[test]
-    fn test_metadata_mtime_returns_valid_time() {
+    fn test_index_fingerprint_changes_with_size() {
         let (dir, root) = setup_test_project();
         let ig = ig_dir(&root);
-        let mtime = metadata_mtime(&ig);
-        assert_ne!(mtime, SystemTime::UNIX_EPOCH);
+
+        let fp1 = index_fingerprint(&ig);
+        assert_ne!(fp1.metadata.0, SystemTime::UNIX_EPOCH);
+        assert!(fp1.metadata.1 > 0, "metadata.bin should have nonzero size");
+
+        // Append a byte to postings.bin to simulate a rebuild that changed
+        // size but kept mtime within the same coarse timestamp window. The
+        // fingerprint must still detect the change via the size component.
+        let postings = ig.join("postings.bin");
+        let mut bytes = std::fs::read(&postings).unwrap();
+        bytes.push(0u8);
+        std::fs::write(&postings, &bytes).unwrap();
+
+        let fp2 = index_fingerprint(&ig);
+        assert_ne!(fp1, fp2, "size change must alter the fingerprint");
+        drop(dir);
+    }
+
+    #[test]
+    fn test_index_fingerprint_includes_overlay() {
+        let (dir, root) = setup_test_project();
+        let ig = ig_dir(&root);
+
+        let fp_base = index_fingerprint(&ig);
+        assert_eq!(fp_base.overlay_meta, (SystemTime::UNIX_EPOCH, 0));
+
+        // Touch each overlay artifact and verify the fingerprint reflects it.
+        for name in [
+            "overlay_meta.bin",
+            "overlay_lex.bin",
+            "overlay.bin",
+            "tombstones.bin",
+        ] {
+            std::fs::write(ig.join(name), b"x").unwrap();
+        }
+        let fp_overlay = index_fingerprint(&ig);
+        assert_ne!(
+            fp_base, fp_overlay,
+            "overlay file creation must alter the fingerprint"
+        );
+        assert_ne!(fp_overlay.overlay_meta, (SystemTime::UNIX_EPOCH, 0));
         drop(dir);
     }
 

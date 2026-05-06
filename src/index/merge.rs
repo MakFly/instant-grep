@@ -137,7 +137,11 @@ pub fn merge_segments_streaming(
         .context("persist entries temp file")?;
 
     if segments.is_empty() {
-        File::create(postings_path).context("create empty postings.bin")?;
+        // Atomic publish: empty file via tmp + rename so a daemon never sees
+        // an empty postings.bin where there used to be a populated one.
+        let tmp = postings_tmp_path(postings_path);
+        File::create(&tmp).context("create empty postings.bin.tmp")?;
+        fs::rename(&tmp, postings_path).context("publish empty postings.bin")?;
         return Ok(StreamingMergeResult {
             entries_path,
             entry_count: 0,
@@ -176,8 +180,9 @@ pub fn merge_segments_streaming(
         current_entries.push(entry);
     }
 
+    let postings_tmp = postings_tmp_path(postings_path);
     let mut postings_writer =
-        BufWriter::new(File::create(postings_path).context("create postings.bin")?);
+        BufWriter::new(File::create(&postings_tmp).context("create postings.bin.tmp")?);
     let mut entries_writer = BufWriter::new(entries_file);
     let mut entry_count: usize = 0;
     let mut current_offset: u32 = 0;
@@ -273,7 +278,9 @@ pub fn merge_segments_streaming(
     }
 
     postings_writer.flush()?;
+    drop(postings_writer);
     entries_writer.flush()?;
+    fs::rename(&postings_tmp, postings_path).context("publish postings.bin")?;
 
     Ok(StreamingMergeResult {
         entries_path,
@@ -289,8 +296,9 @@ fn merge_single_segment_streaming(
     entries_path: PathBuf,
 ) -> Result<StreamingMergeResult> {
     let mut reader = SegmentReader::open(&segment.path)?;
+    let postings_tmp = postings_tmp_path(postings_path);
     let mut postings_writer =
-        BufWriter::new(File::create(postings_path).context("create postings.bin")?);
+        BufWriter::new(File::create(&postings_tmp).context("create postings.bin.tmp")?);
     let mut entries_writer = BufWriter::new(entries_file);
     let mut entry_count: usize = 0;
     let mut current_offset: u32 = 0;
@@ -312,12 +320,24 @@ fn merge_single_segment_streaming(
     }
 
     postings_writer.flush()?;
+    drop(postings_writer);
     entries_writer.flush()?;
+    fs::rename(&postings_tmp, postings_path).context("publish postings.bin")?;
 
     Ok(StreamingMergeResult {
         entries_path,
         entry_count,
     })
+}
+
+/// Sibling tmp path for atomic publish: `postings.bin` → `postings.bin.tmp`.
+fn postings_tmp_path(dest: &Path) -> PathBuf {
+    let mut name = dest
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_else(|| std::ffi::OsString::from("postings.bin"));
+    name.push(".tmp");
+    dest.with_file_name(name)
 }
 
 /// Write a single entry to the entries temp file.
@@ -390,8 +410,10 @@ pub fn build_lexicon_mmap_from_file(
     entry_count: usize,
     lexicon_path: &Path,
 ) -> Result<()> {
+    let lexicon_tmp = postings_tmp_path(lexicon_path);
     if entry_count == 0 {
-        File::create(lexicon_path).context("create empty lexicon.bin")?;
+        File::create(&lexicon_tmp).context("create empty lexicon.bin.tmp")?;
+        fs::rename(&lexicon_tmp, lexicon_path).context("publish empty lexicon.bin")?;
         return Ok(());
     }
 
@@ -403,19 +425,20 @@ pub fn build_lexicon_mmap_from_file(
     let entries_file = File::open(entries_path).context("open entries temp file for lexicon")?;
     let entries_mmap = unsafe { Mmap::map(&entries_file).context("mmap entries temp file")? };
 
-    // Create lexicon file with exact size, mmap it as writable
+    // Create lexicon tmp file with exact size, mmap it as writable
     let lex_file = OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(true)
-        .open(lexicon_path)
-        .context("create lexicon.bin")?;
+        .open(&lexicon_tmp)
+        .context("create lexicon.bin.tmp")?;
     lex_file
         .set_len(byte_size as u64)
-        .context("set lexicon.bin size")?;
+        .context("set lexicon.bin.tmp size")?;
 
-    let mut mmap = unsafe { MmapMut::map_mut(&lex_file).context("mmap lexicon.bin for write")? };
+    let mut mmap =
+        unsafe { MmapMut::map_mut(&lex_file).context("mmap lexicon.bin.tmp for write")? };
 
     for i in 0..entry_count {
         let base = i * ENTRY_FILE_SIZE;
@@ -452,6 +475,12 @@ pub fn build_lexicon_mmap_from_file(
     }
 
     mmap.flush().context("flush lexicon mmap")?;
+    drop(mmap);
+    drop(lex_file);
+    // Atomic publish: rename tmp into place. On macOS the kernel keeps the
+    // pre-rename inode alive for any pre-existing reader mmap, so the daemon's
+    // stale view stays consistent until it re-opens via reload_if_changed.
+    fs::rename(&lexicon_tmp, lexicon_path).context("publish lexicon.bin")?;
     Ok(())
 }
 

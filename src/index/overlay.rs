@@ -329,3 +329,38 @@ pub fn clear_overlay(ig_dir: &Path) {
     let _ = fs::remove_file(ig_dir.join("overlay_meta.bin.tmp"));
     let _ = fs::remove_file(ig_dir.join("tombstones.bin.tmp"));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression: corrupt `overlay_meta.bin` must surface as `Err`, not as
+    /// silent `Ok(None)`. The daemon previously masked these errors with
+    /// `unwrap_or(None)` in `IndexReader::open`, leaving stale overlay state
+    /// invisible until the daemon was restarted (see fix(v1.17.2)).
+    #[test]
+    fn corrupt_overlay_meta_returns_err_not_ok_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ig = tmp.path();
+
+        fs::write(ig.join("overlay_meta.bin"), b"\xff\xff garbage \xfe").unwrap();
+        fs::write(ig.join("overlay_lex.bin"), b"").unwrap();
+        fs::write(ig.join("overlay.bin"), b"").unwrap();
+
+        let result = OverlayReader::open(ig);
+        assert!(
+            result.is_err(),
+            "corrupt overlay_meta.bin must error, got {:?}",
+            result.map(|o| o.is_some())
+        );
+    }
+
+    /// Sanity: missing `overlay_meta.bin` is the legitimate "no overlay" case
+    /// and must still return `Ok(None)` so callers can serve base-only.
+    #[test]
+    fn missing_overlay_meta_returns_ok_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        let result = OverlayReader::open(tmp.path()).unwrap();
+        assert!(result.is_none());
+    }
+}

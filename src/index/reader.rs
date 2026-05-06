@@ -90,8 +90,20 @@ impl IndexReader {
 
         let table_size = lexicon.len() / LEXICON_ENTRY_SIZE;
 
-        // Try to load overlay if it exists
-        let overlay = OverlayReader::open(ig_dir).unwrap_or(None);
+        // Try to load overlay if it exists. Log open errors instead of
+        // collapsing them to None: silent swallows masked a daemon bug where a
+        // mid-write overlay would stay invisible until process restart.
+        let overlay = match OverlayReader::open(ig_dir) {
+            Ok(opt) => opt,
+            Err(e) => {
+                eprintln!(
+                    "[ig] overlay open failed in {}: {:#} (serving base only)",
+                    ig_dir.display(),
+                    e
+                );
+                None
+            }
+        };
 
         Ok(Self {
             metadata,
