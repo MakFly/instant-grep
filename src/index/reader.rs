@@ -189,11 +189,12 @@ impl IndexReader {
                     if let Some(entry) = entry {
                         visited_blocks = visited_blocks.max(skipper.visited_blocks());
                         decoded_count = decoded_count.max(skipper.decoded_entries());
-                        if entry.doc_id == candidate && !self.is_tombstoned(entry.doc_id) {
-                            if spec.next_mask == 0 || entry.next_mask & spec.next_mask != 0 {
-                                after_bloom += 1;
-                                matches.push(entry);
-                            }
+                        if entry.doc_id == candidate
+                            && !self.is_tombstoned(entry.doc_id)
+                            && (spec.next_mask == 0 || entry.next_mask & spec.next_mask != 0)
+                        {
+                            after_bloom += 1;
+                            matches.push(entry);
                         }
                     }
                 }
@@ -767,7 +768,7 @@ fn validate_artifact_sizes(
     lexicon_bytes: u64,
     postings_bytes: u64,
 ) -> Result<()> {
-    if lexicon_bytes % LEXICON_ENTRY_SIZE as u64 != 0 {
+    if !lexicon_bytes.is_multiple_of(LEXICON_ENTRY_SIZE as u64) {
         bail!(
             "invalid lexicon.bin size: {} bytes is not a multiple of {}",
             lexicon_bytes,

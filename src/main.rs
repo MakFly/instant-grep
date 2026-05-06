@@ -1211,29 +1211,28 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
             before,
             opts.file_type,
         )
+        && resp.error.is_none()
     {
-        if resp.error.is_none() {
-            let results = daemon_response_to_file_matches(
-                &resp,
-                pattern,
-                opts.ignore_case,
-                opts.count,
-                opts.files_with_matches,
-            );
-            if opts.compact {
-                print_compact(&results);
-            } else {
-                let mut printer = Printer::new(use_color, opts.json);
-                if results.is_empty() && !opts.count && !opts.files_with_matches {
-                    printer.print_no_matches(pattern);
-                }
-                for file_matches in &results {
-                    printer.print_file_matches(file_matches, opts.count, opts.files_with_matches);
-                }
+        let results = daemon_response_to_file_matches(
+            &resp,
+            pattern,
+            opts.ignore_case,
+            opts.count,
+            opts.files_with_matches,
+        );
+        if opts.compact {
+            print_compact(&results);
+        } else {
+            let mut printer = Printer::new(use_color, opts.json);
+            if results.is_empty() && !opts.count && !opts.files_with_matches {
+                printer.print_no_matches(pattern);
             }
-            tracking::log_usage(search_command_label(opts));
-            return Ok(());
+            for file_matches in &results {
+                printer.print_file_matches(file_matches, opts.count, opts.files_with_matches);
+            }
         }
+        tracking::log_usage(search_command_label(opts));
+        return Ok(());
     }
 
     // Daemon was not reachable — best-effort auto-spawn for next call.

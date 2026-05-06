@@ -303,7 +303,7 @@ fn discover_indexed_roots(start: &Path) -> Result<Vec<PathBuf>> {
         if !entry.file_type().is_dir() {
             continue;
         }
-        if should_skip_project_path(entry.path(), &start) {
+        if should_skip_project_path(entry.path(), start) {
             continue;
         }
         if is_project_root(entry.path()) {
@@ -325,7 +325,7 @@ fn discover_indexed_roots(start: &Path) -> Result<Vec<PathBuf>> {
             continue;
         };
         let root = PathBuf::from(meta.root_path);
-        if root.exists() && root.starts_with(start) && !should_skip_project_path(&root, &start) {
+        if root.exists() && root.starts_with(start) && !should_skip_project_path(&root, start) {
             roots.insert(root);
         }
     }

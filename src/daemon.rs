@@ -39,9 +39,9 @@ use serde::{Deserialize, Serialize};
 use crate::index::ngram::BigramDfTable;
 use crate::index::reader::IndexReader;
 use crate::index::writer;
-use crate::query::extract::regex_to_query_costed;
 #[cfg(test)]
 use crate::query::extract::regex_to_query;
+use crate::query::extract::regex_to_query_costed;
 use crate::query::plan::NgramQuery;
 use crate::search::matcher::{self, SearchConfig};
 use crate::util::ig_dir;

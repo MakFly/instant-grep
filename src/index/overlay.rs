@@ -8,9 +8,12 @@ use serde::{Deserialize, Serialize};
 
 use super::merge;
 use super::metadata::IndexedFile;
-use super::ngram::NgramKey;
+use super::ngram::{NgramKey, NgramMaskEntry};
 use super::postings::DocId;
 use super::vbyte::{self, PostingEntry};
+
+/// `(rel_path, size, mtime, ngrams_with_masks)` for a single changed file.
+pub type ChangedFileEntry = (String, u64, u64, Vec<NgramMaskEntry>);
 
 /// Metadata for an overlay index (small incremental layer on top of base).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,7 +180,7 @@ pub fn build_overlay(
     ig_dir: &Path,
     base_file_count: u32,
     base_files: &[IndexedFile],
-    changed_file_data: &[(String, u64, u64, Vec<(NgramKey, u8, u8, u32)>)],
+    changed_file_data: &[ChangedFileEntry],
     deleted_paths: &[String],
     base_git_commit: &Option<String>,
     overlay_git_commit: &Option<String>,

@@ -12,7 +12,7 @@ use crate::index::filedata::{self, FileData, FileDataIndex};
 use crate::index::merge;
 use crate::index::metadata::{INDEX_VERSION, IndexMetadata, IndexedFile};
 use crate::index::ngram::{self, BigramDfTable, NgramKey, extract_sparse_ngrams_with_masks};
-use crate::index::overlay::{self, OverlayReader};
+use crate::index::overlay::{self, ChangedFileEntry, OverlayReader};
 use crate::index::spimi;
 use crate::index::vbyte::PostingEntry;
 use crate::util::{ig_dir, is_binary};
@@ -701,7 +701,7 @@ fn incremental_overlay(
     let ig = ig_dir(root);
 
     // Separate changed files into modified/new vs deleted
-    let mut changed_file_data: Vec<(String, u64, u64, Vec<(NgramKey, u8, u8, u32)>)> = Vec::new();
+    let mut changed_file_data: Vec<ChangedFileEntry> = Vec::new();
     let mut deleted_paths: Vec<String> = Vec::new();
 
     let df_table = if base_meta.built_with_idf {

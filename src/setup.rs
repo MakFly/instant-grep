@@ -1263,29 +1263,28 @@ fn install_shell_hook(home: &Path, dry_run: bool) -> ConfigResult {
     };
 
     let existing = fs::read_to_string(&rc_path).unwrap_or_default();
-    if existing.contains(SHELL_HOOK_OPEN) && existing.contains(SHELL_HOOK_CLOSE) {
-        if let Some(updated) = replace_managed_shell_hook(&existing, hook_content) {
-            if updated == existing {
-                return ConfigResult::AlreadyDone(format!(
-                    "Shell hook already present in {}",
-                    rc_path.display()
-                ));
-            }
-            if dry_run {
-                return ConfigResult::Configured(format!(
-                    "Would update shell hook in {}",
-                    rc_path.display()
-                ));
-            }
-            return match fs::write(&rc_path, updated.as_bytes()) {
-                Ok(_) => {
-                    ConfigResult::Configured(format!("Shell hook updated in {}", rc_path.display()))
-                }
-                Err(e) => {
-                    ConfigResult::Error(format!("Could not write {}: {}", rc_path.display(), e))
-                }
-            };
+    if existing.contains(SHELL_HOOK_OPEN)
+        && existing.contains(SHELL_HOOK_CLOSE)
+        && let Some(updated) = replace_managed_shell_hook(&existing, hook_content)
+    {
+        if updated == existing {
+            return ConfigResult::AlreadyDone(format!(
+                "Shell hook already present in {}",
+                rc_path.display()
+            ));
         }
+        if dry_run {
+            return ConfigResult::Configured(format!(
+                "Would update shell hook in {}",
+                rc_path.display()
+            ));
+        }
+        return match fs::write(&rc_path, updated.as_bytes()) {
+            Ok(_) => {
+                ConfigResult::Configured(format!("Shell hook updated in {}", rc_path.display()))
+            }
+            Err(e) => ConfigResult::Error(format!("Could not write {}: {}", rc_path.display(), e)),
+        };
     }
 
     if dry_run {

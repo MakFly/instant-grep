@@ -8,6 +8,10 @@ use crate::index::metadata::IndexMetadata;
 /// Hash of a variable-length n-gram, used as index key.
 pub type NgramKey = u64;
 
+/// Per-ngram entry produced by mask extraction:
+/// `(key, bloom_mask, loc_mask, zone_mask)`.
+pub type NgramMaskEntry = (NgramKey, u8, u8, u32);
+
 /// Default max n-gram length for covering algorithm.
 pub const DEFAULT_MAX_NGRAM_LEN: usize = 16;
 
