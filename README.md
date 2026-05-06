@@ -29,15 +29,31 @@
 - **One global daemon** since v1.16.0 — multi-tenant, single Unix socket, single systemd-user / launchd unit. Replaces the previous one-daemon-per-project design. **~14× less RAM** in real-world use (5–20 MB total instead of 60 MB × N).
 - **Precision search (v1.17.0+)** — vbyte posting codec + masked n-grams (bloom / loc / zone). Sub-byte filtering before any `read(2)`. `INDEX_VERSION 13`.
 - **Push reload via FSEvents (v1.18.0)** — `.ig/seal` 16-byte atomic publish marker + `notify` watcher on `.ig/`. Out-of-band `ig index .` from another shell propagates to the daemon **without waiting for the next query**. Pull (per-query 16-byte read) stays authoritative as the safety net. See [`docs/specs/SPEC-daemon-cache-invalidation.md`](docs/specs/SPEC-daemon-cache-invalidation.md) for the full design.
+- **Navigable cache layout (v1.19.0)** — the cache root is now organized into `daemon/` (sock + pid + rotated logs), `projects/<hash>/`, `by-name/<slug>` symlinks for human inspection, `tee/`, and `manifest.json`. Migration from the pre-v1.19 flat layout is automatic and idempotent on first launch.
+- **Self-healing setup (v1.19.1+)** — `ig setup` writes a managed block (`<!-- IG-MANAGED-BLOCK -->`) into agent rule files (`CLAUDE.md`, `AGENTS.md`, `~/.claude/rules/tools/ig.md`). On binary upgrades, `ig update` re-runs `ig setup --quiet` so the block always reflects the current contract; only drifted entries surface, no wall of "already up-to-date".
 - **Two-step install on a new machine**: `curl … install.sh | bash`, then `ig daemon install`. New projects are served the moment they're queried — no preboot.
 
 ```
-ig                  ──── ~/.cache/ig/ ──── one daemon, one socket, all your projects
- │                       │
- ├── search/             ├── <hash-of-rootA>/   ← lexicon.bin, postings.bin, …
- ├── git proxy           ├── <hash-of-rootB>/
- ├── ls / read / pack    ├── daemon.sock        ← single multi-tenant socket
- └── gc / migrate        └── daemon.{pid,log}
+ig ───── ~/.cache/ig/  (one daemon, one socket, all your projects)
+ │             │
+ │             ├── daemon/
+ │             │     ├── daemon.sock         ← single multi-tenant socket
+ │             │     ├── daemon.pid
+ │             │     └── daemon.log[.1…5]    ← rotated at 5 MB
+ │             │
+ │             ├── projects/
+ │             │     ├── <hash-of-rootA>/    ← lexicon.bin, postings.bin, seal, …
+ │             │     ├── <hash-of-rootB>/
+ │             │     └── ...
+ │             │
+ │             ├── by-name/                  ← human-friendly symlinks
+ │             │     ├── tilvest-app -> ../projects/2e0c…
+ │             │     └── ...
+ │             │
+ │             ├── tee/                      ← centralized tee output
+ │             └── manifest.json             ← global registry (cheap cache-ls)
+ ├── search / git proxy / ls / read / pack
+ └── gc / migrate / cache-ls
 ```
 
 ---
@@ -423,8 +439,8 @@ some Docker bind-mount configurations). Full contract and invariants:
 
 ### Cache management (since v1.15.0)
 
-Indexes live in `~/.cache/ig/<hash-of-root>/` (XDG-compliant). Set
-`IG_LOCAL_INDEX=1` to fall back to `<root>/.ig/` for a project, or
+Indexes live in `~/.cache/ig/projects/<hash-of-root>/` (XDG-compliant).
+Set `IG_LOCAL_INDEX=1` to fall back to `<root>/.ig/` for a project, or
 `IG_CACHE_DIR=/path` to relocate the whole cache.
 
 ```bash
@@ -432,6 +448,25 @@ ig cache-ls                       # list every cached project (size, last_used)
 ig migrate [--dry-run]            # move <root>/.ig/ to the XDG cache
 ig gc [--days N] [--dry-run]      # drop entries whose root is gone, or unused for N days
 ```
+
+**Layout (v1.19.0+)** — the cache root is now grouped by purpose. `ensure_layout()`
+runs at the entry of every command and migrates pre-v1.19 installs (hash dirs at
+the root, `daemon.{sock,pid,log}` mixed in) to the new structure. Idempotent and
+safe under concurrent invocations via a create-only `.layout.lock` file. Browsing
+the cache is now meaningful:
+
+```bash
+ls ~/.cache/ig/by-name/           # symlinks: <project-name> → ../projects/<hash>
+cat ~/.cache/ig/manifest.json     # registry: hash, root, size, last_used per entry
+ls ~/.cache/ig/daemon/            # daemon.sock, daemon.pid, daemon.log
+```
+
+If you upgrade across the v1.19 boundary, the migration is invisible: any
+pre-v1.19 daemon still running gets `SIGTERM`ed (PID file at the legacy path),
+old hash dirs move into `projects/`, daemon files into `daemon/`, and a v1.19
+daemon takes over on the new socket. Duplicate entries (rare; can happen if
+a stale daemon recreated a hash dir mid-migration) are resolved by `mtime`
+— newest wins.
 
 **Project root detection** (`find_root`) recognises both `.git/` and project
 markers (`package.json`, `Cargo.toml`, `pyproject.toml`, `go.mod`,
@@ -860,6 +895,8 @@ ig
 ├── tracking.rs     — JSONL history
 ├── discover.rs     — Session scanner for missed savings
 ├── setup.rs        — Universal AI agent configuration
+│                     + managed-block markers in CLAUDE.md / AGENTS.md (v1.19.1)
+│                     + --quiet flag for post-update re-sync (v1.19.2)
 ├── scoring.rs      — Layered Semantic Compression (entropy × weight × relevance)
 ├── delta.rs        — Git-aware delta reads (changed lines + enclosing context)
 ├── read.rs         — Smart file reading (full + signatures)
@@ -867,7 +904,9 @@ ig
 ├── symbols.rs      — Symbol definition extraction
 ├── pack.rs         — Project context generator
 ├── ls.rs           — Compact directory listing
-├── cache.rs        — XDG cache (~/.cache/ig/) + gc/migrate (v1.15.0)
+├── cache.rs        — XDG cache + gc/migrate (v1.15.0)
+│                     + ensure_layout / projects/ / by-name/ / manifest (v1.19.0)
+│                     + daemon log rotation (5 MB / 5 generations)
 ├── daemon.rs       — Single global Unix-socket server, multi-tenant LRU
 │                     + .ig/ watcher for proactive seal reload (v1.16.0+, v1.18.0)
 ├── index/seal.rs   — 16-byte atomic publish marker (v1.18.0)

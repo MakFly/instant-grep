@@ -20,11 +20,26 @@ cp target/release/ig ~/.local/bin/ig
 
 ## Architecture
 
-Sparse n-grams (port of GitHub Blackbird / danlark1/sparse_ngrams) with covering algorithm. Since v1.15.0 the index lives in the **XDG cache** (`~/.cache/ig/<hash-of-root>/`) by default, not in `<root>/.ig/`. `find_root` recognises `package.json`, `Cargo.toml`, `go.mod`, etc. in addition to `.git/`. Set `IG_LOCAL_INDEX=1` to force local mode.
+Sparse n-grams (port of GitHub Blackbird / danlark1/sparse_ngrams) with covering algorithm. The index lives in the **XDG cache** (`~/.cache/ig/projects/<hash-of-root>/`) by default, not in `<root>/.ig/`. `find_root` recognises `package.json`, `Cargo.toml`, `go.mod`, etc. in addition to `.git/`. Set `IG_LOCAL_INDEX=1` to force local mode.
 
-Since v1.16.0, a **single global daemon** serves every project on the machine via `~/.cache/ig/daemon.sock`. `GlobalState` holds an `LRU<root, Arc<TenantState>>` (cap 32, override via `IG_DAEMON_TENANTS_MAX`). Each `TenantState` lazily opens its `IndexReader` on first query and keeps per-tenant regex / `NgramQuery` LRU caches.
+A **single global daemon** serves every project on the machine via `~/.cache/ig/daemon/daemon.sock`. `GlobalState` holds an `LRU<root, Arc<TenantState>>` (cap 32, override via `IG_DAEMON_TENANTS_MAX`). Each `TenantState` lazily opens its `IndexReader` on first query and keeps per-tenant regex / `NgramQuery` LRU caches.
 
-Cache invalidation (v1.18.0) uses a 16-byte **seal** file (`generation: u64`, `finalized_at_nanos: u64`) atomic-renamed as the final act of every rebuild. The daemon checks the seal on each query (pull, authoritative) **and** has a `notify` watcher on `.ig/` (push, best-effort). Full contract: `docs/specs/SPEC-daemon-cache-invalidation.md`.
+Cache invalidation uses a 16-byte **seal** file (`generation: u64`, `finalized_at_nanos: u64`) atomic-renamed as the final act of every rebuild. The daemon checks the seal on each query (pull, authoritative) **and** has a `notify` watcher on `.ig/` (push, best-effort). Full contract: `docs/specs/SPEC-daemon-cache-invalidation.md`.
+
+**Cache layout** (v1.19.0+):
+
+```
+~/.cache/ig/
+├── daemon/         daemon.sock + daemon.pid + daemon.log[.1…5]
+├── projects/<hash>/   per-project artifacts (lexicon, postings, metadata, seal, …)
+├── by-name/<slug>     human-friendly symlinks → ../projects/<hash>
+├── tee/               centralized tee output
+└── manifest.json      global registry (cheap cache-ls)
+```
+
+`cache::ensure_layout()` migrates pre-v1.19 installs (hash dirs at root, daemon files mixed in) on first launch. Idempotent, lockfile-protected.
+
+**Setup managed-block** (v1.19.1+): `ig setup` writes a sentinel-wrapped section into `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, etc. — automatically refreshed on every `ig update` (quiet by default, only drift is reported). The deep-dive rules file `~/.claude/rules/tools/ig.md` is fully owned by `ig setup` (overwritten on every run).
 
 Pipeline: `regex → regex-syntax Extractor → covering sparse n-grams → hash table lookup (lexicon.bin) → vbyte-decoded posting list intersection (postings.bin) → bloom/loc/zone mask filter → parallel regex verification`
 
