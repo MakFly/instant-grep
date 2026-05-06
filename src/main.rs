@@ -60,6 +60,12 @@ use walk::DEFAULT_MAX_FILE_SIZE;
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // Ensure the v1.19.0+ cache layout exists; migrates any pre-v1.19 hash
+    // dirs from the cache root into `projects/` and the daemon files into
+    // `daemon/`. Idempotent + concurrent-safe (lockfile). Hot path: a single
+    // `stat` once the marker is present.
+    let _ = cache::ensure_layout();
+
     // Check for updates in the background (non-blocking)
     update::check_update_background();
 

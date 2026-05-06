@@ -148,17 +148,19 @@ struct MatchResult {
 
 // ─── Paths ──────────────────────────────────────────────────────────────────
 
-/// Single global socket. All clients connect here.
+/// Single global socket. All clients connect here. v1.19.0+ layout: under
+/// `cache_root/daemon/`. Migration happens at command entry via
+/// `cache::ensure_layout`.
 pub fn socket_path() -> PathBuf {
-    crate::cache::cache_root().join("daemon.sock")
+    crate::cache::daemon_dir().join("daemon.sock")
 }
 
 fn pid_path() -> PathBuf {
-    crate::cache::cache_root().join("daemon.pid")
+    crate::cache::daemon_dir().join("daemon.pid")
 }
 
 fn log_path() -> PathBuf {
-    crate::cache::cache_root().join("daemon.log")
+    crate::cache::daemon_dir().join("daemon.log")
 }
 
 // ─── Tenant state ───────────────────────────────────────────────────────────
@@ -582,6 +584,11 @@ fn guard_suspicious_root(root: &Path) -> Result<()> {
 /// compatibility with `ig daemon foreground <path>` invocations from old
 /// launchd plists.
 pub fn start_daemon(_legacy_path: &Path) -> Result<()> {
+    // Make sure the v1.19 layout exists before writing any daemon state.
+    // ensure_layout is idempotent and a single stat in the hot path.
+    let _ = crate::cache::ensure_layout();
+    crate::cache::rotate_daemon_log_if_needed();
+
     purge_legacy_per_project_daemons();
 
     let max_tenants = std::env::var("IG_DAEMON_TENANTS_MAX")

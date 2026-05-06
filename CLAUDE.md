@@ -105,6 +105,27 @@ ig setup                     # configure AI CLI agents + install hooks
 - Tests must reproduce danlark1 test vectors for sparse n-grams
 - 38 default excluded directories (node_modules, target, vendor, etc.)
 
+## Testing policy — always run REAL tests, not just unit tests
+
+Unit tests catch logic bugs but they don't catch:
+- File-system layout changes (migrations, atomic-rename races)
+- Daemon socket / PID / log path drift
+- Cross-process interactions (writer rebuilds while daemon serves queries)
+- macOS-specific behavior (FSEvents reliability, codesign, mmap survival across truncate)
+
+So before declaring any work done, run **all three layers**:
+
+1. **Unit tests** — `cargo test --quiet`. 425+ passing, no failures.
+2. **Lint + format** — `cargo clippy --all-targets -- -D warnings && cargo fmt --check`.
+3. **Real tests** — exercise the actual binary against the actual cache:
+   - `cp target/release/ig ~/.local/bin/ig && codesign -fs - ~/.local/bin/ig` (macOS).
+   - `ig daemon stop && ig daemon start` — verify the daemon comes up cleanly.
+   - `ig daemon status` — confirms PID + socket path.
+   - On a real project (tilvest, instant-grep, …) : `ig -c "<pattern>"` returns the same count as `rg -c "<pattern>"` (parity check).
+   - Inspect `~/Library/Caches/ig/` (or `~/.cache/ig/` on Linux) to confirm the on-disk layout matches expectations.
+
+A change that passes unit tests but breaks real-world use (daemon hangs, cache layout corrupt, codesign rejected) is **not done**. Skip the real tests at your own risk — the v1.17.x daemon stale-state bug shipped because real tests weren't run between code change and CI green.
+
 ## Filter matching policy
 
 `ig run <cmd>` looks up a filter with a two-step lookup in `src/cmds/run.rs::resolve_filter`:

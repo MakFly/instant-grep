@@ -2,6 +2,77 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.19.0] — 2026-05-06
+
+### Changed — XDG cache reorganized into a navigable layout
+
+The `~/.cache/ig/` (or `~/Library/Caches/ig/` on macOS) tree was a flat root: hash dirs and `daemon.{sock,pid,log}` mixed in the same directory, opaque hash names with no human-friendly index, no log rotation. With ~140 cache entries on a busy workstation this got tedious to inspect.
+
+New layout:
+
+```
+~/Library/Caches/ig/
+├── daemon/                          ← daemon runtime state (sock, pid, log)
+│   ├── daemon.sock
+│   ├── daemon.pid
+│   ├── daemon.log
+│   └── daemon.log.1 [.2, .3, .4, .5]   ← rotated at 5 MB, last 5 kept
+├── projects/                        ← per-project caches, hash-keyed
+│   ├── 2e0c08507bb58341/
+│   ├── 367dab9a3c2d060a/
+│   └── ...
+├── by-name/                         ← human-friendly symlinks
+│   ├── distribution-app-v2 -> ../projects/2e0c08507bb58341
+│   ├── instant-grep        -> ../projects/367dab9a3c2d060a
+│   └── ...
+├── tee/                             ← centralized tee output (was per-project)
+└── manifest.json                    ← global registry: hash → root, name, size
+```
+
+Migration is automatic and idempotent. `ensure_layout()` runs at the entry of every command and:
+
+1. Acquires `cache_root/.layout.lock` (create-only, lock-of-record).
+2. **SIGTERM**s any pre-v1.19 daemon still running (PID file at the legacy path) so it stops recreating moved entries mid-migration.
+3. Moves every `cache_root/<hash>/` into `cache_root/projects/<hash>/`. On hash dir collision (a stale daemon recreated the legacy entry), the **newer mtime wins** — the old `projects/` entry is dropped and the legacy is renamed in.
+4. Moves `daemon.{sock,pid,log}` into `daemon/`.
+5. Builds `by-name/` symlinks from each project's `cache-meta.json` (slug from project basename, suffixed with hash bits if collision).
+6. Writes `manifest.json` (atomic via tmp+rename).
+7. Drops the `cache_root/.layout-v1` marker — subsequent calls fast-path.
+
+Concurrent ig invocations are safe: contenders wait up to 5 s for the marker; if the lock-holder dies, the next caller takes over. New file-system primitives:
+
+```rust
+pub fn cache_root() -> PathBuf;
+pub fn daemon_dir() -> PathBuf;        // cache_root/daemon
+pub fn projects_dir() -> PathBuf;      // cache_root/projects
+pub fn by_name_dir() -> PathBuf;       // cache_root/by-name
+pub fn tee_dir() -> PathBuf;           // cache_root/tee
+pub fn manifest_path() -> PathBuf;     // cache_root/manifest.json
+pub fn ensure_layout() -> Result<()>;
+pub fn rebuild_symlinks() -> Result<()>;
+pub fn rebuild_manifest() -> Result<()>;
+pub fn rotate_daemon_log_if_needed();
+```
+
+The daemon's `socket_path()` / `pid_path()` / `log_path()` now resolve to `daemon/`. `start_daemon` calls `ensure_layout` and `rotate_daemon_log_if_needed` at boot.
+
+### Backward compat
+
+- Pre-v1.19 indexes are migrated automatically on first run of any command.
+- Legacy daemons (v1.16-v1.18) listening on `cache_root/daemon.sock` are SIGTERMed during migration.
+- `ig query`, `ig daemon status`, `ig warm`, etc. all keep their CLI surface; only the on-disk paths changed.
+
+### Tests
+
+- 430 lib tests (+5 since v1.18.0): `ensure_layout_creates_v19_dirs`, `ensure_layout_migrates_legacy_hash_dirs`, `ensure_layout_is_idempotent`, `rebuild_symlinks_creates_human_names`, `rebuild_manifest_writes_entries`.
+- Real tests run on a live cache with 8 active projects: migration succeeded, daemon started cleanly on the new socket path, `ig -l function` on tilvest returned 1707 files (parity with `rg` confirmed).
+
+### CLAUDE.md — testing policy
+
+A new section in `CLAUDE.md` codifies the rule: **always run real tests in addition to unit tests** before declaring work done. Real tests catch what unit tests miss — daemon socket drift, on-disk layout corruption, codesign rejection on macOS, mmap survival across truncate. The v1.17.x stale-state bug shipped because real tests weren't run between code change and CI green; v1.19.0 catches similar failure modes in the cache-reorg by exercising the actual binary against the actual cache.
+
+---
+
 ## [1.18.0] — 2026-05-06
 
 ### Added — `.ig/seal` atomic publish marker + FSEvents push
