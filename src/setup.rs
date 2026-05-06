@@ -288,12 +288,30 @@ fn which_exists(binary: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Set by `run_setup_with_options(quiet=true)`. When true, `print_results`
+/// skips the agent header if every action was idempotent and skips
+/// `AlreadyDone` lines so only drift / errors surface.
+static QUIET_SETUP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn print_results(agent_name: &str, results: &[ConfigResult], configured_count: &mut u32) {
+    let quiet = QUIET_SETUP.load(std::sync::atomic::Ordering::Relaxed);
+    let any_change = results
+        .iter()
+        .any(|r| !matches!(r, ConfigResult::AlreadyDone(_)));
+    if quiet && !any_change {
+        // Nothing drifted for this agent — stay silent.
+        *configured_count += 1;
+        return;
+    }
     eprintln!("\x1b[32m✓ {}\x1b[0m", agent_name);
     for action in results {
         match action {
             ConfigResult::Configured(msg) => eprintln!("  → {}", msg),
-            ConfigResult::AlreadyDone(msg) => eprintln!("  \x1b[2m→ {}\x1b[0m", msg),
+            ConfigResult::AlreadyDone(msg) => {
+                if !quiet {
+                    eprintln!("  \x1b[2m→ {}\x1b[0m", msg);
+                }
+            }
             ConfigResult::Error(msg) => eprintln!("  \x1b[31m✗ {}\x1b[0m", msg),
         }
     }
@@ -1408,12 +1426,25 @@ fn replace_managed_shell_hook(existing: &str, hook_content: &str) -> Option<Stri
     Some(updated)
 }
 
-pub fn run_setup(dry_run: bool) {
-    if dry_run {
-        eprintln!("\x1b[1;33m🔧 ig setup [DRY RUN] — Showing what would be configured...\x1b[0m\n");
-    } else {
-        eprintln!("\x1b[1m🔧 ig setup — Configuring AI CLI agents...\x1b[0m\n");
+/// Run agent configuration. When `quiet` is true:
+/// - the welcome banner is skipped,
+/// - the per-agent header lines are skipped if every action was idempotent,
+/// - lines for actions that produced `AlreadyDone` are suppressed,
+/// - only `Configured` and `Error` results surface.
+///
+/// Used by `post_update_rewarm` (after `ig update`) so the user sees only
+/// the rule files that actually drifted, not a wall of "already up-to-date".
+pub fn run_setup_with_options(dry_run: bool, quiet: bool) {
+    if !quiet {
+        if dry_run {
+            eprintln!(
+                "\x1b[1;33m🔧 ig setup [DRY RUN] — Showing what would be configured...\x1b[0m\n"
+            );
+        } else {
+            eprintln!("\x1b[1m🔧 ig setup — Configuring AI CLI agents...\x1b[0m\n");
+        }
     }
+    QUIET_SETUP.store(quiet, std::sync::atomic::Ordering::Relaxed);
 
     // When running under sudo, resolve the real user's home directory
     let home = match resolve_real_home() {
@@ -1445,27 +1476,40 @@ pub fn run_setup(dry_run: bool) {
         if agent.is_present(&home) {
             let results = agent.configure(&home, dry_run);
             print_results(agent.name(), &results, &mut configured);
-        } else {
+        } else if !quiet {
             eprintln!("\x1b[2m⊘ {} — not detected\x1b[0m", agent.name());
         }
     }
 
     // Install shell auto-warmup hook
-    eprintln!("\x1b[32m✓ Shell hook\x1b[0m");
     let hook_result = install_shell_hook(&home, dry_run);
+    let hook_changed = !matches!(hook_result, ConfigResult::AlreadyDone(_));
+    if !quiet || hook_changed {
+        eprintln!("\x1b[32m✓ Shell hook\x1b[0m");
+    }
     match &hook_result {
         ConfigResult::Configured(msg) => eprintln!("  → {}", msg),
-        ConfigResult::AlreadyDone(msg) => eprintln!("  \x1b[2m→ {}\x1b[0m", msg),
+        ConfigResult::AlreadyDone(msg) => {
+            if !quiet {
+                eprintln!("  \x1b[2m→ {}\x1b[0m", msg);
+            }
+        }
         ConfigResult::Error(msg) => eprintln!("  \x1b[31m✗ {}\x1b[0m", msg),
     }
 
     // --- Summary ---
-    eprintln!();
-    let prefix = if dry_run { "[DRY RUN] " } else { "" };
-    eprintln!(
-        "\x1b[1m{}Done!\x1b[0m ig configured for {} agent(s).",
-        prefix, configured
-    );
+    if !quiet {
+        eprintln!();
+        let prefix = if dry_run { "[DRY RUN] " } else { "" };
+        eprintln!(
+            "\x1b[1m{}Done!\x1b[0m ig configured for {} agent(s).",
+            prefix, configured
+        );
+    }
+
+    // Reset the flag so direct calls into print_results from later code
+    // (e.g. tests in the same process) don't inherit stale state.
+    QUIET_SETUP.store(false, std::sync::atomic::Ordering::Relaxed);
 }
 
 fn configure_claude_settings(claude_dir: &Path) -> ConfigResult {

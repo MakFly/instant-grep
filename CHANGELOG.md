@@ -2,6 +2,46 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.19.2] — 2026-05-06
+
+### Added — `ig setup --quiet` + auto-sync after `ig update`
+
+`ig update` already called `setup::run_setup` post-self-update, but it printed the full noisy banner + per-agent skip lines for every untouched entry. With v1.19.1 introducing managed-block detection that runs on every setup, this became a wall of "already up-to-date" lines after every binary upgrade.
+
+`--quiet` (also short `-q`) flips the output from "report everything" to "surface only what drifted":
+
+| Output | Default | `--quiet` |
+|---|---|---|
+| Banner `🔧 ig setup …` | shown | hidden |
+| `⊘ Windsurf — not detected` etc. | shown | hidden |
+| `✓ Claude Code` agent header | always | only when an action ran |
+| `→ Configured: …` lines | shown | shown |
+| `→ already up-to-date` lines | shown (dim) | hidden |
+| `✓ Shell hook` header + child line | always | only when changed |
+| `Done! ig configured for N agent(s)` summary | shown | hidden |
+
+Empirical: on a clean install where nothing has drifted, `ig setup --quiet` prints **zero bytes**. After modifying a managed section, it prints exactly the one line describing the fix (`→ Updated Search Tools section in ~/.claude/CLAUDE.md`).
+
+### Changed — `ig update` auto-runs setup in quiet mode
+
+`update.rs::post_update_rewarm` now calls `setup::run_setup_with_options(false, true)`. Effect: the user sees the same `Refreshing ig ecosystem…` line as before, but it only surfaces agent rule files that the new binary's contract actually changed. Most binary upgrades that don't touch the managed section will show nothing at all under "Refreshing".
+
+### Implementation
+
+- `src/cli.rs` — `Setup` subcommand gains `--quiet` / `-q` flag.
+- `src/main.rs` — dispatches `Commands::Setup { dry_run, quiet }` to `run_setup_with_options`.
+- `src/setup.rs`:
+  - `run_setup_with_options(dry_run, quiet)` is the new entry point.
+  - `QUIET_SETUP: AtomicBool` carries the flag into `print_results` without threading it through every `AgentSetup` impl. Reset to `false` at end-of-run so subsequent in-process calls aren't sticky.
+  - `print_results` skips the agent header line when every action was idempotent and the flag is set.
+  - The "not detected" / Shell hook scaffolding lines are gated on `!quiet || changed`.
+  - The trailing `Done! ig configured for N agent(s).` summary is hidden in quiet mode.
+- `src/update.rs` — switched to `run_setup_with_options(false, true)`.
+
+431 lib tests passing, real test confirms zero output on clean state and exactly-one-line on drift.
+
+---
+
 ## [1.19.1] — 2026-05-06
 
 ### Changed — `ig setup` rewrites stale `Search Tools` sections

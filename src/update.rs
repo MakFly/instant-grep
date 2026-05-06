@@ -174,7 +174,10 @@ pub fn run_update() -> Result<()> {
 
 fn post_update_rewarm() -> Result<()> {
     eprintln!("  Refreshing ig ecosystem...");
-    crate::setup::run_setup(false);
+    // Quiet mode: only surface the agent rule files that actually drifted
+    // since the previous binary version. Most users have a stable agent
+    // setup; printing "already up-to-date" for every entry is noise.
+    crate::setup::run_setup_with_options(false, true);
 
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let root = crate::util::find_root(&cwd);

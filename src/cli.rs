@@ -342,6 +342,12 @@ pub enum Commands {
         /// Show what would be configured without writing any files
         #[arg(long)]
         dry_run: bool,
+
+        /// Suppress the banner and skip already-up-to-date lines.
+        /// Useful for post-`ig update` re-sync where most agents are
+        /// already configured and only drifted entries should surface.
+        #[arg(long, short)]
+        quiet: bool,
     },
 
     /// Remove all ig artifacts (hooks, configs, binary, daemons, tracking data)

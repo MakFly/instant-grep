@@ -658,8 +658,8 @@ fn main() -> Result<()> {
             clap_complete::generate(shell, &mut cmd, "ig", &mut std::io::stdout());
         }
 
-        Some(Commands::Setup { dry_run }) => {
-            setup::run_setup(dry_run);
+        Some(Commands::Setup { dry_run, quiet }) => {
+            setup::run_setup_with_options(dry_run, quiet);
         }
 
         Some(Commands::Uninstall { dry_run, yes }) => {
