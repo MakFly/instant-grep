@@ -20,28 +20,44 @@ cp target/release/ig ~/.local/bin/ig
 
 ## Architecture
 
-Sparse n-grams (port of GitHub Blackbird / danlark1/sparse_ngrams) with covering algorithm. Index stored in `.ig/` at project root (lexicon.bin + postings.bin + metadata.bin, all mmap'd).
+Sparse n-grams (port of GitHub Blackbird / danlark1/sparse_ngrams) with covering algorithm. Since v1.15.0 the index lives in the **XDG cache** (`~/.cache/ig/<hash-of-root>/`) by default, not in `<root>/.ig/`. `find_root` recognises `package.json`, `Cargo.toml`, `go.mod`, etc. in addition to `.git/`. Set `IG_LOCAL_INDEX=1` to force local mode.
 
-Pipeline: `regex → regex-syntax Extractor → covering sparse n-grams → hash table lookup → posting list intersection → parallel regex verification`
+Since v1.16.0, a **single global daemon** serves every project on the machine via `~/.cache/ig/daemon.sock`. `GlobalState` holds an `LRU<root, Arc<TenantState>>` (cap 32, override via `IG_DAEMON_TENANTS_MAX`). Each `TenantState` lazily opens its `IndexReader` on first query and keeps per-tenant regex / `NgramQuery` LRU caches.
+
+Cache invalidation (v1.18.0) uses a 16-byte **seal** file (`generation: u64`, `finalized_at_nanos: u64`) atomic-renamed as the final act of every rebuild. The daemon checks the seal on each query (pull, authoritative) **and** has a `notify` watcher on `.ig/` (push, best-effort). Full contract: `docs/specs/SPEC-daemon-cache-invalidation.md`.
+
+Pipeline: `regex → regex-syntax Extractor → covering sparse n-grams → hash table lookup (lexicon.bin) → vbyte-decoded posting list intersection (postings.bin) → bloom/loc/zone mask filter → parallel regex verification`
 
 ## Key files
 
-- `src/index/ngram.rs` — core algorithm (hash_bigram, build_all_ngrams, build_covering_ngrams)
-- `src/index/writer.rs` — index build pipeline (also generates tree.txt + context.md)
-- `src/index/reader.rs` — index query (mmap + hash table)
-- `src/query/extract.rs` — regex → NgramQuery conversion
-- `src/daemon.rs` — Unix socket daemon for sub-ms queries
-- `src/read.rs` — smart file reading (full + signatures-only mode)
-- `src/smart.rs` — 2-line heuristic file summaries
-- `src/pack.rs` — project context generator (.ig/context.md)
-- `src/ls.rs` — compact directory listing
-- `src/rewrite.rs` — command rewriting engine for PreToolUse hook
-- `src/runner.rs` — `ig run`/`ig proxy` command proxy with filter pipeline and tee fallback
-- `src/tee.rs` — tee store for raw output of truncated/failed commands (`.ig/tee/`)
-- `src/filter/` — TOML-driven filter pipeline (8 stages: ansi, replace, keep, drop, truncate, head, tail, fallback)
-- `src/tracking.rs` — token savings tracking (JSONL history)
-- `src/gain.rs` — savings dashboard
-- `src/setup.rs` — AI agent auto-configuration + hook installation
+### Index core
+- `src/index/ngram.rs` — sparse n-gram algorithm (hash_bigram, build_all_ngrams, build_covering_ngrams) + `NgramMaskEntry` type alias.
+- `src/index/writer.rs` — index build pipeline. `build_index` (full) and `incremental_overlay` both call `seal::bump_seal` as their last act.
+- `src/index/reader.rs` — index query (mmap + hash table). Uses bloom_mask / loc_mask / zone_mask from `PostingEntry` for sub-trigram filtering.
+- `src/index/vbyte.rs` — varbyte posting codec, `PostingEntry` with masks (v1.17.1).
+- `src/index/seal.rs` — 16-byte atomic publish marker (v1.18.0).
+- `src/index/overlay.rs` — incremental overlay reader/writer + tombstones.
+- `src/index/merge.rs` — k-way merge with atomic tmp+rename publish for `lexicon.bin` and `postings.bin`.
+- `src/index/metadata.rs` — `IndexMetadata` (file_count, ngram_count, files…). `INDEX_VERSION = 13`. Atomic write via tmp+rename.
+- `src/query/extract.rs` — regex → `NgramQuery` conversion + `regex_to_query_costed` cost-estimation closure.
+- `src/cache.rs` — XDG cache layout, `gc`, `migrate`, `cache-ls` (v1.15.0).
+
+### Daemon
+- `src/daemon.rs` — single global Unix-socket server. `GlobalState` (multi-tenant LRU) + `ActiveProject` (per-project source-file watcher + `.ig/` seal watcher).
+
+### CLI / agent integration
+- `src/read.rs` — smart file reading (full + signatures-only mode).
+- `src/smart.rs` — 2-line heuristic file summaries.
+- `src/pack.rs` — project context generator (`.ig/context.md`).
+- `src/ls.rs` — compact directory listing.
+- `src/rewrite.rs` — command rewriting engine for PreToolUse hook.
+- `src/runner.rs` — `ig run`/`ig proxy` command proxy with filter pipeline and tee fallback.
+- `src/tee.rs` — tee store for raw output of truncated/failed commands (`.ig/tee/`).
+- `src/filter/` — TOML-driven filter pipeline (8 stages: ansi, replace, keep, drop, truncate, head, tail, fallback).
+- `src/tracking.rs` — token savings tracking (JSONL history).
+- `src/gain.rs` — savings dashboard.
+- `src/setup.rs` — AI agent auto-configuration + hook installation (self-updating shell-hook block, v1.17.0).
+- `src/update.rs` — `ig warm`, `ig projects {list,forget}` (v1.17.0).
 
 ## Commands
 
@@ -51,12 +67,18 @@ ig search <pattern> [path]   # search (explicit)
 ig index [path]              # build/rebuild index
 ig status [path]             # show stats
 ig watch [path]              # auto-rebuild on file changes
-ig daemon start [path]       # start daemon
-ig daemon stop [path]        # stop daemon
-ig daemon status [path]      # check status
-ig daemon install [path]     # auto-restart on reboot (macOS)
-ig daemon uninstall [path]   # remove auto-restart
-ig query <pattern> [path]    # query daemon
+ig warm [path]               # warm a project with the global daemon (v1.17.0)
+ig projects list             # list active (warmed) projects (v1.17.0)
+ig projects forget <root>    # drop a project from the active set (v1.17.0)
+ig daemon start              # start the global daemon (v1.16.0+)
+ig daemon stop               # stop the daemon
+ig daemon status             # daemon PID + socket
+ig daemon install            # systemd-user (Linux) or launchd (macOS) auto-start
+ig daemon uninstall          # remove auto-restart
+ig query <pattern> [path]    # query daemon directly
+ig gc [--days N] [--dry-run] # prune stale XDG cache entries (v1.15.0)
+ig migrate [--dry-run]       # move <root>/.ig/ to ~/.cache/ig/ (v1.15.0)
+ig cache-ls                  # list cache entries with size + last_used (v1.15.0)
 ig files [path]              # list project files
 ig symbols [path]            # extract symbol definitions
 ig context <file> <line>     # show enclosing code block

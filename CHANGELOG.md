@@ -2,6 +2,213 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.18.0] — 2026-05-06
+
+### Added — `.ig/seal` atomic publish marker + FSEvents push
+
+Replaces the v1.17.2 multi-file fingerprint with a single 16-byte seal file plus a `notify` watcher on `.ig/`. The daemon is now correct under the strongest contract we can express:
+
+> **When the seal is observed at generation N, every artifact of generation N is guaranteed already published on disk.**
+
+Architecture (full design captured in [`docs/specs/SPEC-daemon-cache-invalidation.md`](docs/specs/SPEC-daemon-cache-invalidation.md)):
+
+```
+.ig/seal  ←  16 bytes:  [u64 generation | u64 finalized_at_nanos]
+                         atomic-renamed as the FINAL act of every rebuild.
+```
+
+- **`src/index/seal.rs`** (new, ~110 LoC, 4 unit tests) — `read_seal`, `bump_seal`, `current_generation`. Atomic publish via `tmp + fs::rename`. Malformed seal → `None`. Missing seal → generation `0` (back-compat with pre-v1.18 indexes).
+- **`src/index/writer.rs`** — `bump_seal` called at the end of `build_index` (after the final `metadata.write_to`) and `incremental_overlay` (after `build_overlay`). The `Index is up to date` early-exit intentionally skips the bump — nothing changed, nothing to invalidate.
+- **`src/daemon.rs`**:
+  - `ReaderView.last_fingerprint` (× 7 stat tuples) → `cached_seal: Option<Seal>`. The full struct is compared so a wipe-and-rebuild that resets generation to 1 still triggers reload via `finalized_at_nanos`.
+  - `reload_if_changed()` reads 16 bytes per query (≈ 1 µs cache-hot) and compares against the cached seal.
+  - **NEW `ActiveProject._ig_watcher`** — a second `notify` watcher on the `.ig/` directory (`NonRecursive`). On `seal` / `seal.tmp` events it fires `reload_tenant_if_open`, propagating an out-of-band rebuild from another shell **without waiting for the next query**.
+
+Push (FSEvents) + pull (per-query 16-byte read) form a hybrid scheme. **Push is best-effort** (`notify`'s reliability is uneven on macOS / NFS / SMB). **Pull is authoritative** — if push misses, the next query catches it.
+
+### Tests
+
+- 425 lib tests (+4 since v1.17.1).
+- 2 new daemon regression tests: `test_seal_bumped_by_full_rebuild`, `test_reload_if_changed_observes_new_generation`.
+- 4 new seal tests in `src/index/seal.rs`.
+
+### Performance
+
+Bench unchanged from v1.17.2 (the seal/push only affects the *reload* path — query hot-path is identical):
+
+| Pattern (3 284 files) | matches | ig (ms) | rg 15.1.0 (ms) | gain |
+|---|---:|---:|---:|---:|
+| `createApp` | 2 | ~4.2 | 32.3 | **7.66×** |
+| `Vue` | 45 | ~4.4 | 32.5 | **7.39×** |
+| `axios` | 15 | ~4.5 | 31.4 | **6.98×** |
+| `function` | 1 707 | 17.4 ± 0.8 | 37.4 ± 2.8 | **2.15×** |
+
+Match parity verified on 8 patterns (zero divergence with rg).
+
+---
+
+## [1.17.2] — 2026-05-06
+
+### Fixed — daemon stale state (atomic publish + multi-file fingerprint)
+
+The global daemon could serve `total_files=base_count` (overlay invisible) until restart. Three independent vectors hardened:
+
+- **`src/index/reader.rs`** — `OverlayReader::open(...).unwrap_or(None)` silently swallowed parse/IO errors. Replaced with explicit `match { Ok(opt) => opt, Err(e) => { eprintln!(...); None } }` so the daemon log surfaces the failure instead of degrading to base-only in silence.
+- **`src/index/{merge,metadata}.rs`** — `lexicon.bin` / `postings.bin` / `metadata.bin` were written via in-place `File::create` (O_TRUNC). On macOS, the kernel keeps the pre-truncate inode alive for any pre-existing `mmap`, masking the rebuild. Switched to `tmp + fs::rename` atomic publish for all three (overlay artifacts were already atomic).
+- **`src/daemon.rs`** — replaced single-mtime `metadata_mtime()` with an `IndexFingerprint` capturing `(mtime, size)` for every artifact (metadata, lexicon, postings + 4 overlay files). Defends against sub-second `mtime` granularity collapse on rapid rebuilds: `size` always differs across a real rebuild even if `mtime` ties.
+
+This fingerprint scheme was itself superseded by v1.18.0's `seal` (single 16-byte file, single read per query). The atomic-rename and silent-swallow fixes ship from this release forward.
+
+### Tests
+
+- 3 regression tests:
+  - `corrupt_overlay_meta_returns_err_not_ok_none` — locks the no-silent-swallow contract.
+  - `missing_overlay_meta_returns_ok_none` — sanity for the legitimate empty-overlay case.
+  - Two daemon fingerprint tests (later replaced by seal tests in v1.18.0).
+- 421 lib tests passing.
+
+---
+
+## [1.17.1] — 2026-05-06
+
+### Added — precision search (vbyte codec, masked n-grams)
+
+Squash-merge of `test/iso-cursor-precision-speed` into the v1.17.0 watcher daemon. Conflicts in `daemon.rs` / `writer.rs` / `update.rs` resolved by union (kept `QueryResponse` shape from main + the precision pipeline from the branch).
+
+- **`src/index/vbyte.rs`** (+508 LoC) — varbyte posting list codec with `PostingEntry` masks. Sub-byte filtering before any `read(2)`.
+- **`src/index/reader.rs`** (+694 LoC) — query path rewritten on three masks per posting entry:
+  - `bloom_mask: u8` — set bit indexed by hash of the byte that follows the n-gram occurrence (3.5-gram filter).
+  - `loc_mask: u8` — set bit per occurrence position (adjacency filter).
+  - `zone_mask: u32` — exact small-position mask with an "overflow" bit for later bytes.
+- **`src/query/extract.rs`** (+185 LoC) — `regex_to_query_costed` accepts a cost-estimation closure (the daemon plugs in its own `IndexReader::estimate_query_cost`).
+- **`src/index/{merge,ngram,overlay,spimi,postings}.rs`** — posting masks plumbed through every layer.
+
+`INDEX_VERSION` 10 → **13** — forces an automatic rebuild on first run after upgrade. Pre-v1.17.1 indexes are detected, rebuilt transparently, no user action required.
+
+### Fixed — macOS canonicalize race in the watcher
+
+`writer::normalize_changed_path` now canonicalizes the absolute path before `strip_prefix`. Without this, on macOS the watcher silently dropped every event because `tempfile::tempdir()` returns `/var/folders/…` while `root.canonicalize()` resolves to `/private/var/folders/…` — `strip_prefix` always failed and the rebuild never fired.
+
+### CI follow-up
+
+Commit `4879664` (`fix(v1.17.1): unbreak CI — clippy + rustfmt`) lands fast-follow corrections for 8 Clippy errors and 1 rustfmt diff that slipped past local checks during the squash-merge:
+- Type aliases `NgramMaskEntry`, `ChangedFileEntry` for `clippy::type_complexity`.
+- `collapsible_if` → 3 sites collapsed (with `&& let` chains where applicable).
+- `manual_is_multiple_of`, two `needless_borrow` cases.
+- `daemon.rs` import order normalized.
+
+---
+
+## [1.17.0] — 2026-05-05
+
+### Added — `ig warm` and `ig projects {list,forget}` (daemon-watched projects)
+
+The daemon now keeps a managed set of *active* projects. Each warmed project gets its own `notify` watcher, an LRU-residency guarantee, and an auto-rebuild loop in the background.
+
+```bash
+ig warm                  # warm the current project (idempotent)
+ig projects list         # show every active project + idle seconds
+ig projects forget <root>  # drop a project from the active set (frees its watcher)
+```
+
+Shell hooks (zsh / bash / fish) and the session-start hook now use `ig warm` instead of `ig daemon start`. The managed shell-hook block is **self-updating across versions** — re-running `ig setup` rewrites it in place.
+
+### Added — `grep` rewrite preserves `-F` and `-l`
+
+The pre-tool-use rewrite engine (`src/rewrite.rs`) now keeps `-F` (fixed-strings) and `-l` (files-with-matches) flags when transforming `grep` invocations into `ig`. Agents that emit `grep -Fl 'literal' src/` get the right behavior without surprises.
+
+---
+
+## [1.16.3] — 2026-04-29
+
+### Fixed — `.ig-entries-*.tmp` orphan sweep on build start
+
+`tempfile::NamedTempFile::persist()` detaches RAII cleanup, so any `SIGKILL` / OOM / panic during `merge::merge_segments_streaming` left the entries temp file behind. On busy projects these piled up fast — observed 5 919 orphans / 12 GB in `distribution-app-v2` — and every subsequent build slowed because `tempfile_in()` had to scan a saturated directory for a free name.
+
+Fix: `sweep_orphan_entries(index_dir)` — non-recursive, exact match on `.ig-entries-` prefix + `.tmp` suffix, ignores anything else, logs under `IG_DEBUG` only. Called at the top of `merge_segments_streaming` and again at the start of `full_rebuild` for opportunistic early cleanup. Per-file errors (concurrent removal) are tolerated.
+
+Verified on `distribution-app-v2`: **5 919 → 0 orphans, 12 GB → 92 MB**.
+
+---
+
+## [1.16.2] — 2026-04-29
+
+### Fixed — CI green again
+
+Compagnion fix to v1.16.0/v1.16.1: rustfmt diffs cleaned up, dead code paths from the per-project daemon era dropped. No behavior change.
+
+---
+
+## [1.16.1] — 2026-04-29
+
+### Fixed — `daemon.pid` written in foreground mode
+
+Before this fix, the global daemon only wrote its PID file when started via `ig daemon start` (which forks `daemon foreground` as a child). When launched directly by `systemd-user` or `launchd`, the PID file was missing and `ig daemon status` reported "not running" even though the daemon was happily serving queries on the socket.
+
+The `ctrlc` handler now removes both the socket *and* the PID file on `SIGINT` / `SIGTERM`.
+
+---
+
+## [1.16.0] — 2026-04-29
+
+### Changed — single global daemon (multi-tenant) replaces per-project mode
+
+The old design ran one `ig daemon` per project. With the XDG cache from v1.15.0 making indexes addressable by hash, that model became pure overhead: each daemon paid the full Rust runtime + LRU caches + `notify` watcher cost. On a workstation with 16 cached projects this added up to **~995 MB of RSS** for state that's almost entirely cold.
+
+This release collapses everything into a single daemon serving every project on the machine.
+
+#### Architecture
+
+- **One Unix socket**: `~/.cache/ig/daemon.sock` (XDG-aligned).
+- **One PID file**:    `~/.cache/ig/daemon.pid`.
+- **One log**:         `~/.cache/ig/daemon.log`.
+- **`GlobalState`** holds an `LRU<root, Arc<TenantState>>`, default cap **32** (configurable via `IG_DAEMON_TENANTS_MAX`).
+- Each tenant **lazily opens its `IndexReader`** on first query and keeps its own per-tenant regex / `NgramQuery` LRU caches.
+- `mtime` polling on `metadata.bin` replaces the per-tenant `notify` watcher (cheaper, fewer threads). v1.18.0 supersedes this with the `seal` file.
+
+#### Wire protocol
+
+`QueryRequest` gains a `root` field. Clients (`ig query`, the auto-route in `do_search`) canonicalize the project root and send it inside the JSON payload — no more hash-of-path socket names per project.
+
+#### Migration
+
+- On startup, the new daemon scans `/tmp/ig-*.sock`, `SIGTERM`s each socket's owner via `lsof`, and removes the file. Idempotent.
+- `ig daemon start|stop|status|install|uninstall` keep their CLI surface; the path argument is accepted for backward compat with old `launchd` / `systemd` invocations but ignored at runtime.
+- `install_launchd` now writes a single `com.ig.daemon.global` plist (macOS) or a single `systemd-user` unit `ig-daemon.service` (Linux).
+
+#### Performance
+
+RAM measured on a 3-tenant smoke: **7.3 MB total** (vs ~180 MB before this release for the same 3 projects). Workstation wins are ~14×.
+
+---
+
+## [1.15.0] — 2026-04-29
+
+### Changed — XDG cache for indexes (default location)
+
+Indexes now live under `~/.cache/ig/<hash-of-root>/` by default instead of `<root>/.ig/`. Two motivations:
+
+1. Non-versioned projects (Next.js scratchpads without `.git/`) were accumulating stray `.ig/` in every subdirectory the agent searched from.
+2. The single-global daemon (v1.16.0) needs hash-addressable indexes anyway.
+
+Backwards-compatible: an existing `<root>/.ig/` keeps being used for that project; set `IG_LOCAL_INDEX=1` to force local mode for new projects.
+
+### Changed — `find_root` recognises project markers
+
+In addition to `.git/`, the root walker now recognises `package.json`, `Cargo.toml`, `pyproject.toml`, `go.mod`, `deno.json`, `composer.json`, `bun.lock`, … and walks to the **highest** match. A search from `apps/web/` inside a monorepo now resolves to the monorepo root, not to a stray `node_modules/<pkg>/.git/`.
+
+### Added — cache management subcommands
+
+```bash
+ig gc [--days N] [--dry-run]   # prune orphan / stale cache entries
+ig migrate [--dry-run]          # move <root>/.ig/ to the XDG cache
+ig cache-ls                     # list cache entries with size + last_used
+```
+
+Each cache entry carries `cache-meta.json` (`root_path`, `created_at`, `last_used_at`, `ig_version`) so `gc` can tell what's safe to drop.
+
+---
+
 ## [1.14.2] — 2026-04-27
 
 ### Added — `ig emb on/off/status` (runtime embedding toggle)

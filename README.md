@@ -27,6 +27,8 @@
 - **Token-compressed CLI** (`ig git status/log/diff`, `ig read -s`, `ig ls`, …) shipped as drop-ins for AI agents.
 - **Indexes live in the XDG cache** (`~/.cache/ig/`) since v1.15.0 — your projects stay clean (no `.ig/` folder to gitignore). `find_root` also recognises `package.json`, `Cargo.toml`, `go.mod`, etc., so non-versioned projects no longer scatter stray indexes.
 - **One global daemon** since v1.16.0 — multi-tenant, single Unix socket, single systemd-user / launchd unit. Replaces the previous one-daemon-per-project design. **~14× less RAM** in real-world use (5–20 MB total instead of 60 MB × N).
+- **Precision search (v1.17.0+)** — vbyte posting codec + masked n-grams (bloom / loc / zone). Sub-byte filtering before any `read(2)`. `INDEX_VERSION 13`.
+- **Push reload via FSEvents (v1.18.0)** — `.ig/seal` 16-byte atomic publish marker + `notify` watcher on `.ig/`. Out-of-band `ig index .` from another shell propagates to the daemon **without waiting for the next query**. Pull (per-query 16-byte read) stays authoritative as the safety net. See [`docs/specs/SPEC-daemon-cache-invalidation.md`](docs/specs/SPEC-daemon-cache-invalidation.md) for the full design.
 - **Two-step install on a new machine**: `curl … install.sh | bash`, then `ig daemon install`. New projects are served the moment they're queried — no preboot.
 
 ```
@@ -384,6 +386,40 @@ internally without needing per-project sockets.
 **Boot-time cleanup**: when v1.16.0+ starts, it SIGTERMs any leftover
 per-project daemons, removes their `/tmp/ig-*.sock` files, and takes over.
 Idempotent.
+
+#### Watcher and warm projects (since v1.17.0)
+
+```bash
+ig warm                           # warm the current project (idempotent)
+ig projects list                  # active projects + idle seconds
+ig projects forget /path/to/proj  # drop from the active set, free its watcher
+```
+
+Each warmed project gets its own `notify` watcher. When source files change,
+the daemon rebuilds the overlay in the background and reloads its
+`IndexReader`. Shell hooks (`zsh` / `bash` / `fish`) and the session-start
+hook now use `ig warm` instead of `ig daemon start`; the managed shell-hook
+block is self-updating across versions (re-run `ig setup` to rewrite in
+place).
+
+#### Cache invalidation — push + pull (since v1.18.0)
+
+The daemon learns about every rebuild via two complementary channels:
+
+- **Pull (authoritative)** — every query reads `.ig/seal` (a 16-byte file:
+  `[u64 generation, u64 finalized_at_nanos]`) and reloads if it advanced.
+  The seal is atomically renamed as the **final act** of every rebuild, so
+  observing generation N guarantees all artifacts of generation N are
+  already published.
+- **Push (best-effort)** — a second `notify` watcher on `.ig/` fires
+  `reload_tenant_if_open` on `seal` / `seal.tmp` events. An out-of-band
+  `ig index .` from another shell propagates to the daemon in ~10 ms,
+  without waiting for the next query.
+
+Push optimises steady-state; pull closes the loop if FSEvents misses an
+event (which `notify` is known to do under load on macOS, on NFS, or on
+some Docker bind-mount configurations). Full contract and invariants:
+[`docs/specs/SPEC-daemon-cache-invalidation.md`](docs/specs/SPEC-daemon-cache-invalidation.md).
 
 ### Cache management (since v1.15.0)
 
@@ -832,7 +868,10 @@ ig
 ├── pack.rs         — Project context generator
 ├── ls.rs           — Compact directory listing
 ├── cache.rs        — XDG cache (~/.cache/ig/) + gc/migrate (v1.15.0)
-├── daemon.rs       — Single global Unix-socket server, multi-tenant LRU (v1.16.0)
+├── daemon.rs       — Single global Unix-socket server, multi-tenant LRU
+│                     + .ig/ watcher for proactive seal reload (v1.16.0+, v1.18.0)
+├── index/seal.rs   — 16-byte atomic publish marker (v1.18.0)
+├── index/vbyte.rs  — Varbyte posting codec + masked PostingEntry (v1.17.1)
 ├── watch.rs        — File watcher + auto-rebuild
 └── walk.rs         — Gitignore-aware walking
 ```
