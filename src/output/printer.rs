@@ -261,14 +261,37 @@ impl Printer {
 
     pub fn print_stats(&mut self, stats: &SearchStats) {
         if self.json_mode {
-            let _ = writeln!(
-                self.stdout,
-                "{{\"_stats\":{{\"candidates\":{},\"total\":{},\"search_ms\":{:.1},\"used_index\":{}}}}}",
-                stats.candidate_files,
-                stats.total_files,
-                stats.search_duration.as_secs_f64() * 1000.0,
-                stats.used_index,
-            );
+            if let Some(resolve) = stats.resolve_stats {
+                let _ = writeln!(
+                    self.stdout,
+                    "{{\"_stats\":{{\"candidates\":{},\"total\":{},\"search_ms\":{:.1},\"used_index\":{},\"ngram_leaves\":{},\"raw_postings\":{},\"decoded_postings\":{},\"after_bloom\":{},\"after_intersection\":{},\"after_loc\":{},\"bloom_rejects\":{},\"loc_rejects\":{},\"zone_rejects\":{},\"skip_blocks_used\":{},\"skip_blocks_visited\":{},\"block_mask_rejects\":{}}}}}",
+                    stats.candidate_files,
+                    stats.total_files,
+                    stats.search_duration.as_secs_f64() * 1000.0,
+                    stats.used_index,
+                    resolve.ngram_leaves,
+                    resolve.raw_postings,
+                    resolve.decoded_postings,
+                    resolve.after_bloom,
+                    resolve.after_intersection,
+                    resolve.after_loc,
+                    resolve.bloom_rejects,
+                    resolve.loc_rejects,
+                    resolve.zone_rejects,
+                    resolve.skip_blocks_used,
+                    resolve.skip_blocks_visited,
+                    resolve.block_mask_rejects,
+                );
+            } else {
+                let _ = writeln!(
+                    self.stdout,
+                    "{{\"_stats\":{{\"candidates\":{},\"total\":{},\"search_ms\":{:.1},\"used_index\":{}}}}}",
+                    stats.candidate_files,
+                    stats.total_files,
+                    stats.search_duration.as_secs_f64() * 1000.0,
+                    stats.used_index,
+                );
+            }
             return;
         }
 
@@ -293,6 +316,24 @@ impl Printer {
                 "no (fallback)"
             },
         );
+        if let Some(resolve) = stats.resolve_stats {
+            let _ = writeln!(
+                self.stdout,
+                "N-grams: {}\nPostings: raw {}, decoded {}, after bloom {}, after intersection {}, after loc {}\nRejects: bloom {}, loc {}, zone {}, block-mask {}\nSkip blocks: used {}, visited {}",
+                resolve.ngram_leaves,
+                resolve.raw_postings,
+                resolve.decoded_postings,
+                resolve.after_bloom,
+                resolve.after_intersection,
+                resolve.after_loc,
+                resolve.bloom_rejects,
+                resolve.loc_rejects,
+                resolve.zone_rejects,
+                resolve.block_mask_rejects,
+                resolve.skip_blocks_used,
+                resolve.skip_blocks_visited,
+            );
+        }
         let _ = self.stdout.reset();
     }
 

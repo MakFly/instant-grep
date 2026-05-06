@@ -660,8 +660,20 @@ fn main() -> Result<()> {
             uninstall::run_uninstall(dry_run, yes);
         }
 
-        Some(Commands::Update) => {
-            update::run_update()?;
+        Some(Commands::Update {
+            path,
+            indexes,
+            all,
+            self_only,
+        }) => {
+            let wants_index_update = indexes || all || path.is_some();
+            if self_only || !wants_index_update {
+                update::run_update()?;
+            }
+            if !self_only && wants_index_update {
+                let max_size = max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
+                update::run_index_update(path.as_deref(), all, !no_default_excludes, max_size)?;
+            }
         }
 
         Some(Commands::Query { pattern, path }) => {
@@ -1120,9 +1132,10 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
         return Ok(());
     }
 
-    let index_ready = IndexMetadata::exists(&ig)
+    let index_exists = IndexMetadata::exists(&ig);
+    let index_ready = index_exists
         && IndexMetadata::load_from(&ig)
-            .map(|m| m.version == INDEX_VERSION)
+            .map(|m| m.version == INDEX_VERSION && index_artifacts_look_ready(&ig, &m))
             .unwrap_or(false);
 
     if !index_ready {
@@ -1151,8 +1164,24 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
             }
         }
 
-        // Build index after results are printed (user sees output immediately)
-        let _ = writer::build_index(&root, use_excludes, max_size);
+        // Build missing indexes after results are printed. If an index already
+        // exists but is stale/corrupt, do not try to repair it on the search
+        // hot path; explicit `ig index` is safer and gives visible errors.
+        if !index_exists && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+            let _ = writer::build_index(&root, use_excludes, max_size);
+        } else if !index_exists {
+            eprintln!(
+                "warning: no index at {}; run `ig index {}` to build one",
+                ig.display(),
+                root.display()
+            );
+        } else {
+            eprintln!(
+                "warning: existing index at {} is invalid or stale; run `ig index {}` to rebuild",
+                ig.display(),
+                root.display()
+            );
+        }
 
         tracking::log_usage(search_command_label(opts));
         return Ok(());
@@ -1183,26 +1212,28 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
             opts.file_type,
         )
     {
-        let results = daemon_response_to_file_matches(
-            &resp,
-            pattern,
-            opts.ignore_case,
-            opts.count,
-            opts.files_with_matches,
-        );
-        if opts.compact {
-            print_compact(&results);
-        } else {
-            let mut printer = Printer::new(use_color, opts.json);
-            if results.is_empty() && !opts.count && !opts.files_with_matches {
-                printer.print_no_matches(pattern);
+        if resp.error.is_none() {
+            let results = daemon_response_to_file_matches(
+                &resp,
+                pattern,
+                opts.ignore_case,
+                opts.count,
+                opts.files_with_matches,
+            );
+            if opts.compact {
+                print_compact(&results);
+            } else {
+                let mut printer = Printer::new(use_color, opts.json);
+                if results.is_empty() && !opts.count && !opts.files_with_matches {
+                    printer.print_no_matches(pattern);
+                }
+                for file_matches in &results {
+                    printer.print_file_matches(file_matches, opts.count, opts.files_with_matches);
+                }
             }
-            for file_matches in &results {
-                printer.print_file_matches(file_matches, opts.count, opts.files_with_matches);
-            }
+            tracking::log_usage(search_command_label(opts));
+            return Ok(());
         }
-        tracking::log_usage(search_command_label(opts));
-        return Ok(());
     }
 
     // Daemon was not reachable — best-effort auto-spawn for next call.
@@ -1464,6 +1495,39 @@ fn dir_size(path: &std::path::Path) -> u64 {
         }
     }
     total
+}
+
+fn index_artifacts_look_ready(ig: &std::path::Path, meta: &IndexMetadata) -> bool {
+    const LEXICON_ENTRY_SIZE: u64 = 18;
+
+    if meta.files.len() != meta.file_count as usize {
+        return false;
+    }
+
+    let Ok(lexicon) = std::fs::metadata(ig.join("lexicon.bin")) else {
+        return false;
+    };
+    let Ok(postings) = std::fs::metadata(ig.join("postings.bin")) else {
+        return false;
+    };
+
+    let lexicon_bytes = lexicon.len();
+    let postings_bytes = postings.len();
+    if lexicon_bytes % LEXICON_ENTRY_SIZE != 0 {
+        return false;
+    }
+
+    let ngrams = meta.ngram_count as u64;
+    if ngrams == 0 {
+        return lexicon_bytes == 0 && postings_bytes == 0;
+    }
+    if postings_bytes == 0 {
+        return false;
+    }
+
+    let slots = lexicon_bytes / LEXICON_ENTRY_SIZE;
+    let max_expected_slots = ngrams.saturating_mul(2).saturating_add(1024);
+    slots >= ngrams && slots <= max_expected_slots
 }
 
 fn format_age(secs: u64) -> String {

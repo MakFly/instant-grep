@@ -355,8 +355,23 @@ pub enum Commands {
         yes: bool,
     },
 
-    /// Update ig to the latest version
-    Update,
+    /// Update ig itself and/or refresh project indexes
+    Update {
+        /// Root directory to update (default: current project)
+        path: Option<String>,
+
+        /// Refresh project indexes instead of updating only the ig binary
+        #[arg(long)]
+        indexes: bool,
+
+        /// With --indexes, discover and refresh every known indexed project under path
+        #[arg(long)]
+        all: bool,
+
+        /// Only update the ig binary, even if a path is provided
+        #[arg(long)]
+        self_only: bool,
+    },
 
     /// Send a search query to a running daemon
     Query {

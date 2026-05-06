@@ -39,6 +39,8 @@ use serde::{Deserialize, Serialize};
 use crate::index::ngram::BigramDfTable;
 use crate::index::reader::IndexReader;
 use crate::index::writer;
+use crate::query::extract::regex_to_query_costed;
+#[cfg(test)]
 use crate::query::extract::regex_to_query;
 use crate::query::plan::NgramQuery;
 use crate::search::matcher::{self, SearchConfig};
@@ -732,7 +734,12 @@ fn process_query_cached(req: &QueryRequest, tenant: &TenantState, reloaded: bool
         match cached {
             Some(q) => q,
             None => {
-                match regex_to_query(&req.pattern, req.case_insensitive, rv.df_table.as_ref()) {
+                match regex_to_query_costed(
+                    &req.pattern,
+                    req.case_insensitive,
+                    rv.df_table.as_ref(),
+                    |query| rv.reader.estimate_query_cost(query),
+                ) {
                     Ok(q) => {
                         tenant
                             .query_cache

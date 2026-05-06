@@ -8,7 +8,7 @@ use memmap2::{Mmap, MmapMut};
 
 use super::ngram::NgramKey;
 use super::spimi::{SegmentInfo, SegmentReader};
-use super::vbyte;
+use super::vbyte::{self, PostingEntry};
 
 /// Result of merging segments: per-ngram offset info for building the lexicon.
 pub struct MergedEntry {
@@ -185,8 +185,8 @@ pub fn merge_segments_streaming(
     while let Some(min_entry) = heap.pop() {
         let min_key = min_entry.key;
 
-        // Collect all posting bytes for this key across segments, OR masks
-        let mut all_doc_ids: Vec<u32> = Vec::new();
+        // Collect all posting entries for this key across segments, preserving per-doc masks.
+        let mut all_postings: Vec<PostingEntry> = Vec::new();
         let mut merged_bloom: u8 = 0;
         let mut merged_loc: u8 = 0;
 
@@ -194,9 +194,12 @@ pub fn merge_segments_streaming(
         {
             let idx = min_entry.segment_idx;
             if let Some(ref entry) = current_entries[idx] {
-                let ids =
-                    vbyte::decode_posting_list(&entry.posting_bytes, 0, entry.posting_bytes.len());
-                all_doc_ids.extend_from_slice(&ids);
+                let postings = vbyte::decode_posting_entries(
+                    &entry.posting_bytes,
+                    0,
+                    entry.posting_bytes.len(),
+                );
+                all_postings.extend_from_slice(&postings);
                 merged_bloom |= entry.bloom_mask;
                 merged_loc |= entry.loc_mask;
             }
@@ -218,12 +221,12 @@ pub fn merge_segments_streaming(
             let entry = heap.pop().unwrap();
             let idx = entry.segment_idx;
             if let Some(ref seg_entry) = current_entries[idx] {
-                let ids = vbyte::decode_posting_list(
+                let postings = vbyte::decode_posting_entries(
                     &seg_entry.posting_bytes,
                     0,
                     seg_entry.posting_bytes.len(),
                 );
-                all_doc_ids.extend_from_slice(&ids);
+                all_postings.extend_from_slice(&postings);
                 merged_bloom |= seg_entry.bloom_mask;
                 merged_loc |= seg_entry.loc_mask;
             }
@@ -237,11 +240,22 @@ pub fn merge_segments_streaming(
             current_entries[idx] = next;
         }
 
-        all_doc_ids.sort_unstable();
-        all_doc_ids.dedup();
+        all_postings.sort_unstable_by_key(|p| p.doc_id);
+        let mut deduped: Vec<PostingEntry> = Vec::with_capacity(all_postings.len());
+        for posting in all_postings {
+            if let Some(last) = deduped.last_mut()
+                && last.doc_id == posting.doc_id
+            {
+                last.next_mask |= posting.next_mask;
+                last.loc_mask |= posting.loc_mask;
+                last.zone_mask |= posting.zone_mask;
+                continue;
+            }
+            deduped.push(posting);
+        }
 
         // Encode and write postings
-        let encoded = vbyte::encode_posting_list(&all_doc_ids);
+        let encoded = vbyte::encode_posting_entries(&deduped);
         let byte_len = encoded.len() as u32;
         postings_writer.write_all(&encoded)?;
 

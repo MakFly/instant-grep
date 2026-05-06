@@ -11,12 +11,10 @@ use rayon::prelude::*;
 use crate::index::filedata::{self, FileData, FileDataIndex};
 use crate::index::merge;
 use crate::index::metadata::{INDEX_VERSION, IndexMetadata, IndexedFile};
-use crate::index::ngram::{
-    self, BigramDfTable, NgramKey, extract_sparse_ngrams, extract_sparse_ngrams_with_masks,
-};
+use crate::index::ngram::{self, BigramDfTable, NgramKey, extract_sparse_ngrams_with_masks};
 use crate::index::overlay::{self, OverlayReader};
-use crate::index::postings::DocId;
 use crate::index::spimi;
+use crate::index::vbyte::PostingEntry;
 use crate::util::{ig_dir, is_binary};
 use crate::walk::walk_files;
 
@@ -197,6 +195,11 @@ fn normalize_changed_path(root: &Path, path: &Path) -> Option<String> {
     } else {
         root.join(path)
     };
+    // canonicalize to make symlink-resolved paths comparable. macOS resolves
+    // `/var/folders/...` to `/private/var/folders/...`; without this, watcher
+    // events fired with the un-canonicalized path fail to strip the canonical
+    // root and silently drop every change.
+    let abs = abs.canonicalize().unwrap_or(abs);
     let rel = abs.strip_prefix(root).ok()?;
     if rel.as_os_str().is_empty() {
         return None;
@@ -205,6 +208,23 @@ fn normalize_changed_path(root: &Path, path: &Path) -> Option<String> {
         return None;
     }
     Some(rel.to_string_lossy().to_string())
+}
+
+fn merge_ngram_masks(ngrams: &mut Vec<(NgramKey, u8, u8, u32)>) {
+    ngrams.sort_unstable_by_key(|(key, _, _, _)| *key);
+    let mut merged: Vec<(NgramKey, u8, u8, u32)> = Vec::with_capacity(ngrams.len());
+    for &(key, next_mask, loc_mask, zone_mask) in ngrams.iter() {
+        if let Some(last) = merged.last_mut()
+            && last.0 == key
+        {
+            last.1 |= next_mask;
+            last.2 |= loc_mask;
+            last.3 |= zone_mask;
+            continue;
+        }
+        merged.push((key, next_mask, loc_mask, zone_mask));
+    }
+    *ngrams = merged;
 }
 
 fn check_and_rebuild(
@@ -355,7 +375,7 @@ fn full_rebuild(
     fs::create_dir_all(&segment_dir).context("create segment directory")?;
 
     let mut budget = spimi::MemoryBudget::new(spimi::DEFAULT_MEMORY_BUDGET);
-    let mut postings_map: AHashMap<NgramKey, (Vec<DocId>, u8, u8)> = AHashMap::new();
+    let mut postings_map: AHashMap<NgramKey, Vec<PostingEntry>> = AHashMap::new();
     let mut files: Vec<IndexedFile> = Vec::with_capacity(paths.len());
     let mut segments: Vec<spimi::SegmentInfo> = Vec::new();
     let mut segment_id: u32 = 0;
@@ -375,8 +395,16 @@ fn full_rebuild(
                 if is_binary(&bytes) {
                     return None;
                 }
-                let ngrams_with_masks =
+                let mut ngrams_with_masks =
                     extract_sparse_ngrams_with_masks(&bytes, prev_df_table.as_ref());
+                let folded_bytes: Vec<u8> = bytes.iter().map(|b| b.to_ascii_lowercase()).collect();
+                if folded_bytes != bytes {
+                    ngrams_with_masks.extend(extract_sparse_ngrams_with_masks(
+                        &folded_bytes,
+                        prev_df_table.as_ref(),
+                    ));
+                    merge_ngram_masks(&mut ngrams_with_masks);
+                }
                 // Collect unique bigram hashes for this file (DF collection).
                 // Cap initial capacity at 8192: even very large source files
                 // exhaust the bigram space well before saturating; using
@@ -434,14 +462,14 @@ fn full_rebuild(
                 size,
             });
 
-            for &(key, bloom, loc) in &ngrams_with_masks {
+            for &(key, bloom, loc, zone) in &ngrams_with_masks {
                 let is_new = !postings_map.contains_key(&key);
-                let entry = postings_map
-                    .entry(key)
-                    .or_insert_with(|| (Vec::new(), 0u8, 0u8));
-                entry.0.push(doc_id);
-                entry.1 |= bloom;
-                entry.2 |= loc;
+                postings_map.entry(key).or_default().push(PostingEntry {
+                    doc_id,
+                    next_mask: bloom,
+                    loc_mask: loc,
+                    zone_mask: zone,
+                });
                 budget.track_posting(is_new);
             }
             // Accumulate bigram document frequencies
@@ -673,10 +701,14 @@ fn incremental_overlay(
     let ig = ig_dir(root);
 
     // Separate changed files into modified/new vs deleted
-    let mut changed_file_data: Vec<(String, u64, u64, Vec<u64>)> = Vec::new();
+    let mut changed_file_data: Vec<(String, u64, u64, Vec<(NgramKey, u8, u8, u32)>)> = Vec::new();
     let mut deleted_paths: Vec<String> = Vec::new();
 
-    let df_table = BigramDfTable::load(&ig);
+    let df_table = if base_meta.built_with_idf {
+        BigramDfTable::load(&ig)
+    } else {
+        None
+    };
 
     for rel_path in changed_paths {
         let full_path = root.join(rel_path);
@@ -686,7 +718,16 @@ fn incremental_overlay(
                     if bytes.len() as u64 > max_file_size || is_binary(&bytes) {
                         continue;
                     }
-                    let ngrams = extract_sparse_ngrams(&bytes, df_table.as_ref());
+                    let mut ngrams = extract_sparse_ngrams_with_masks(&bytes, df_table.as_ref());
+                    let folded_bytes: Vec<u8> =
+                        bytes.iter().map(|b| b.to_ascii_lowercase()).collect();
+                    if folded_bytes != bytes {
+                        ngrams.extend(extract_sparse_ngrams_with_masks(
+                            &folded_bytes,
+                            df_table.as_ref(),
+                        ));
+                        merge_ngram_masks(&mut ngrams);
+                    }
                     let mtime = fs::metadata(&full_path)
                         .and_then(|m| m.modified())
                         .ok()

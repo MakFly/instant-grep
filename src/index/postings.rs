@@ -133,6 +133,7 @@ use crate::index::vbyte::PostingIterator;
 
 /// Two-way streaming intersection using PostingIterators.
 /// Uses advance_to() for efficient skipping — no posting list is fully decoded.
+#[allow(dead_code)]
 pub fn intersect_two_iters(a: &mut PostingIterator, b: &mut PostingIterator) -> Vec<DocId> {
     let mut result = Vec::with_capacity(a.doc_count().min(b.doc_count()) as usize);
 
@@ -156,6 +157,7 @@ pub fn intersect_two_iters(a: &mut PostingIterator, b: &mut PostingIterator) -> 
 }
 
 /// Intersect a materialized Vec with a PostingIterator (for chained multi-way intersection).
+#[allow(dead_code)]
 pub fn intersect_vec_iter(sorted: &[DocId], iter: &mut PostingIterator) -> Vec<DocId> {
     let mut result = Vec::with_capacity(sorted.len().min(iter.doc_count() as usize));
 

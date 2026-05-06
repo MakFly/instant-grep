@@ -322,21 +322,21 @@ t021() {
     local dir
     dir=$(new_project)
     echo "Hello World" > "$dir/greet.txt"
-    # -i with --no-index (brute-force) works correctly
-    out=$($IG search --no-index -i "hello" "$dir" 2>&1)
+    index_project "$dir"
+    out=$($IG search -i "hello" "$dir" 2>&1)
     assert_stdout_contains "$out" "Hello World"
 }
-run_test T021 SEARCH_FLAGS "-i case-insensitive (brute-force path)" t021
+run_test T021 SEARCH_FLAGS "-i case-insensitive" t021
 
 t022() {
     local dir
     dir=$(new_project)
     echo "Hello World" > "$dir/greet.txt"
-    # -i shortcut with --no-index; indexed path has a known bug (trigrams are case-sensitive)
-    out=$($IG --no-index -i "hello" "$dir" 2>&1)
+    index_project "$dir"
+    out=$($IG -i "hello" "$dir" 2>&1)
     assert_stdout_contains "$out" "Hello World"
 }
-run_test T022 SEARCH_FLAGS "-i with shortcut mode (brute-force path)" t022
+run_test T022 SEARCH_FLAGS "-i with shortcut mode" t022
 
 t023() {
     local dir
@@ -901,6 +901,18 @@ t070() {
     [[ -z "$out_after" ]]
 }
 run_test T070 INDEX_OVERLAY "deleted file gone after rebuild" t070
+
+t071() {
+    local dir
+    dir=$(new_project)
+    echo "original" > "$dir/orig.txt"
+    index_project "$dir"
+    echo "new content here" > "$dir/new.txt"
+    $IG index "$dir" >/dev/null 2>&1
+    out=$($IG search "new content" "$dir" 2>&1)
+    assert_stdout_contains "$out" "new.txt"
+}
+run_test T071 INDEX_OVERLAY "new file in overlay matches non-IDF base index" t071
 
 # ─────────────────────────────────────────────────────────────────────────────
 echo ""

@@ -1,6 +1,7 @@
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
@@ -203,6 +204,229 @@ fn post_update_rewarm() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Refresh indexes for the current project, or every known indexed project
+/// under `path` when `all` is set.
+pub fn run_index_update(
+    path: Option<&str>,
+    all: bool,
+    use_default_excludes: bool,
+    max_file_size: u64,
+) -> Result<()> {
+    let start = path
+        .map(PathBuf::from)
+        .unwrap_or(std::env::current_dir().context("cannot get current directory")?);
+    let start = start.canonicalize().unwrap_or(start);
+
+    let roots = if all {
+        discover_indexed_roots(&start)?
+    } else {
+        vec![crate::util::find_root(&start)]
+    };
+
+    if roots.is_empty() {
+        eprintln!("No indexed projects found under {}", start.display());
+        return Ok(());
+    }
+
+    let total = roots.len();
+    let mut rebuilt = 0usize;
+    let mut failed = 0usize;
+
+    for root in roots {
+        let ig = crate::util::ig_dir(&root);
+        let exists = crate::index::metadata::IndexMetadata::exists(&ig);
+        let stale = exists
+            && crate::index::metadata::IndexMetadata::load_from(&ig)
+                .map(|meta| meta.version != crate::index::metadata::INDEX_VERSION)
+                .unwrap_or(true);
+
+        eprintln!(
+            "{} {}",
+            if exists {
+                if stale {
+                    "Rebuilding stale index:"
+                } else {
+                    "Refreshing index:"
+                }
+            } else {
+                "Building missing index:"
+            },
+            root.display()
+        );
+
+        let start = Instant::now();
+        match crate::index::writer::build_index(&root, use_default_excludes, max_file_size) {
+            Ok(meta) => {
+                rebuilt += 1;
+                let size = dir_size(&crate::util::ig_dir(&root));
+                eprintln!(
+                    "  ✓ {} files, {} trigrams, {:.1}s, {:.1} MB",
+                    meta.file_count,
+                    meta.ngram_count,
+                    start.elapsed().as_secs_f64(),
+                    size as f64 / 1_048_576.0
+                );
+            }
+            Err(err) => {
+                failed += 1;
+                eprintln!("  ✗ {}", err);
+            }
+        }
+    }
+
+    eprintln!(
+        "\nIndex update complete: {} ok, {} failed, {} total.",
+        rebuilt, failed, total
+    );
+
+    if failed > 0 {
+        std::process::exit(1);
+    }
+
+    Ok(())
+}
+
+fn discover_indexed_roots(start: &Path) -> Result<Vec<PathBuf>> {
+    let mut roots = std::collections::BTreeSet::new();
+
+    for entry in walkdir::WalkDir::new(start)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|entry| entry.path() == start || should_descend(entry.path()))
+    {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+        if !entry.file_type().is_dir() {
+            continue;
+        }
+        if should_skip_project_path(entry.path(), &start) {
+            continue;
+        }
+        if is_project_root(entry.path()) {
+            roots.insert(entry.path().to_path_buf());
+            continue;
+        }
+        if entry.file_name() == ".ig" {
+            let ig = entry.path();
+            if crate::index::metadata::IndexMetadata::exists(ig)
+                && let Some(root) = ig.parent()
+            {
+                roots.insert(root.to_path_buf());
+            }
+        }
+    }
+
+    for entry in crate::cache::list_entries()? {
+        let Some(meta) = entry.meta else {
+            continue;
+        };
+        let root = PathBuf::from(meta.root_path);
+        if root.exists() && root.starts_with(start) && !should_skip_project_path(&root, &start) {
+            roots.insert(root);
+        }
+    }
+
+    Ok(roots.into_iter().collect())
+}
+
+const PROJECT_MARKERS: &[&str] = &[
+    ".git",
+    "package.json",
+    "Cargo.toml",
+    "pyproject.toml",
+    "setup.py",
+    "go.mod",
+    "deno.json",
+    "deno.jsonc",
+    "composer.json",
+    "pnpm-workspace.yaml",
+    "bun.lock",
+    "Gemfile",
+    "build.gradle",
+    "build.gradle.kts",
+    "pom.xml",
+    "mix.exs",
+    "Pipfile",
+    "requirements.txt",
+];
+
+fn is_project_root(path: &Path) -> bool {
+    PROJECT_MARKERS
+        .iter()
+        .any(|marker| path.join(marker).exists())
+}
+
+const SKIP_PROJECT_COMPONENTS: &[&str] = &[
+    ".bun",
+    ".cache",
+    ".cargo",
+    ".claude",
+    ".codex",
+    ".config",
+    ".cursor",
+    ".cursor-server",
+    ".deno",
+    ".docker",
+    ".local",
+    ".npm",
+    ".pnpm-store",
+    ".rustup",
+    ".volta",
+    ".vscode",
+    "Library",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    ".next",
+    ".nuxt",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "vendor",
+    "coverage",
+    ".turbo",
+    ".output",
+    ".terraform",
+];
+
+fn should_skip_project_path(path: &Path, start: &Path) -> bool {
+    let rel = path.strip_prefix(start).unwrap_or(path);
+    rel.components().any(|component| {
+        let std::path::Component::Normal(name) = component else {
+            return false;
+        };
+        let Some(name) = name.to_str() else {
+            return false;
+        };
+        name.starts_with('.') || SKIP_PROJECT_COMPONENTS.contains(&name)
+    })
+}
+
+fn should_descend(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return true;
+    };
+    !name.starts_with('.') && !SKIP_PROJECT_COMPONENTS.contains(&name)
+}
+
+fn dir_size(path: &Path) -> u64 {
+    let mut total = 0u64;
+    for entry in walkdir::WalkDir::new(path) {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        if entry.file_type().is_file()
+            && let Ok(meta) = entry.metadata()
+        {
+            total += meta.len();
+        }
+    }
+    total
 }
 
 /// Determine where to install the shim and the Rust backend, and whether a
