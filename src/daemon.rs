@@ -27,7 +27,7 @@ use std::num::NonZeroUsize;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock, mpsc};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use lru::LruCache;
@@ -38,6 +38,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::index::ngram::BigramDfTable;
 use crate::index::reader::IndexReader;
+use crate::index::seal;
 use crate::index::writer;
 #[cfg(test)]
 use crate::query::extract::regex_to_query;
@@ -165,27 +166,13 @@ fn log_path() -> PathBuf {
 struct ReaderView {
     reader: IndexReader,
     df_table: Option<BigramDfTable>,
-    last_fingerprint: IndexFingerprint,
-}
-
-/// `(mtime, size)` snapshot of every artifact the daemon mmaps. Used as a
-/// cache-invalidation key in place of a single `metadata.bin` mtime.
-///
-/// Defense in depth against:
-/// - sub-second mtime granularity collapse on rapid rebuilds (size still
-///   differs even if mtime ties),
-/// - in-place truncate of base artifacts where the daemon would otherwise
-///   keep stale mmaps until `metadata.bin` mtime alone changes,
-/// - overlay file partial states (every overlay file is tracked).
-#[derive(Clone, PartialEq, Eq, Debug)]
-struct IndexFingerprint {
-    metadata: (SystemTime, u64),
-    lexicon: (SystemTime, u64),
-    postings: (SystemTime, u64),
-    overlay_meta: (SystemTime, u64),
-    overlay_lex: (SystemTime, u64),
-    overlay_post: (SystemTime, u64),
-    tombstones: (SystemTime, u64),
+    /// Last-observed seal. `None` covers two cases that share the same
+    /// semantics: legacy index without a seal, or the daemon has never seen
+    /// one. Comparing the full `Seal` (generation + finalized_at_nanos)
+    /// rather than just the generation defends against the rare case where
+    /// `.ig/` is wiped and rebuilt — the new seal may restart at gen 1 but
+    /// `finalized_at_nanos` is monotonic, so the daemon still notices.
+    cached_seal: Option<seal::Seal>,
 }
 
 /// Per-project state. One per opened project root, kept in an LRU under
@@ -208,13 +195,13 @@ impl TenantState {
         } else {
             None
         };
-        let last_fingerprint = index_fingerprint(&ig);
+        let cached_seal = seal::read_seal(&ig);
         let cap = NonZeroUsize::new(128).unwrap();
         Ok(Self {
             reader_view: RwLock::new(ReaderView {
                 reader,
                 df_table,
-                last_fingerprint,
+                cached_seal,
             }),
             ig_dir: ig,
             root,
@@ -223,15 +210,15 @@ impl TenantState {
         })
     }
 
-    /// Reload the reader if any tracked index artifact's `(mtime, size)`
-    /// changed since the last open. Cheap (a handful of `stat(2)` calls per
-    /// query) and immune to sub-second mtime collapse: if `mtime` is the same
-    /// across a rebuild, `size` still differs.
+    /// Reload the reader if the on-disk seal has advanced since the last
+    /// observation. One read of a 16-byte file per query — authoritative
+    /// because `seal::bump_seal` is the writer's final act (artifacts are
+    /// guaranteed already published when the seal changes).
     fn reload_if_changed(&self) -> bool {
-        let current = index_fingerprint(&self.ig_dir);
+        let current = seal::read_seal(&self.ig_dir);
         let needs = {
             let rv = self.reader_view.read().unwrap_or_else(|e| e.into_inner());
-            current != rv.last_fingerprint
+            current != rv.cached_seal
         };
         if !needs {
             return false;
@@ -249,7 +236,7 @@ impl TenantState {
                     let old = rv.reader.metadata.file_count;
                     rv.reader = new_reader;
                     rv.df_table = new_df;
-                    rv.last_fingerprint = current;
+                    rv.cached_seal = current;
                     old
                 };
                 self.regex_cache
@@ -276,35 +263,6 @@ impl TenantState {
     }
 }
 
-/// Stat a single artifact, returning `(mtime, size)`. Missing files map to
-/// `(UNIX_EPOCH, 0)` so the absent-vs-present transition is always observable.
-fn stat_artifact(path: &Path) -> (SystemTime, u64) {
-    match std::fs::metadata(path) {
-        Ok(m) => (m.modified().unwrap_or(SystemTime::UNIX_EPOCH), m.len()),
-        Err(_) => (SystemTime::UNIX_EPOCH, 0),
-    }
-}
-
-fn index_fingerprint(ig_dir: &Path) -> IndexFingerprint {
-    let metadata = {
-        let bin = stat_artifact(&ig_dir.join("metadata.bin"));
-        if bin == (SystemTime::UNIX_EPOCH, 0) {
-            stat_artifact(&ig_dir.join("metadata.json"))
-        } else {
-            bin
-        }
-    };
-    IndexFingerprint {
-        metadata,
-        lexicon: stat_artifact(&ig_dir.join("lexicon.bin")),
-        postings: stat_artifact(&ig_dir.join("postings.bin")),
-        overlay_meta: stat_artifact(&ig_dir.join("overlay_meta.bin")),
-        overlay_lex: stat_artifact(&ig_dir.join("overlay_lex.bin")),
-        overlay_post: stat_artifact(&ig_dir.join("overlay.bin")),
-        tombstones: stat_artifact(&ig_dir.join("tombstones.bin")),
-    }
-}
-
 // ─── Global state (multi-tenant) ────────────────────────────────────────────
 
 const DEFAULT_MAX_TENANTS: usize = 32;
@@ -315,6 +273,12 @@ struct ActiveProject {
     root: PathBuf,
     last_seen: Arc<Mutex<Instant>>,
     _watcher: Mutex<RecommendedWatcher>,
+    /// Optional FSEvents watcher on `.ig/`. Fires `reload_tenant_if_open`
+    /// whenever the `seal` file changes — no rebuild — so external `ig
+    /// index` runs from another shell are picked up without waiting for the
+    /// next pull check at query time. `None` if `.ig/` did not exist when
+    /// the project was activated (the pull path still works).
+    _ig_watcher: Mutex<Option<RecommendedWatcher>>,
 }
 
 struct GlobalState {
@@ -488,6 +452,13 @@ impl ActiveProject {
             .watch(&root, RecursiveMode::Recursive)
             .with_context(|| format!("watch {}", root.display()))?;
 
+        // Push channel for external rebuilds: a separate watcher on `.ig/`
+        // observes the seal file and triggers a tenant reload whenever an
+        // out-of-band `ig index` (or another writer) bumps it. Failures are
+        // swallowed — the per-query pull check still catches everything.
+        let ig = ig_dir(&root);
+        let ig_watcher = build_ig_seal_watcher(&root, &ig, Arc::clone(&state));
+
         let worker_root = root.clone();
         std::thread::spawn(move || watch_worker(worker_root, rx, state));
 
@@ -495,6 +466,7 @@ impl ActiveProject {
             root,
             last_seen,
             _watcher: Mutex::new(watcher),
+            _ig_watcher: Mutex::new(ig_watcher),
         })
     }
 
@@ -536,6 +508,43 @@ fn is_ig_internal_path(root: &Path, path: &Path) -> bool {
     path.strip_prefix(root)
         .ok()
         .is_some_and(|rel| rel.components().any(|c| c.as_os_str() == ".ig"))
+}
+
+/// Build an FSEvents watcher on `.ig/` that triggers `reload_tenant_if_open`
+/// when the `seal` file changes. Returns `None` if `.ig/` does not exist yet
+/// or if the watcher cannot be created (e.g., FSEvents init failure on a
+/// remote filesystem). The pull-based seal check inside `reload_if_changed`
+/// remains authoritative either way.
+fn build_ig_seal_watcher(
+    root: &Path,
+    ig_dir: &Path,
+    state: Arc<GlobalState>,
+) -> Option<RecommendedWatcher> {
+    if !ig_dir.exists() {
+        return None;
+    }
+    let root_owned = root.to_path_buf();
+    let mut watcher =
+        notify::recommended_watcher(move |res: std::result::Result<Event, notify::Error>| {
+            let Ok(event) = res else {
+                return;
+            };
+            // The writer renames `seal.tmp` over `seal` as its final act.
+            // Match either the temp or the published name — the rename
+            // delivers an event for both on most backends.
+            let touched_seal = event.paths.iter().any(|p| {
+                matches!(
+                    p.file_name().and_then(|n| n.to_str()),
+                    Some("seal") | Some("seal.tmp")
+                )
+            });
+            if touched_seal {
+                state.reload_tenant_if_open(&root_owned);
+            }
+        })
+        .ok()?;
+    watcher.watch(ig_dir, RecursiveMode::NonRecursive).ok()?;
+    Some(watcher)
 }
 
 fn guard_suspicious_root(root: &Path) -> Result<()> {
@@ -1540,50 +1549,47 @@ mod tests {
     }
 
     #[test]
-    fn test_index_fingerprint_changes_with_size() {
+    fn test_seal_bumped_by_full_rebuild() {
         let (dir, root) = setup_test_project();
         let ig = ig_dir(&root);
+        // setup_test_project ran build_index which now bumps the seal.
+        let g1 = seal::current_generation(&ig);
+        assert!(g1 >= 1, "build_index must bump seal, got {}", g1);
 
-        let fp1 = index_fingerprint(&ig);
-        assert_ne!(fp1.metadata.0, SystemTime::UNIX_EPOCH);
-        assert!(fp1.metadata.1 > 0, "metadata.bin should have nonzero size");
+        // Add a new source file so update_index_for_paths sees actual work.
+        // (A no-op `build_index` short-circuits with "Index is up to date"
+        // and intentionally does not bump the seal.)
+        fs::write(root.join("src/c.rs"), b"pub fn c() {}\n").unwrap();
+        crate::index::writer::build_index(&root, false, 1_048_576).unwrap();
 
-        // Append a byte to postings.bin to simulate a rebuild that changed
-        // size but kept mtime within the same coarse timestamp window. The
-        // fingerprint must still detect the change via the size component.
-        let postings = ig.join("postings.bin");
-        let mut bytes = std::fs::read(&postings).unwrap();
-        bytes.push(0u8);
-        std::fs::write(&postings, &bytes).unwrap();
-
-        let fp2 = index_fingerprint(&ig);
-        assert_ne!(fp1, fp2, "size change must alter the fingerprint");
+        let g2 = seal::current_generation(&ig);
+        assert_eq!(g2, g1 + 1, "rebuild with real work must bump seal");
         drop(dir);
     }
 
     #[test]
-    fn test_index_fingerprint_includes_overlay() {
+    fn test_reload_if_changed_observes_new_generation() {
         let (dir, root) = setup_test_project();
-        let ig = ig_dir(&root);
+        let canonical = root.canonicalize().unwrap();
+        let tenant = TenantState::open(&canonical).unwrap();
 
-        let fp_base = index_fingerprint(&ig);
-        assert_eq!(fp_base.overlay_meta, (SystemTime::UNIX_EPOCH, 0));
+        // First call: no change since open, must return false.
+        assert!(!tenant.reload_if_changed());
 
-        // Touch each overlay artifact and verify the fingerprint reflects it.
-        for name in [
-            "overlay_meta.bin",
-            "overlay_lex.bin",
-            "overlay.bin",
-            "tombstones.bin",
-        ] {
-            std::fs::write(ig.join(name), b"x").unwrap();
-        }
-        let fp_overlay = index_fingerprint(&ig);
-        assert_ne!(
-            fp_base, fp_overlay,
-            "overlay file creation must alter the fingerprint"
+        // Bump the seal as if a writer just published a rebuild. Reload
+        // must observe the new generation on the next call.
+        let ig = ig_dir(&canonical);
+        let prev = seal::current_generation(&ig);
+        seal::bump_seal(&ig).unwrap();
+        assert_eq!(seal::current_generation(&ig), prev + 1);
+        assert!(
+            tenant.reload_if_changed(),
+            "must reload after seal generation bump"
         );
-        assert_ne!(fp_overlay.overlay_meta, (SystemTime::UNIX_EPOCH, 0));
+
+        // After reload, cached_seal must match the new on-disk seal.
+        let cached = tenant.reader_view.read().unwrap().cached_seal;
+        assert_eq!(cached.map(|s| s.generation), Some(prev + 1));
         drop(dir);
     }
 

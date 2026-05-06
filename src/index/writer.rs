@@ -568,6 +568,11 @@ fn full_rebuild(
 
     metadata.write_to(&ig).context("write metadata")?;
 
+    // Final act: bump the seal. Daemon's reload_if_changed observes the new
+    // generation and is guaranteed all artifacts of this generation are
+    // already on disk (each has been atomically renamed above).
+    let _gen = super::seal::bump_seal(&ig).context("bump seal after full rebuild")?;
+
     // Auto-add .ig/ to .gitignore
     let gitignore = root.join(".gitignore");
     if gitignore.exists()
@@ -760,6 +765,10 @@ fn incremental_overlay(
         changed_file_data.len(),
         deleted_paths.len()
     );
+
+    // Final act: bump the seal so the daemon notices this incremental
+    // update on its next pull check or its FSEvents push handler.
+    let _gen = super::seal::bump_seal(&ig).context("bump seal after overlay")?;
 
     // Return base metadata (overlay is transparent at query time)
     Ok(base_meta.clone())
