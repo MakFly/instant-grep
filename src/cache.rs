@@ -700,7 +700,7 @@ pub fn rebuild_manifest() -> Result<()> {
             });
         }
     }
-    entries.sort_by(|a, b| b.last_used_at.cmp(&a.last_used_at));
+    entries.sort_by_key(|e| std::cmp::Reverse(e.last_used_at));
 
     let manifest = Manifest {
         version: 1,
