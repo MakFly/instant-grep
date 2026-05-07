@@ -22,10 +22,13 @@
 //! Response: the existing `QueryResponse` shape (results / error / candidates).
 
 use std::collections::HashMap;
+use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::num::NonZeroUsize;
+use std::os::unix::io::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::time::{Duration, Instant};
 
@@ -133,6 +136,16 @@ struct QueryResponse {
 pub struct ProjectStatus {
     pub root: String,
     pub seconds_since_seen: u64,
+    /// True when an agent has called `ig session begin` on this project and
+    /// not yet called `ig session end`. While set, the watcher accumulates
+    /// dirty paths instead of triggering an overlay rebuild on every batch —
+    /// see the `WatchEvent::SessionBegin/End` flow in `watch_worker`.
+    #[serde(default)]
+    pub session_active: bool,
+    /// Number of paths queued during the current session, only meaningful
+    /// when `session_active == true`. Reset to 0 on `SessionEnd`.
+    #[serde(default)]
+    pub session_pending: usize,
 }
 
 #[derive(Serialize)]
@@ -161,6 +174,46 @@ fn pid_path() -> PathBuf {
 
 fn log_path() -> PathBuf {
     crate::cache::daemon_dir().join("daemon.log")
+}
+
+fn lock_path() -> PathBuf {
+    crate::cache::daemon_dir().join("daemon.lock")
+}
+
+struct DaemonStartLock {
+    file: File,
+}
+
+impl Drop for DaemonStartLock {
+    fn drop(&mut self) {
+        unsafe {
+            libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
+        }
+    }
+}
+
+fn acquire_daemon_start_lock() -> Result<Option<DaemonStartLock>> {
+    let path = lock_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).context("create daemon lock dir")?;
+    }
+    let file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&path)
+        .with_context(|| format!("open daemon lock {}", path.display()))?;
+    let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    if rc == 0 {
+        return Ok(Some(DaemonStartLock { file }));
+    }
+    let err = std::io::Error::last_os_error();
+    let raw = err.raw_os_error();
+    if raw == Some(libc::EWOULDBLOCK) || raw == Some(libc::EAGAIN) {
+        return Ok(None);
+    }
+    Err(err).with_context(|| format!("lock daemon {}", path.display()))
 }
 
 // ─── Tenant state ───────────────────────────────────────────────────────────
@@ -271,9 +324,26 @@ const DEFAULT_MAX_TENANTS: usize = 32;
 const DEFAULT_ACTIVE_PROJECT_IDLE_SECS: u64 = 30 * 60;
 const WATCH_DEBOUNCE: Duration = Duration::from_millis(750);
 
+/// Events flowing into `watch_worker`. The OS watcher emits `Paths(...)`;
+/// the IPC `session_begin/end` ops emit the session variants on the same
+/// channel so ordering with file events is preserved naturally.
+enum WatchEvent {
+    Paths(Vec<PathBuf>),
+    SessionBegin,
+    SessionEnd,
+}
+
 struct ActiveProject {
     root: PathBuf,
     last_seen: Arc<Mutex<Instant>>,
+    /// Visible to `ProjectStatus` without locking the worker. Toggled by the
+    /// IPC handler *and* by the worker (kept in sync for safety).
+    session_active: Arc<AtomicBool>,
+    /// Count of paths queued while the session is open. Updated by the worker.
+    session_pending: Arc<AtomicUsize>,
+    /// Sender side of the worker channel. Cloned for OS-watcher closures and
+    /// for the IPC session ops. `Mutex` only because `mpsc::Sender: !Sync`.
+    session_tx: Mutex<mpsc::Sender<WatchEvent>>,
     _watcher: Mutex<RecommendedWatcher>,
     /// Optional FSEvents watcher on `.ig/`. Fires `reload_tenant_if_open`
     /// whenever the `seal` file changes — no rebuild — so external `ig
@@ -402,6 +472,41 @@ impl GlobalState {
         projects
     }
 
+    /// Toggle session mode for `root`. Auto-warms the project if it was not
+    /// active, so callers don't need to `ig warm` first. Returns the resulting
+    /// `ProjectStatus`.
+    fn session_signal(self: &Arc<Self>, root: &Path, begin: bool) -> Result<ProjectStatus> {
+        let canonical = root
+            .canonicalize()
+            .with_context(|| format!("canonicalize {}", root.display()))?;
+        guard_suspicious_root(&canonical)?;
+        // Ensure the project is warmed (so a worker thread exists to receive
+        // the session event). `warm_project` is idempotent for already-active
+        // projects and refreshes `last_seen`.
+        self.warm_project(&canonical)?;
+        let project = self
+            .active_projects
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&canonical)
+            .cloned()
+            .context("project not active after warm")?;
+        project.signal_session(begin);
+        Ok(project.status())
+    }
+
+    fn project_status(&self, root: &Path) -> Result<Option<ProjectStatus>> {
+        let canonical = root
+            .canonicalize()
+            .with_context(|| format!("canonicalize {}", root.display()))?;
+        Ok(self
+            .active_projects
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&canonical)
+            .map(|p| p.status()))
+    }
+
     fn forget_project(&self, root: &Path) -> Result<bool> {
         let canonical = root
             .canonicalize()
@@ -434,7 +539,9 @@ impl ActiveProject {
     fn start(root: &Path, state: Arc<GlobalState>) -> Result<Self> {
         let root = root.to_path_buf();
         let last_seen = Arc::new(Mutex::new(Instant::now()));
-        let (tx, rx) = mpsc::channel::<Vec<PathBuf>>();
+        let (tx, rx) = mpsc::channel::<WatchEvent>();
+        let session_active = Arc::new(AtomicBool::new(false));
+        let session_pending = Arc::new(AtomicUsize::new(0));
         // Pre-filter watcher events with the same .ignore / .gitignore /
         // DEFAULT_EXCLUDES rules the indexer uses. Without this, a recursive
         // watcher on a monorepo floods the worker with events from
@@ -444,6 +551,7 @@ impl ActiveProject {
         let watcher_ignore = Arc::new(build_watcher_ignore(&root));
         let watched_root = root.clone();
         let watched_ignore = Arc::clone(&watcher_ignore);
+        let watcher_tx = tx.clone();
         let mut watcher =
             notify::recommended_watcher(move |res: std::result::Result<Event, notify::Error>| {
                 if let Ok(event) = res {
@@ -453,7 +561,7 @@ impl ActiveProject {
                         .filter(|p| !is_path_ignored(&watched_root, &watched_ignore, p))
                         .collect();
                     if !paths.is_empty() {
-                        let _ = tx.send(paths);
+                        let _ = watcher_tx.send(WatchEvent::Paths(paths));
                     }
                 }
             })
@@ -470,14 +578,44 @@ impl ActiveProject {
         let ig_watcher = build_ig_seal_watcher(&root, &ig, Arc::clone(&state));
 
         let worker_root = root.clone();
-        std::thread::spawn(move || watch_worker(worker_root, rx, state));
+        let worker_session = Arc::clone(&session_active);
+        let worker_pending = Arc::clone(&session_pending);
+        std::thread::spawn(move || {
+            watch_worker(worker_root, rx, state, worker_session, worker_pending)
+        });
 
         Ok(Self {
             root,
             last_seen,
+            session_active,
+            session_pending,
+            session_tx: Mutex::new(tx),
             _watcher: Mutex::new(watcher),
             _ig_watcher: Mutex::new(ig_watcher),
         })
+    }
+
+    /// Send a session control event onto the worker channel. Returns the new
+    /// active state. Idempotent: re-`begin` while already active is a no-op.
+    fn signal_session(&self, begin: bool) -> bool {
+        let was = self.session_active.load(Ordering::SeqCst);
+        if was == begin {
+            return was;
+        }
+        // Pre-flip the flag so concurrent `status()` calls see the intent
+        // before the worker has consumed the event.
+        self.session_active.store(begin, Ordering::SeqCst);
+        let event = if begin {
+            WatchEvent::SessionBegin
+        } else {
+            WatchEvent::SessionEnd
+        };
+        let _ = self
+            .session_tx
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .send(event);
+        begin
     }
 
     fn status(&self) -> ProjectStatus {
@@ -489,6 +627,8 @@ impl ActiveProject {
                 .unwrap_or_else(|e| e.into_inner())
                 .elapsed()
                 .as_secs(),
+            session_active: self.session_active.load(Ordering::SeqCst),
+            session_pending: self.session_pending.load(Ordering::SeqCst),
         }
     }
 }
@@ -503,33 +643,106 @@ const WATCH_HASH_CACHE_CAP: usize = 4096;
 /// no-op touch outweighs the savings. They're rarely the source of churn.
 const WATCH_HASH_MAX_FILE_SIZE: u64 = 5 * 1024 * 1024;
 
-fn watch_worker(root: PathBuf, rx: mpsc::Receiver<Vec<PathBuf>>, state: Arc<GlobalState>) {
-    let mut dirty: Vec<PathBuf> = Vec::new();
+fn watch_worker(
+    root: PathBuf,
+    rx: mpsc::Receiver<WatchEvent>,
+    state: Arc<GlobalState>,
+    session_active: Arc<AtomicBool>,
+    session_pending: Arc<AtomicUsize>,
+) {
+    // Files queued during a `SessionBegin..SessionEnd` window. They are NOT
+    // turned into rebuilds while the session is open — the whole point of
+    // sessions is to suppress mid-burst rebuilds. Flushed on SessionEnd.
+    let mut session_buffer: Vec<PathBuf> = Vec::new();
+    let mut session_open = false;
     let mut hash_cache: LruCache<PathBuf, u64> =
         LruCache::new(NonZeroUsize::new(WATCH_HASH_CACHE_CAP).expect("non-zero cap"));
-    while let Ok(paths) = rx.recv() {
-        dirty.extend(paths);
-        while let Ok(paths) = rx.recv_timeout(WATCH_DEBOUNCE) {
-            dirty.extend(paths);
+    while let Ok(ev) = rx.recv() {
+        match ev {
+            WatchEvent::SessionBegin => {
+                session_open = true;
+                session_active.store(true, Ordering::SeqCst);
+                eprintln!("[{}] session begin — rebuilds suspended", root.display());
+                continue;
+            }
+            WatchEvent::SessionEnd => {
+                session_open = false;
+                session_active.store(false, Ordering::SeqCst);
+                let count = session_buffer.len();
+                eprintln!(
+                    "[{}] session end — flushing {} pending paths",
+                    root.display(),
+                    count
+                );
+                let mut drained = std::mem::take(&mut session_buffer);
+                session_pending.store(0, Ordering::SeqCst);
+                process_dirty(&root, &mut drained, &mut hash_cache, &state);
+                continue;
+            }
+            WatchEvent::Paths(paths) => {
+                let mut dirty: Vec<PathBuf> = paths;
+                // Drain the debounce window. Session events stop the drain so
+                // they are processed promptly.
+                let mut session_end_during_drain = false;
+                while let Ok(ev2) = rx.recv_timeout(WATCH_DEBOUNCE) {
+                    match ev2 {
+                        WatchEvent::Paths(p) => dirty.extend(p),
+                        WatchEvent::SessionBegin => {
+                            session_open = true;
+                            session_active.store(true, Ordering::SeqCst);
+                            eprintln!(
+                                "[{}] session begin (mid-batch) — rebuilds suspended",
+                                root.display()
+                            );
+                        }
+                        WatchEvent::SessionEnd => {
+                            session_open = false;
+                            session_active.store(false, Ordering::SeqCst);
+                            session_end_during_drain = true;
+                            // Fold any buffered session paths into this batch
+                            // so they are flushed together.
+                            dirty.append(&mut session_buffer);
+                            session_pending.store(0, Ordering::SeqCst);
+                            break;
+                        }
+                    }
+                }
+                if session_open && !session_end_during_drain {
+                    session_buffer.extend(dirty);
+                    session_pending.store(session_buffer.len(), Ordering::SeqCst);
+                    continue;
+                }
+                process_dirty(&root, &mut dirty, &mut hash_cache, &state);
+            }
         }
-        dirty.sort();
-        dirty.dedup();
-        // Drop paths whose content has not actually changed. Many IDEs and
-        // dev-servers `touch` files (mtime bump, identical bytes), which used
-        // to re-trigger a full overlay rebuild every time and could pin the
-        // daemon at hundreds of % CPU / tens of GB RSS for hours. See the
-        // v1.19.4 hotfix and the report in docs/incidents/.
-        dirty.retain(|p| should_propagate_change(p, &mut hash_cache));
-        if dirty.is_empty() {
-            continue;
-        }
-        if let Err(e) = writer::update_index_for_paths(&root, true, DEFAULT_MAX_FILE_SIZE, &dirty) {
-            eprintln!("[{}] watcher update failed: {}", root.display(), e);
-        } else {
-            state.reload_tenant_if_open(&root);
-        }
-        dirty.clear();
     }
+}
+
+/// Sort/dedupe/hash-filter a dirty batch and run `update_index_for_paths`.
+/// Factored out so both the normal and the session-flush paths share logic.
+fn process_dirty(
+    root: &Path,
+    dirty: &mut Vec<PathBuf>,
+    hash_cache: &mut LruCache<PathBuf, u64>,
+    state: &Arc<GlobalState>,
+) {
+    dirty.sort();
+    dirty.dedup();
+    // Drop paths whose content has not actually changed. Many IDEs and
+    // dev-servers `touch` files (mtime bump, identical bytes), which used
+    // to re-trigger a full overlay rebuild every time and could pin the
+    // daemon at hundreds of % CPU / tens of GB RSS for hours. See the
+    // v1.19.4 hotfix and the report in docs/incidents/.
+    dirty.retain(|p| should_propagate_change(p, hash_cache));
+    if dirty.is_empty() {
+        return;
+    }
+    if let Err(e) = writer::update_index_for_paths(root, true, DEFAULT_MAX_FILE_SIZE, dirty) {
+        eprintln!("[{}] watcher update failed: {}", root.display(), e);
+    } else {
+        state.reload_tenant_if_open(root);
+    }
+    dirty.clear();
 }
 
 /// Decide whether a watcher event for `path` reflects a real content change.
@@ -709,6 +922,16 @@ pub fn start_daemon(_legacy_path: &Path) -> Result<()> {
     let _ = crate::cache::ensure_layout();
     crate::cache::rotate_daemon_log_if_needed();
 
+    let Some(start_lock) = acquire_daemon_start_lock()? else {
+        eprintln!("Daemon (global) already running");
+        return Ok(());
+    };
+
+    if is_daemon_available() {
+        eprintln!("Daemon (global) already running");
+        return Ok(());
+    }
+
     purge_legacy_per_project_daemons();
 
     let max_tenants = std::env::var("IG_DAEMON_TENANTS_MAX")
@@ -769,6 +992,7 @@ pub fn start_daemon(_legacy_path: &Path) -> Result<()> {
     }
 
     let _ = std::fs::remove_file(&sock);
+    drop(start_lock);
     Ok(())
 }
 
@@ -872,6 +1096,56 @@ fn process_request(line: &str, state: &Arc<GlobalState>) -> QueryResponse {
                 projects: None,
             },
             Err(e) => err_response(format!("forget project: {}", e)),
+        };
+    }
+
+    if req.op == "session_begin" || req.op == "session_end" {
+        let begin = req.op == "session_begin";
+        return match state.session_signal(&root, begin) {
+            Ok(status) => QueryResponse {
+                results: None,
+                error: None,
+                candidates: 0,
+                total_files: 0,
+                search_ms: 0.0,
+                reloaded: false,
+                status: Some(if begin {
+                    "session_begin".into()
+                } else {
+                    "session_end".into()
+                }),
+                root: Some(status.root.clone()),
+                projects: Some(vec![status]),
+            },
+            Err(e) => err_response(format!("{}: {}", req.op, e)),
+        };
+    }
+
+    if req.op == "session_status" {
+        return match state.project_status(&root) {
+            Ok(Some(status)) => QueryResponse {
+                results: None,
+                error: None,
+                candidates: 0,
+                total_files: 0,
+                search_ms: 0.0,
+                reloaded: false,
+                status: Some("ok".into()),
+                root: Some(status.root.clone()),
+                projects: Some(vec![status]),
+            },
+            Ok(None) => QueryResponse {
+                results: None,
+                error: None,
+                candidates: 0,
+                total_files: 0,
+                search_ms: 0.0,
+                reloaded: false,
+                status: Some("inactive".into()),
+                root: Some(root.to_string_lossy().to_string()),
+                projects: None,
+            },
+            Err(e) => err_response(format!("session_status: {}", e)),
         };
     }
 
@@ -1104,8 +1378,6 @@ fn start_daemon_background_inner(silent: bool) -> Result<()> {
         .stdin(std::process::Stdio::null())
         .spawn()
         .context("spawn daemon process")?;
-
-    std::fs::write(pid_path(), child.id().to_string()).context("write daemon.pid")?;
 
     if !silent {
         eprintln!(
@@ -1448,6 +1720,50 @@ pub fn list_projects_daemon() -> Result<DaemonResponse> {
     match request_daemon(req.clone())? {
         Some(resp) if response_needs_newer_daemon(&resp) => {
             restart_daemon_for_protocol_upgrade(Path::new("/"))?;
+            request_daemon(req)?.context("daemon is not available")
+        }
+        Some(resp) => Ok(resp),
+        None => anyhow::bail!("daemon is not available"),
+    }
+}
+
+pub fn session_signal_daemon(root: &Path, begin: bool) -> Result<DaemonResponse> {
+    if !is_daemon_available() {
+        let _ = start_daemon_background_silent(root);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !is_daemon_available() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+    let canonical = root.canonicalize().context("canonicalize root")?;
+    let op = if begin {
+        "session_begin"
+    } else {
+        "session_end"
+    };
+    let req = serde_json::json!({
+        "op": op,
+        "root": canonical.to_string_lossy(),
+    });
+    match request_daemon(req.clone())? {
+        Some(resp) if response_needs_newer_daemon(&resp) => {
+            restart_daemon_for_protocol_upgrade(root)?;
+            request_daemon(req)?.context("daemon is not available")
+        }
+        Some(resp) => Ok(resp),
+        None => anyhow::bail!("daemon is not available"),
+    }
+}
+
+pub fn session_status_daemon(root: &Path) -> Result<DaemonResponse> {
+    let canonical = root.canonicalize().context("canonicalize root")?;
+    let req = serde_json::json!({
+        "op": "session_status",
+        "root": canonical.to_string_lossy(),
+    });
+    match request_daemon(req.clone())? {
+        Some(resp) if response_needs_newer_daemon(&resp) => {
+            restart_daemon_for_protocol_upgrade(root)?;
             request_daemon(req)?.context("daemon is not available")
         }
         Some(resp) => Ok(resp),

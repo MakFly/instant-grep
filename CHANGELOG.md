@@ -2,6 +2,49 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.19.5] — 2026-05-07
+
+### Added — `ig hold` (agent edit-session lock)
+
+v1.19.4 stopped the *idle* rebuild loop, but did not address the failure mode where an AI agent (Claude Code, Codex) legitimately edits 50–200 files in a few seconds: the watcher would still cross `OVERLAY_THRESHOLD = 100`, fall back to a full rebuild, and the next batch of events — fired during the rebuild — would do it again. RSS was observed at **19 GB / 96 % CPU** on `instant-grep` itself during a refactor session.
+
+The fix borrows from Cursor's architecture: instead of trying to debounce smarter, treat the agent burst as an explicit transaction.
+
+- New CLI: `ig hold begin|end|status [path]` (alias `session-hold`). Between `begin` and `end`, the daemon **buffers** dirty paths instead of rebuilding. On `end`, the buffer is sorted, deduped and hash-filtered, then folded into a **single** `update_index_for_paths` call.
+- New IPC ops: `session_begin`, `session_end`, `session_status`.
+- `ProjectStatus` gains `session_active: bool` and `session_pending: usize`, surfaced in `ig hold status` and `ig projects list --json`.
+- `watch_worker` now consumes `WatchEvent::{Paths, SessionBegin, SessionEnd}` on a single `mpsc` channel, so session control events are ordered with respect to FS events naturally.
+- `ig update` re-runs quiet setup so `~/.claude/` hooks/rules and `~/.codex/AGENTS.md` are updated to the current binary contract after every self-update.
+
+Wiring into Claude Code (`~/.claude/settings.json` + `~/.claude/hooks/session-start.sh`):
+
+```jsonc
+"SessionStart": [{ "hooks": [
+  { "type": "command", "command": "~/.claude/hooks/session-start.sh", "timeout": 5 }
+]}],
+"SessionEnd":   [{ "hooks": [
+  { "type": "command", "command": "ig hold end   \"$CLAUDE_PROJECT_DIR\" 2>/dev/null || true" }
+]}]
+```
+
+`session-start.sh` calls `ig hold begin "${CLAUDE_PROJECT_DIR:-$PWD}"` synchronously; it no longer launches a background `ig warm`, avoiding a rebuild window before the lock is active.
+
+Codex CLI has no hook system; wrap manually with a shell function (see `CLAUDE.md`).
+
+### Fixed — concurrent daemon starts
+
+`ig warm`, `ig hold begin`, and search auto-spawn can all fire during agent startup. The daemon foreground path now takes a process-wide `daemon.lock` with `flock` and holds it for the server lifetime, so concurrent starts collapse to one global daemon instead of leaving orphan foreground processes bound to stale sockets.
+
+### Fixed — release assets
+
+The GitHub release workflow now uploads both the C shim (`ig-<platform>`) and Rust backend (`ig-<platform>-rust`) per platform, matching `install.sh` and `ig update`.
+
+**Validated** with `claude -p` editing 25 files inside an active hold: daemon stayed at **85 MB RSS / 0 % CPU** during the entire burst, 175 FS events buffered, **one** overlay rebuild fired at `end` (50 unique paths after dedup). Without the hold, the same burst pushed the daemon to 16 GB / 99 % CPU.
+
+**No on-disk format change, no `INDEX_VERSION` bump.** Old daemons returning `unknown op: session_begin` are auto-restarted via the existing `response_needs_newer_daemon` path.
+
+Tests: 431 lib + 49 integration pass. `cargo clippy --all-targets -- -D warnings` clean. `cargo fmt` clean.
+
 ## [1.19.4] — 2026-05-07
 
 ### Fixed — daemon watcher rebuild loop (39 GB RSS / 310 % CPU)

@@ -155,6 +155,21 @@ pub enum Commands {
         op: ProjectsOp,
     },
 
+    /// Suspend / resume watcher rebuilds during an agent edit burst
+    ///
+    /// `ig hold begin` tells the daemon to accumulate filesystem events
+    /// without rebuilding the index until `ig hold end` is called. This
+    /// avoids the OVERLAY_THRESHOLD cascade that occurs when an AI agent
+    /// (Claude / Codex) edits dozens of files in a few seconds. On `end`,
+    /// every accumulated path is folded into a single overlay rebuild.
+    ///
+    /// Wire it into Claude Code via `SessionStart` / `Stop` hooks.
+    #[command(alias = "session-hold")]
+    Hold {
+        #[command(subcommand)]
+        op: SessionOp,
+    },
+
     /// List project files (respects .gitignore and excludes)
     Files {
         /// Directory to list (default: current dir)
@@ -366,7 +381,7 @@ pub enum Commands {
         /// Root directory to update (default: current project)
         path: Option<String>,
 
-        /// Refresh project indexes instead of updating only the ig binary
+        /// Refresh project indexes instead of updating ig + agent config
         #[arg(long)]
         indexes: bool,
 
@@ -374,7 +389,7 @@ pub enum Commands {
         #[arg(long)]
         all: bool,
 
-        /// Only update the ig binary, even if a path is provided
+        /// Only update ig + agent config, even if a path is provided
         #[arg(long)]
         self_only: bool,
     },
@@ -597,6 +612,34 @@ pub enum TeeOp {
     List,
     /// Delete every tee entry
     Clear,
+}
+
+#[derive(Subcommand)]
+pub enum SessionOp {
+    /// Open an edit session: rebuilds suspended until `end`
+    Begin {
+        /// Project root (default: current dir)
+        path: Option<String>,
+        /// Print the daemon response as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Close the edit session and flush queued paths in one rebuild
+    End {
+        /// Project root (default: current dir)
+        path: Option<String>,
+        /// Print the daemon response as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show whether a session is currently active for the project
+    Status {
+        /// Project root (default: current dir)
+        path: Option<String>,
+        /// Print the daemon response as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]

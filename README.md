@@ -1,22 +1,25 @@
+# instant-grep
+
+**A trigram-indexed `ripgrep` alternative for AI agents — sub-millisecond regex code search in Rust, with 93.5% token savings on `grep` / `cat` / `git` output.**
+
+Drop-in replacement for `grep`, `cat`, `ls`, `find`, `git status/log/diff` — built for Claude Code, Codex, Cursor, OpenCode, Copilot, Windsurf, Cline, and Gemini CLI.
+
 <p align="center">
-  <h1 align="center">instant-grep</h1>
-  <p align="center">
-    <strong>The AI agent's search engine. Trigram-indexed regex, token-compressed git, sub-ms daemon.</strong>
-  </p>
-  <p align="center">
-    <a href="#benchmarks">Benchmarks</a> &middot;
-    <a href="#installation">Installation</a> &middot;
-    <a href="#token-savings">Token Savings</a> &middot;
-    <a href="#agent-integration">Agent Integration</a> &middot;
-    <a href="#how-it-works">How it works</a>
-  </p>
+  <a href="#why-instant-grep">Why ig?</a> &middot;
+  <a href="#benchmarks">Benchmarks</a> &middot;
+  <a href="#installation">Installation</a> &middot;
+  <a href="#token-savings">Token Savings</a> &middot;
+  <a href="#agent-integration">Agent Integration</a> &middot;
+  <a href="#how-it-works">How it works</a> &middot;
+  <a href="#faq">FAQ</a>
 </p>
 
 <p align="center">
   <a href="https://github.com/MakFly/instant-grep/actions/workflows/ci.yml"><img src="https://github.com/MakFly/instant-grep/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/MakFly/instant-grep/releases/latest"><img src="https://img.shields.io/github/v/release/MakFly/instant-grep" alt="Release"></a>
   <a href="https://github.com/MakFly/instant-grep/blob/main/LICENSE"><img src="https://img.shields.io/github/license/MakFly/instant-grep" alt="License"></a>
-  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-blue" alt="Platform">
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-blue" alt="Platform: macOS and Linux">
+  <img src="https://img.shields.io/badge/rust-2024-orange" alt="Rust 2024 edition">
 </p>
 
 ---
@@ -25,13 +28,22 @@
 
 - **Trigram-indexed regex** that beats `ripgrep` 2–8× on warm caches with byte-identical match parity.
 - **Token-compressed CLI** (`ig git status/log/diff`, `ig read -s`, `ig ls`, …) shipped as drop-ins for AI agents.
-- **Indexes live in the XDG cache** (`~/.cache/ig/`) since v1.15.0 — your projects stay clean (no `.ig/` folder to gitignore). `find_root` also recognises `package.json`, `Cargo.toml`, `go.mod`, etc., so non-versioned projects no longer scatter stray indexes.
-- **One global daemon** since v1.16.0 — multi-tenant, single Unix socket, single systemd-user / launchd unit. Replaces the previous one-daemon-per-project design. **~14× less RAM** in real-world use (5–20 MB total instead of 60 MB × N).
-- **Precision search (v1.17.0+)** — vbyte posting codec + masked n-grams (bloom / loc / zone). Sub-byte filtering before any `read(2)`. `INDEX_VERSION 13`.
-- **Push reload via FSEvents (v1.18.0)** — `.ig/seal` 16-byte atomic publish marker + `notify` watcher on `.ig/`. Out-of-band `ig index .` from another shell propagates to the daemon **without waiting for the next query**. Pull (per-query 16-byte read) stays authoritative as the safety net. See [`docs/specs/SPEC-daemon-cache-invalidation.md`](docs/specs/SPEC-daemon-cache-invalidation.md) for the full design.
-- **Navigable cache layout (v1.19.0)** — the cache root is now organized into `daemon/` (sock + pid + rotated logs), `projects/<hash>/`, `by-name/<slug>` symlinks for human inspection, `tee/`, and `manifest.json`. Migration from the pre-v1.19 flat layout is automatic and idempotent on first launch.
-- **Self-healing setup (v1.19.1+)** — `ig setup` writes a managed block (`<!-- IG-MANAGED-BLOCK -->`) into agent rule files (`CLAUDE.md`, `AGENTS.md`, `~/.claude/rules/tools/ig.md`). On binary upgrades, `ig update` re-runs `ig setup --quiet` so the block always reflects the current contract; only drifted entries surface, no wall of "already up-to-date".
-- **Two-step install on a new machine**: `curl … install.sh | bash`, then `ig daemon install`. New projects are served the moment they're queried — no preboot.
+- **Single global daemon** — one Unix socket serves every project on the machine, ~6 MB idle, sub-ms hot path.
+- **Two-step install**: `curl … install.sh | bash`, then `ig daemon install`. Indexes live in `~/.cache/ig/` (XDG-compliant, no `.ig/` folder to gitignore).
+
+## Why instant-grep?
+
+### vs `ripgrep`
+
+`ripgrep` walks the gitignore tree and opens every candidate file on every query — fast in absolute terms (17–27 ms on a 3 K-file repo), but always proportional to repo size. `ig` builds a sparse trigram index once, then answers in **2.4–8 ms** through a persistent daemon. Median speedup: **2.6×** (measured on a 18 GB monorepo, 5 patterns, hyperfine -N). Match output is **byte-identical** with `rg` — same lines, same counts, same column offsets. The whole point is parity, not approximation.
+
+### vs `rtk` and other agent compressors
+
+`rtk` shells to `ripgrep` on every invocation and post-processes the output. `ig` is the only token compressor that ships its own **persistent index**, which unlocks two things `rtk` cannot replicate without re-implementing one: **`--top N` BM25 ranking** (10/10 byte wins on the 115-case benchmark) and **`--semantic` PMI expansion** (synonyms learned from your own codebase, no ML model). On total bytes + total wall time, `ig` wins both axes simultaneously (896 KB / 1.74 s vs 1.04 MB / 2.88 s).
+
+### For AI agents
+
+Every byte of CLI output is a token consumed. On a $200/month Claude Code Max plan, wasted tokens hit your rate limit sooner. `ig` cuts `git status` by 94 %, `cat large-file.ts` by 96 % (signatures mode), `rg dense-pattern src/` by 60–95 % — measured, not estimated. A PreToolUse hook auto-rewrites `grep` / `rg` / `find` / `cat` / `git` calls so the agent never knows the difference. **Zero-config** via `ig setup`: 8 agents configured in one command.
 
 ```
 ig ───── ~/.cache/ig/  (one daemon, one socket, all your projects)
@@ -55,6 +67,15 @@ ig ───── ~/.cache/ig/  (one daemon, one socket, all your projects)
  ├── search / git proxy / ls / read / pack
  └── gc / migrate / cache-ls
 ```
+
+## Release highlights
+
+- **Indexes live in the XDG cache** (`~/.cache/ig/`) since v1.15.0 — your projects stay clean (no `.ig/` folder to gitignore). `find_root` also recognises `package.json`, `Cargo.toml`, `go.mod`, etc., so non-versioned projects no longer scatter stray indexes.
+- **One global daemon** since v1.16.0 — multi-tenant, single Unix socket, single systemd-user / launchd unit. Replaces the previous one-daemon-per-project design. **~14× less RAM** in real-world use (5–20 MB total instead of 60 MB × N).
+- **Precision search (v1.17.0+)** — vbyte posting codec + masked n-grams (bloom / loc / zone). Sub-byte filtering before any `read(2)`. `INDEX_VERSION 13`.
+- **Push reload via FSEvents (v1.18.0)** — `.ig/seal` 16-byte atomic publish marker + `notify` watcher on `.ig/`. Out-of-band `ig index .` from another shell propagates to the daemon **without waiting for the next query**. Pull (per-query 16-byte read) stays authoritative as the safety net. See [`docs/specs/SPEC-daemon-cache-invalidation.md`](docs/specs/SPEC-daemon-cache-invalidation.md) for the full design.
+- **Navigable cache layout (v1.19.0)** — the cache root is now organized into `daemon/` (sock + pid + rotated logs), `projects/<hash>/`, `by-name/<slug>` symlinks for human inspection, `tee/`, and `manifest.json`. Migration from the pre-v1.19 flat layout is automatic and idempotent on first launch.
+- **Self-healing setup (v1.19.1+)** — `ig setup` writes a managed block (`<!-- IG-MANAGED-BLOCK -->`) into agent rule files (`CLAUDE.md`, `AGENTS.md`, `~/.claude/rules/tools/ig.md`). On binary upgrades, `ig update` re-runs `ig setup --quiet` so the block always reflects the current contract; only drifted entries surface, no wall of "already up-to-date".
 
 ---
 
@@ -110,13 +131,11 @@ Index: yes
 
 > Every number on this page is measured with `wc -c` / `hyperfine` on real commands, on real projects (1,609-file Laravel app, 3,084-file monorepo, 347K-file iautos SaaS). See the [v1.10.0 benchmark artefacts](documentation/public/bench/v1.10.0/) for the older CSV + per-domain tables.
 
-## Why
+## Two-level optimisation
 
-AI agents call CLI tools constantly. Every byte of output is a token consumed. On a $200/month Claude Code Max plan, wasted tokens = hitting rate limits sooner.
+`ig` attacks token waste at two layers simultaneously:
 
-`ig` solves this at two levels:
-
-1. **Search** — trigram-indexed regex search (same algorithm as [GitHub Code Search](https://github.blog/engineering/architecture-optimization/the-technology-behind-githubs-new-code-search/)). First search auto-builds the index. Subsequent searches: near-instant.
+1. **Search** — trigram-indexed regex search (same algorithm class as [GitHub Code Search](https://github.blog/engineering/architecture-optimization/the-technology-behind-githubs-new-code-search/)). First search auto-builds the index. Subsequent searches: near-instant.
 
 2. **Token compression** — `ig git status` outputs 25 bytes instead of 422. `ig read --plain` is byte-exact with `cat`, or `-s` gives signatures-only (−95% on large code files). `ig ls` produces compact listings. Compact search mode (`IG_COMPACT=1`) caps matches + truncates long lines for −60 to −95% on `grep`/`rg`. A PreToolUse hook rewrites commands transparently — the AI agent never knows the difference.
 
@@ -141,10 +160,10 @@ Since **v1.13.0**, `ig` ships as two artefacts per platform — a tiny C shim (i
 
 | Platform                | Shim (→ `~/.local/bin/ig`)  | Backend (→ `~/.local/share/ig/bin/ig-rust`) |
 | ----------------------- | --------------------------- | ------------------------------------------- |
-| Linux x86_64            | `ig-shim-linux-x86_64`      | `ig-backend-linux-x86_64`                   |
-| Linux ARM64             | `ig-shim-linux-aarch64`     | `ig-backend-linux-aarch64`                  |
-| macOS x86_64            | `ig-shim-macos-x86_64`      | `ig-backend-macos-x86_64`                   |
-| macOS ARM (M1/M2/M3/M4) | `ig-shim-macos-aarch64`     | `ig-backend-macos-aarch64`                  |
+| Linux x86_64            | `ig-linux-x86_64`           | `ig-linux-x86_64-rust`                      |
+| Linux ARM64             | `ig-linux-aarch64`          | `ig-linux-aarch64-rust`                     |
+| macOS x86_64            | `ig-macos-x86_64`           | `ig-macos-x86_64-rust`                      |
+| macOS ARM (M1/M2/M3/M4) | `ig-macos-aarch64`          | `ig-macos-aarch64-rust`                     |
 
 The shim resolves the backend through `$IG_BACKEND` → `~/.local/share/ig/bin/ig-rust` → `/usr/local/share/ig/bin/ig-rust` → first `ig-rust` on `PATH`. Use `install.sh` to do this layout automatically (recommended).
 
@@ -484,17 +503,19 @@ ig watch .                        # auto-rebuild on file changes
 
 ### Update management
 
-`ig update` has two jobs:
+`ig update` has three jobs:
 
 1. update the `ig` binary itself from the latest GitHub release;
-2. refresh project indexes when the index format changed or new projects need
+2. re-run `ig setup --quiet` so `~/.claude/` hooks/rules and `~/.codex/AGENTS.md`
+   stay aligned with the current binary;
+3. refresh project indexes when the index format changed or new projects need
    an index.
 
-By default, `ig update` only updates the binary:
+By default, `ig update` updates the binary and syncs agent config:
 
 ```bash
-ig update                         # update ig itself
-ig update --self-only             # same, explicit binary-only mode
+ig update                         # update ig + sync Claude/Codex agent config
+ig update --self-only             # skip index refresh, still sync agent config
 ```
 
 Refresh indexes without touching the binary:
@@ -914,6 +935,40 @@ ig
 ├── watch.rs        — File watcher + auto-rebuild
 └── walk.rs         — Gitignore-aware walking
 ```
+
+## FAQ
+
+### Is `ig` a drop-in `ripgrep` replacement?
+
+For search, yes. Regex syntax is 100 % `regex-syntax` (same crate `ripgrep` uses), and on the v1.11.0 benchmark `ig` and `rg 14.1.1` produce **byte-identical** match output on 5/5 patterns (file count + total matches). Flags differ in surface area — `ig` covers the common ones (`-i`, `-l`, `-c`, `-C N`, `-t TYPE`, `--json`) and adds index-only ones (`--top N`, `--semantic`, `--stats`).
+
+### Does `ig` work without an index?
+
+Yes. The first search on a new project triggers a background index build, and the query runs on a parallel scan in the meantime. Subsequent queries hit the index. You never need to call `ig index` manually — the daemon's filesystem watcher keeps it fresh.
+
+### How big is the index?
+
+Roughly **5–10 % of your codebase**. On a 1,609-file Laravel project: 38 MB. On a 3,084-file monorepo: 76 MB. Stored under `~/.cache/ig/projects/<hash>/`, never inside the repo.
+
+### Does `ig` send any data over the network?
+
+No. The default binary contains zero network code on the search path. The optional `embed-poc` subcommand (OpenAI embeddings) is **disabled at compile-time** unless you build with `--features embed-poc`, **and** disabled at runtime unless you flip `ig emb on`. Two opt-ins. Without them, every search is local, sub-ms, free.
+
+### Which AI agents are supported?
+
+`ig setup` configures **8 agents** out of the box: Claude Code, Codex CLI, OpenCode, Cursor, GitHub Copilot, Windsurf, Cline, and Gemini CLI. Each gets its rule file written + (when applicable) a PreToolUse hook installed to auto-rewrite `grep` / `cat` / `find` / `git` calls. 100 % idempotent.
+
+### Linux, macOS, Windows?
+
+Linux (x86_64 + ARM64) and macOS (x86_64 + Apple Silicon) are first-class — both ship a C shim + Rust backend with `install.sh` doing the placement automatically. **Windows is not supported** today (the daemon uses Unix domain sockets and `notify` filesystem watching paths that aren't portable). WSL2 works fine.
+
+### How does this compare to `the_silver_searcher` (`ag`) or `ack`?
+
+`ag` and `ack` predate `ripgrep` and are slower than both `rg` and `ig`. The trigram index in `ig` is the same algorithm class as **GitHub Code Search** (sparse n-grams from [danlark1/sparse_ngrams](https://github.com/danlark1/sparse_ngrams)) and Cursor's fast regex engine — it's a fundamentally different cost curve from grep-style scanners.
+
+### Do I need to learn a new query syntax?
+
+No. `ig "pattern" path` is identical to `rg "pattern" path`. The only thing you opt into is the index — and you do that just by running a search.
 
 ## Credits
 

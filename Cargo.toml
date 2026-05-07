@@ -1,6 +1,6 @@
 [package]
 name = "instant-grep"
-version = "1.19.4"
+version = "1.19.5"
 edition = "2024"
 description = "Trigram-indexed ripgrep alternative for AI agents — sub-ms regex code search in Rust with token-compressed git/grep/cat output"
 license = "MIT"

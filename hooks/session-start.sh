@@ -34,9 +34,10 @@ if [[ -n "$CURRENT_VERSION" ]]; then
   echo "$CURRENT_VERSION" > "$LAST_VERSION_FILE"
 fi
 
-# ── 2. ig gain one-liner ──
+# ── 2. ig session lock + gain one-liner ──
 if command -v ig &>/dev/null; then
-  ig warm --silent "$PWD" >/dev/null 2>&1 &
+  PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
+  ig hold begin "$PROJECT_DIR" >/dev/null 2>&1 || true
   if command -v jq &>/dev/null; then
     GAIN_JSON=$(ig gain --json 2>/dev/null | head -1)
     if [[ -n "$GAIN_JSON" ]]; then

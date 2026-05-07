@@ -27,8 +27,12 @@ const IG_SEARCH_TOOLS_SECTION: &str = "\n<!-- IG-MANAGED-BLOCK:BEGIN -->\n\
 ### Daemon control (rare, normally invisible)\n\
 - `ig daemon status` — PID, socket path, active projects.\n\
 - `ig warm [path]` — add a project to the active set (called automatically by shell hooks on `cd`).\n\
+- `ig hold begin|end|status [path]` — suspend watcher rebuilds during AI-agent edit sessions.\n\
 - `ig projects list` / `ig projects forget <root>` — manage warmed projects.\n\
 - `ig daemon install` — systemd-user (Linux) or launchd (macOS) auto-start. **Do this once per new machine.**\n\n\
+### Agent edit-session lock\n\
+- Claude Code: `ig setup` installs `~/.claude/hooks/session-start.sh` and registers `SessionStart` / `SessionEnd` hooks in `~/.claude/settings.json`.\n\
+- Codex CLI: no native hook system; wrap runs manually with `ig hold begin \"$PWD\"` and `ig hold end \"$PWD\"`.\n\n\
 ### Cache hygiene (rare)\n\
 - `ig gc [--dry-run]` — prune orphan / stale cache entries.\n\
 - `ig cache-ls` — list per-project cache size + last-used.\n\n\
@@ -79,6 +83,7 @@ ig context <file> <line>   # enclosing block at file:line\n\
 ig daemon status           # check health (PID, socket, active projects)\n\
 ig daemon install          # systemd-user (Linux) or launchd (macOS) auto-start\n\
 ig warm [path]             # explicitly add project to active set (idempotent)\n\
+ig hold begin|end|status   # lock watcher rebuilds during agent edit sessions\n\
 ig projects list           # active projects + idle seconds\n\
 ```\n\n\
 Socket: `~/.cache/ig/daemon/daemon.sock`. Don't touch.\n\n\
@@ -364,9 +369,7 @@ impl AgentSetup for CodexAgent {
         if !codex_dir.is_dir() {
             let _ = fs::create_dir_all(&codex_dir);
         }
-        let result = configure_codex_agents_md(&codex_dir);
-        // configure_codex_agents_md does not use dry_run yet — consistent with original
-        let _ = dry_run;
+        let result = configure_codex_agents_md(&codex_dir, dry_run);
         vec![result]
     }
 }
@@ -611,8 +614,16 @@ fn configure_claude_hooks_full(claude_dir: &Path, dry_run: bool) -> Vec<ConfigRe
 
     let mut changes = 0u32;
 
-    // Migrate: remove old hook entries from settings.json
-    let old_markers = ["ig-rewrite.sh", "prefer-ig.sh", "find-rewrite.sh"];
+    // Migrate: remove old hook entries from settings.json.
+    // v1.19.5 also moved the session-start lock into session-start.sh so
+    // Claude no longer races a background `ig warm` against a standalone
+    // `ig hold begin` hook.
+    let old_markers = [
+        "ig-rewrite.sh",
+        "prefer-ig.sh",
+        "find-rewrite.sh",
+        "ig hold begin",
+    ];
     if let Some(hooks_obj) = parsed.get_mut("hooks").and_then(|h| h.as_object_mut()) {
         for (_key, matchers) in hooks_obj.iter_mut() {
             if let Some(matchers_arr) = matchers.as_array_mut() {
@@ -741,6 +752,22 @@ fn configure_claude_hooks_full(claude_dir: &Path, dry_run: bool) -> Vec<ConfigRe
     ) {
         results.push(ConfigResult::Configured(
             "Registered session-start.sh hook".to_string(),
+        ));
+        changes += 1;
+    }
+
+    // SessionEnd — flush any paths buffered during the agent edit session.
+    let hold_end_cmd = r#"ig hold end "$CLAUDE_PROJECT_DIR" 2>/dev/null || true"#;
+    if ensure_hook_registered(
+        &mut parsed,
+        "SessionEnd",
+        "*",
+        hold_end_cmd,
+        "ig hold end",
+        Some(5),
+    ) {
+        results.push(ConfigResult::Configured(
+            "Registered ig hold end hook".to_string(),
         ));
         changes += 1;
     }
@@ -1707,44 +1734,45 @@ fn upsert_managed_block(
     }
 }
 
-fn configure_codex_agents_md(codex_dir: &Path) -> ConfigResult {
+fn configure_codex_agents_md(codex_dir: &Path, dry_run: bool) -> ConfigResult {
     let md_path = codex_dir.join("AGENTS.md");
 
     let content = fs::read_to_string(&md_path).unwrap_or_default();
+    let target_section = ig_managed_section();
+    let (new_content, status) = upsert_managed_block(&content, &target_section, "# AGENTS.md");
 
-    if content.contains("ig")
-        && (content.contains("## Search Tools") || content.contains("## Search & Token"))
-    {
+    if let UpsertStatus::Unchanged = status {
         return ConfigResult::AlreadyDone(
-            "Search Tools section already present in AGENTS.md".to_string(),
+            "Search Tools section already up-to-date in AGENTS.md".to_string(),
         );
     }
 
-    let section = format!("# AGENTS.md\n{}", IG_SEARCH_TOOLS_SECTION);
-
-    let new_content = if content.is_empty() || content.trim().is_empty() {
-        section
-    } else if content.contains("## Search Tools") {
-        // Section exists but without ig — append ig instructions
-        content.replacen(
-            "## Search Tools",
-            "## Search Tools\n\
-- **Code search**: prefer `ig` (instant-grep) over `rg` or `grep` for searching code.\n\
-- Usage: `ig \"pattern\" [path]` or `ig search \"pattern\" [path]` — trigram-indexed regex search.\n\
-- If the project has no `.ig/` index yet, `ig` auto-builds one on first search.\n\
-- Fall back to `rg` only if `ig` is not installed.\n",
-            1,
-        )
+    let final_content = if new_content.starts_with("# AGENTS.md") || new_content.starts_with("# ") {
+        new_content
     } else {
-        // Append section
-        format!("{}\n{}", content.trim_end(), IG_SEARCH_TOOLS_SECTION)
+        format!("# AGENTS.md\n{}", new_content)
     };
 
-    if fs::write(&md_path, new_content.as_bytes()).is_err() {
+    if !dry_run && fs::write(&md_path, final_content.as_bytes()).is_err() {
         return ConfigResult::Error("Could not write AGENTS.md".to_string());
     }
 
-    ConfigResult::Configured("Added Search Tools section to ~/.codex/AGENTS.md".to_string())
+    let msg = match status {
+        UpsertStatus::Inserted if dry_run => "Would add Search Tools section to ~/.codex/AGENTS.md",
+        UpsertStatus::Inserted => "Added Search Tools section to ~/.codex/AGENTS.md",
+        UpsertStatus::Updated if dry_run => {
+            "Would update Search Tools section in ~/.codex/AGENTS.md"
+        }
+        UpsertStatus::Updated => "Updated Search Tools section in ~/.codex/AGENTS.md",
+        UpsertStatus::ReplacedLegacy if dry_run => {
+            "Would replace legacy Search Tools section in ~/.codex/AGENTS.md"
+        }
+        UpsertStatus::ReplacedLegacy => {
+            "Replaced legacy Search Tools section in ~/.codex/AGENTS.md"
+        }
+        UpsertStatus::Unchanged => unreachable!(),
+    };
+    ConfigResult::Configured(msg.to_string())
 }
 
 #[cfg(test)]
@@ -1916,7 +1944,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("AGENTS.md"), "").unwrap();
 
-        let result = configure_codex_agents_md(dir.path());
+        let result = configure_codex_agents_md(dir.path(), false);
         assert!(matches!(result, ConfigResult::Configured(_)));
 
         let content = fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();
@@ -1929,11 +1957,11 @@ mod tests {
         let dir = TempDir::new().unwrap();
         fs::write(
             dir.path().join("AGENTS.md"),
-            "# AGENTS.md\n\n## Search Tools\n- Use ig for search\n",
+            format!("# AGENTS.md\n{}", IG_SEARCH_TOOLS_SECTION),
         )
         .unwrap();
 
-        let result = configure_codex_agents_md(dir.path());
+        let result = configure_codex_agents_md(dir.path(), false);
         assert!(matches!(result, ConfigResult::AlreadyDone(_)));
     }
 
@@ -1946,7 +1974,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = configure_codex_agents_md(dir.path());
+        let result = configure_codex_agents_md(dir.path(), false);
         assert!(matches!(result, ConfigResult::Configured(_)));
 
         let content = fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();

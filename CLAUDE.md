@@ -58,7 +58,40 @@ Pipeline: `regex → regex-syntax Extractor → covering sparse n-grams → hash
 - `src/cache.rs` — XDG cache layout, `gc`, `migrate`, `cache-ls` (v1.15.0).
 
 ### Daemon
-- `src/daemon.rs` — single global Unix-socket server. `GlobalState` (multi-tenant LRU) + `ActiveProject` (per-project source-file watcher + `.ig/` seal watcher).
+- `src/daemon.rs` — single global Unix-socket server. `GlobalState` (multi-tenant LRU) + `ActiveProject` (per-project source-file watcher + `.ig/` seal watcher + session lock).
+
+### Agent edit-session lock (v1.19.5)
+
+`watch_worker` accepts `WatchEvent::{Paths, SessionBegin, SessionEnd}` on a single `mpsc` channel so ordering with FS events is preserved. Between `SessionBegin` and `SessionEnd`, paths are **buffered, not rebuilt** — this kills the OVERLAY_THRESHOLD cascade triggered by AI agents (Claude Code, Codex) editing 50–200 files in a few seconds. On `SessionEnd` the buffer is sorted/deduped/hash-filtered and folded into a single `update_index_for_paths` call.
+
+- IPC ops: `session_begin`, `session_end`, `session_status` (in `process_request`).
+- CLI: `ig hold begin|end|status [path]` (alias `session-hold`). The command is named `Hold` because `Session` was already taken by adoption stats.
+- `ProjectStatus` exposes `session_active: bool` and `session_pending: usize` so `ig hold status` and `ig projects list` show the lock state.
+
+**Wiring into Claude Code** (already in `~/.claude/settings.json` on this machine):
+
+```jsonc
+"SessionStart": [{ "hooks": [
+  { "type": "command", "command": "~/.claude/hooks/session-start.sh", "timeout": 5 }
+]}],
+"SessionEnd":   [{ "hooks": [
+  { "type": "command", "command": "ig hold end   \"$CLAUDE_PROJECT_DIR\" 2>/dev/null || true" }
+]}]
+```
+
+`session-start.sh` calls `ig hold begin "${CLAUDE_PROJECT_DIR:-$PWD}"` synchronously before any gain/status work. Do not also run `ig warm` from this hook: `hold begin` auto-warms and prevents a watcher rebuild window before the session lock is active.
+
+**Codex CLI** has no hook system as of 2026-05; users must wrap manually:
+
+```bash
+codex_with_hold() {
+  ig hold begin "$PWD" >/dev/null 2>&1 || true
+  trap 'ig hold end "$PWD" >/dev/null 2>&1 || true' EXIT INT TERM
+  codex "$@"
+}
+```
+
+**Important — session inheritance.** Hooks fire when a Claude/Codex CLI *starts*. CLIs already running when `~/.claude/settings.json` is updated will not pick up the new hooks: they keep editing without `hold begin`, the daemon resumes the rebuild loop, and RSS climbs again. Always restart the CLIs after a settings change.
 
 ### CLI / agent integration
 - `src/read.rs` — smart file reading (full + signatures-only mode).
@@ -85,6 +118,9 @@ ig watch [path]              # auto-rebuild on file changes
 ig warm [path]               # warm a project with the global daemon (v1.17.0)
 ig projects list             # list active (warmed) projects (v1.17.0)
 ig projects forget <root>    # drop a project from the active set (v1.17.0)
+ig hold begin [path]         # suspend watcher rebuilds during agent edit burst (v1.19.5)
+ig hold end [path]           # flush buffered events into a single overlay rebuild
+ig hold status [path]        # show whether a session is active + queued path count
 ig daemon start              # start the global daemon (v1.16.0+)
 ig daemon stop               # stop the daemon
 ig daemon status             # daemon PID + socket

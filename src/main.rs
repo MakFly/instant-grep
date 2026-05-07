@@ -47,7 +47,7 @@ use clap::Parser;
 
 #[cfg(feature = "embed-poc")]
 use cli::EmbedPocOp;
-use cli::{Cli, Commands, ProjectsOp, TeeOp};
+use cli::{Cli, Commands, ProjectsOp, SessionOp, TeeOp};
 use index::metadata::{INDEX_VERSION, IndexMetadata};
 use index::overlay::OverlayReader;
 use index::writer;
@@ -266,6 +266,65 @@ fn main() -> Result<()> {
                     resp.status.unwrap_or_else(|| "ok".to_string()),
                     resp.root.unwrap_or_else(|| root.display().to_string())
                 );
+            }
+        },
+
+        Some(Commands::Hold { op }) => match op {
+            SessionOp::Begin { path, json: j } => {
+                let root = resolve_root(path.as_deref());
+                let resp = daemon::session_signal_daemon(&root, true)?;
+                if let Some(err) = resp.error {
+                    anyhow::bail!("{}", err);
+                }
+                if j {
+                    println!("{}", serde_json::to_string(&resp)?);
+                } else {
+                    eprintln!(
+                        "session begin: {}",
+                        resp.root.unwrap_or_else(|| root.display().to_string())
+                    );
+                }
+            }
+            SessionOp::End { path, json: j } => {
+                let root = resolve_root(path.as_deref());
+                let resp = daemon::session_signal_daemon(&root, false)?;
+                if let Some(err) = resp.error {
+                    anyhow::bail!("{}", err);
+                }
+                if j {
+                    println!("{}", serde_json::to_string(&resp)?);
+                } else {
+                    let pending = resp
+                        .projects
+                        .as_ref()
+                        .and_then(|v| v.first())
+                        .map(|s| s.session_pending)
+                        .unwrap_or(0);
+                    eprintln!(
+                        "session end: {} (flushed {} paths)",
+                        resp.root.unwrap_or_else(|| root.display().to_string()),
+                        pending
+                    );
+                }
+            }
+            SessionOp::Status { path, json: j } => {
+                let root = resolve_root(path.as_deref());
+                let resp = daemon::session_status_daemon(&root)?;
+                if let Some(err) = resp.error {
+                    anyhow::bail!("{}", err);
+                }
+                if j {
+                    println!("{}", serde_json::to_string(&resp)?);
+                } else {
+                    let status = resp.projects.as_ref().and_then(|v| v.first()).cloned();
+                    match status {
+                        Some(s) => eprintln!(
+                            "{}  session_active={}  pending={}",
+                            s.root, s.session_active, s.session_pending
+                        ),
+                        None => eprintln!("inactive: {}", root.display()),
+                    }
+                }
             }
         },
 
