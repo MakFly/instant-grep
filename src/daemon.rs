@@ -339,6 +339,10 @@ struct ActiveProject {
     /// Visible to `ProjectStatus` without locking the worker. Toggled by the
     /// IPC handler *and* by the worker (kept in sync for safety).
     session_active: Arc<AtomicBool>,
+    /// Number of concurrently open agent sessions for this project. Claude
+    /// Code can have several terminals in the same root; one SessionEnd must
+    /// not release the watcher lock while another session is still active.
+    session_holders: Arc<AtomicUsize>,
     /// Count of paths queued while the session is open. Updated by the worker.
     session_pending: Arc<AtomicUsize>,
     /// Sender side of the worker channel. Cloned for OS-watcher closures and
@@ -541,6 +545,7 @@ impl ActiveProject {
         let last_seen = Arc::new(Mutex::new(Instant::now()));
         let (tx, rx) = mpsc::channel::<WatchEvent>();
         let session_active = Arc::new(AtomicBool::new(false));
+        let session_holders = Arc::new(AtomicUsize::new(0));
         let session_pending = Arc::new(AtomicUsize::new(0));
         // Pre-filter watcher events with the same .ignore / .gitignore /
         // DEFAULT_EXCLUDES rules the indexer uses. Without this, a recursive
@@ -588,6 +593,7 @@ impl ActiveProject {
             root,
             last_seen,
             session_active,
+            session_holders,
             session_pending,
             session_tx: Mutex::new(tx),
             _watcher: Mutex::new(watcher),
@@ -596,26 +602,50 @@ impl ActiveProject {
     }
 
     /// Send a session control event onto the worker channel. Returns the new
-    /// active state. Idempotent: re-`begin` while already active is a no-op.
+    /// active state. Multiple concurrent sessions are reference-counted: only
+    /// the first `begin` suspends rebuilds, and only the final `end` flushes.
     fn signal_session(&self, begin: bool) -> bool {
-        let was = self.session_active.load(Ordering::SeqCst);
-        if was == begin {
-            return was;
+        if begin {
+            let prev = self.session_holders.fetch_add(1, Ordering::SeqCst);
+            self.session_active.store(true, Ordering::SeqCst);
+            if prev == 0 {
+                let _ = self
+                    .session_tx
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .send(WatchEvent::SessionBegin);
+            }
+            return true;
         }
-        // Pre-flip the flag so concurrent `status()` calls see the intent
-        // before the worker has consumed the event.
-        self.session_active.store(begin, Ordering::SeqCst);
-        let event = if begin {
-            WatchEvent::SessionBegin
-        } else {
-            WatchEvent::SessionEnd
+
+        let prev = loop {
+            let current = self.session_holders.load(Ordering::SeqCst);
+            if current == 0 {
+                self.session_active.store(false, Ordering::SeqCst);
+                return false;
+            }
+            if self
+                .session_holders
+                .compare_exchange(current, current - 1, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                break current;
+            }
         };
-        let _ = self
-            .session_tx
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .send(event);
-        begin
+
+        if prev == 1 {
+            // Pre-flip the flag so concurrent `status()` calls see the intent
+            // before the worker has consumed the flush event.
+            self.session_active.store(false, Ordering::SeqCst);
+            let _ = self
+                .session_tx
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .send(WatchEvent::SessionEnd);
+            false
+        } else {
+            true
+        }
     }
 
     fn status(&self) -> ProjectStatus {
@@ -707,7 +737,9 @@ fn watch_worker(
                         }
                     }
                 }
-                if session_open && !session_end_during_drain {
+                if (session_open || session_active.load(Ordering::SeqCst))
+                    && !session_end_during_drain
+                {
                     session_buffer.extend(dirty);
                     session_pending.store(session_buffer.len(), Ordering::SeqCst);
                     continue;
@@ -2137,6 +2169,42 @@ mod tests {
 
         let list = process_request(r#"{"op":"projects_list"}"#, &state);
         assert!(list.projects.unwrap().is_empty());
+        drop(dir);
+    }
+
+    #[test]
+    fn test_session_signal_is_reference_counted() {
+        let (dir, root) = setup_test_project();
+        let canonical = root.canonicalize().unwrap();
+        let state = Arc::new(GlobalState::new(8));
+
+        let status = state.session_signal(&canonical, true).unwrap();
+        assert!(status.session_active);
+
+        let status = state.session_signal(&canonical, true).unwrap();
+        assert!(
+            status.session_active,
+            "second begin should keep session active"
+        );
+
+        let status = state.session_signal(&canonical, false).unwrap();
+        assert!(
+            status.session_active,
+            "first end must not release another active session"
+        );
+
+        let status = state.session_signal(&canonical, false).unwrap();
+        assert!(
+            !status.session_active,
+            "final end should release the session lock"
+        );
+
+        let status = state.session_signal(&canonical, false).unwrap();
+        assert!(
+            !status.session_active,
+            "extra end should remain safely inactive"
+        );
+
         drop(dir);
     }
 }

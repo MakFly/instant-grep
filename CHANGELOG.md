@@ -2,6 +2,16 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.19.6] — 2026-05-07
+
+### Fixed — multi-session agent holds
+
+`ig hold begin/end` is now reference-counted per project. Multiple Claude Code or Codex sessions can hold the same project simultaneously; one `SessionEnd` no longer releases watcher rebuilds while another session is still active.
+
+The watcher also checks the pre-flipped `session_active` atomic when processing file paths, closing the small race where filesystem events could arrive before the worker consumed the `SessionBegin` control message.
+
+Tests: `cargo fmt --check`, `cargo test`, `cargo clippy --all-targets -- -D warnings`.
+
 ## [1.19.5] — 2026-05-07
 
 ### Added — `ig hold` (agent edit-session lock)
