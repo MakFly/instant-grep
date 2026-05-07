@@ -46,7 +46,7 @@ use crate::query::extract::regex_to_query_costed;
 use crate::query::plan::NgramQuery;
 use crate::search::matcher::{self, SearchConfig};
 use crate::util::ig_dir;
-use crate::walk::DEFAULT_MAX_FILE_SIZE;
+use crate::walk::{DEFAULT_EXCLUDES, DEFAULT_MAX_FILE_SIZE};
 
 #[derive(Deserialize)]
 struct QueryRequest {
@@ -435,14 +435,22 @@ impl ActiveProject {
         let root = root.to_path_buf();
         let last_seen = Arc::new(Mutex::new(Instant::now()));
         let (tx, rx) = mpsc::channel::<Vec<PathBuf>>();
+        // Pre-filter watcher events with the same .ignore / .gitignore /
+        // DEFAULT_EXCLUDES rules the indexer uses. Without this, a recursive
+        // watcher on a monorepo floods the worker with events from
+        // `node_modules/`, `.next/`, `target/`, `var/cache/`, etc. — which the
+        // indexer drops at write time, but only after blowing past the
+        // OVERLAY_THRESHOLD and triggering full rebuilds in a loop.
+        let watcher_ignore = Arc::new(build_watcher_ignore(&root));
         let watched_root = root.clone();
+        let watched_ignore = Arc::clone(&watcher_ignore);
         let mut watcher =
             notify::recommended_watcher(move |res: std::result::Result<Event, notify::Error>| {
                 if let Ok(event) = res {
                     let paths: Vec<PathBuf> = event
                         .paths
                         .into_iter()
-                        .filter(|p| !is_ig_internal_path(&watched_root, p))
+                        .filter(|p| !is_path_ignored(&watched_root, &watched_ignore, p))
                         .collect();
                     if !paths.is_empty() {
                         let _ = tx.send(paths);
@@ -485,8 +493,20 @@ impl ActiveProject {
     }
 }
 
+/// Maximum number of (path → content-hash) entries kept per project worker.
+/// Bounds memory under pathological churn (e.g. monorepos with thousands of
+/// hot files); LRU evicts the least recently touched paths.
+const WATCH_HASH_CACHE_CAP: usize = 4096;
+
+/// Skip content hashing for files larger than this (5 MB). For big files we
+/// always propagate change events — the cost of reading them just to detect a
+/// no-op touch outweighs the savings. They're rarely the source of churn.
+const WATCH_HASH_MAX_FILE_SIZE: u64 = 5 * 1024 * 1024;
+
 fn watch_worker(root: PathBuf, rx: mpsc::Receiver<Vec<PathBuf>>, state: Arc<GlobalState>) {
     let mut dirty: Vec<PathBuf> = Vec::new();
+    let mut hash_cache: LruCache<PathBuf, u64> =
+        LruCache::new(NonZeroUsize::new(WATCH_HASH_CACHE_CAP).expect("non-zero cap"));
     while let Ok(paths) = rx.recv() {
         dirty.extend(paths);
         while let Ok(paths) = rx.recv_timeout(WATCH_DEBOUNCE) {
@@ -494,6 +514,12 @@ fn watch_worker(root: PathBuf, rx: mpsc::Receiver<Vec<PathBuf>>, state: Arc<Glob
         }
         dirty.sort();
         dirty.dedup();
+        // Drop paths whose content has not actually changed. Many IDEs and
+        // dev-servers `touch` files (mtime bump, identical bytes), which used
+        // to re-trigger a full overlay rebuild every time and could pin the
+        // daemon at hundreds of % CPU / tens of GB RSS for hours. See the
+        // v1.19.4 hotfix and the report in docs/incidents/.
+        dirty.retain(|p| should_propagate_change(p, &mut hash_cache));
         if dirty.is_empty() {
             continue;
         }
@@ -506,10 +532,104 @@ fn watch_worker(root: PathBuf, rx: mpsc::Receiver<Vec<PathBuf>>, state: Arc<Glob
     }
 }
 
+/// Decide whether a watcher event for `path` reflects a real content change.
+///
+/// Returns `true` (propagate) when:
+///   * the path is gone / unreadable (let the writer tombstone it);
+///   * the file is larger than `WATCH_HASH_MAX_FILE_SIZE` (cheap fall-through);
+///   * we have never seen this path, or its hash differs from the last seen.
+///
+/// Returns `false` only when the file exists, is small enough to hash, and
+/// produces the same hash as the last known one — i.e. a no-op touch.
+fn should_propagate_change(path: &Path, cache: &mut LruCache<PathBuf, u64>) -> bool {
+    use std::hash::Hasher;
+
+    let Ok(meta) = std::fs::metadata(path) else {
+        cache.pop(path);
+        return true;
+    };
+    if !meta.is_file() {
+        return false;
+    }
+    if meta.len() > WATCH_HASH_MAX_FILE_SIZE {
+        return true;
+    }
+    let Ok(bytes) = std::fs::read(path) else {
+        cache.pop(path);
+        return true;
+    };
+    let mut hasher = ahash::AHasher::default();
+    hasher.write(&bytes);
+    let hash = hasher.finish();
+    match cache.get(path) {
+        Some(prev) if *prev == hash => false,
+        _ => {
+            cache.put(path.to_path_buf(), hash);
+            true
+        }
+    }
+}
+
 fn is_ig_internal_path(root: &Path, path: &Path) -> bool {
-    path.strip_prefix(root)
+    // Canonicalize both sides so macOS `/var` ↔ `/private/var` symlinks don't
+    // make `strip_prefix` fail silently and let `.ig/` events leak through.
+    // Mirrors the v1.17.1 fix already applied to writer::normalize_changed_path.
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    path.strip_prefix(&root)
         .ok()
         .is_some_and(|rel| rel.components().any(|c| c.as_os_str() == ".ig"))
+}
+
+/// Build a gitignore-style matcher used to drop watcher events for paths the
+/// indexer would never index (so we don't waste a rebuild round on them).
+///
+/// Sources, in order:
+///   1. `DEFAULT_EXCLUDES` (node_modules/, target/, .next/, vendor/, …)
+///   2. `<root>/.ignore` if present
+///   3. `<root>/.gitignore` if present
+///
+/// Built once at project start; not hot-reloaded. If the user edits their
+/// `.ignore` they restart the daemon (or simply re-warm the project after a
+/// daemon restart for unrelated reasons).
+fn build_watcher_ignore(root: &Path) -> Option<ignore::gitignore::Gitignore> {
+    let mut builder = ignore::gitignore::GitignoreBuilder::new(root);
+    for dir in DEFAULT_EXCLUDES {
+        // Anchor as a directory pattern so `target` matches `target/` at any
+        // depth but not files literally named "target".
+        let _ = builder.add_line(None, &format!("{dir}/"));
+    }
+    let project_ignore = root.join(".ignore");
+    if project_ignore.is_file() {
+        let _ = builder.add(&project_ignore);
+    }
+    let git_ignore = root.join(".gitignore");
+    if git_ignore.is_file() {
+        let _ = builder.add(&git_ignore);
+    }
+    builder.build().ok()
+}
+
+/// Decide if a watcher event for `path` should be dropped (ignored).
+///
+/// Returns `true` when:
+///   * the path is inside ig's own internal `.ig/` (legacy local index), or
+///   * the path or any of its parents matches the watcher ignore matcher.
+fn is_path_ignored(
+    root: &Path,
+    matcher: &Option<ignore::gitignore::Gitignore>,
+    path: &Path,
+) -> bool {
+    if is_ig_internal_path(root, path) {
+        return true;
+    }
+    let Some(matcher) = matcher else {
+        return false;
+    };
+    // `matched_path_or_any_parents` walks up the path so that an event for
+    // `node_modules/foo/bar.ts` is filtered via the `node_modules/` rule on
+    // the parent directory.
+    matcher.matched_path_or_any_parents(path, false).is_ignore()
 }
 
 /// Build an FSEvents watcher on `.ig/` that triggers `reload_tenant_if_open`

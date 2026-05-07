@@ -2,6 +2,46 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.19.4] — 2026-05-07
+
+### Fixed — daemon watcher rebuild loop (39 GB RSS / 310 % CPU)
+
+A watched project on a busy monorepo (e.g. `next.js + symfony + bun` with hot-reload artefacts) could drive the global daemon into a self-amplifying rebuild loop, observed in the wild at **39 GB physical footprint, 310 % CPU sustained for 11 h**. Three independent bugs combined to produce it; v1.19.4 fixes all three in `src/daemon.rs`.
+
+**Bug 1 — `is_ig_internal_path` skipped canonicalisation.**
+`strip_prefix` failed silently when the watcher fired with `/var/folders/…` while the watched root resolved to `/private/var/folders/…` on macOS. The same pattern was fixed in `writer::normalize_changed_path` back in v1.17.1; the daemon copy was missed.
+
+**Bug 2 — no content-hash check on watcher events.**
+IDEs and dev-servers regularly `touch` files (mtime bump, identical bytes); each touch produced a real watcher event, an overlay rebuild, a seal bump and an LRU reload — for zero net change. `watch_worker` now keeps a per-project LRU of `(path → ahash)` (cap 4096, 5 MB max file size hashed) and drops events whose contents have not actually changed. Deleted / unreadable paths are still propagated so the writer can tombstone them.
+
+**Bug 3 — watcher events were never pre-filtered by `.ignore`.**
+The `notify` watcher recurses into the project root unfiltered, so `node_modules/`, `.next/`, `target/`, `vendor/`, `var/cache/`, `storage/logs/` and friends all surfaced events, blew past `OVERLAY_THRESHOLD = 100`, and triggered repeated full rebuilds (`Detected 1922 changed files (>100 threshold), full rebuild...` logged dozens of times in 90 s). The daemon now builds a `Gitignore` matcher at `ActiveProject::start` from `walk::DEFAULT_EXCLUDES` + `<root>/.ignore` + `<root>/.gitignore` and discards matching events before they hit the channel.
+
+### Impact
+
+On the reproducer (`headless-kit-next-php-hono` warmed in the daemon, no other activity):
+
+| | v1.19.3 | v1.19.4 |
+|---|---|---|
+| RSS after 90 s idle | 822 MB and rising | 89 MB stable |
+| CPU after 90 s idle | 81 % | 0 % |
+| `daemon.log` lines / 90 s | 80+ rebuilds | 6 lines (one legitimate edit) |
+
+### Tests
+
+431 + 49 unit tests pass; `cargo clippy --all-targets -- -D warnings` clean; real test on macOS — daemon stopped, binary reinstalled (`codesign -fs -`), restarted, both `instant-grep` and `headless-kit-next-php-hono` warmed; daemon stayed at 0 % CPU and ~89 MB RSS over the test window.
+
+### Also — `walk::DEFAULT_EXCLUDES` extended (Python coverage)
+
+Five additional directory names are now excluded by default (so projects without an `.ignore` file are still safe): `.eggs`, `__pypackages__`, `.hypothesis`, `.ipynb_checkpoints`, `htmlcov`. The list already covered `__pycache__`, `.venv`, `venv`, `.mypy_cache`, `.ruff_cache`, `.pytest_cache`, `.tox`, `vendor`, `target`, `node_modules`, `.next`, `.nuxt`, `dist`, `build`, `.turbo`, `.output`, `.vercel`, etc.
+
+### Notes for users
+
+- The `.ignore` matcher is built once per project at warm time. If you edit `<root>/.ignore` while the daemon is running, restart it (`ig daemon stop && ig daemon start`) to pick up the new rules.
+- The hash cache lives in memory only; nothing changed on-disk. **No `INDEX_VERSION` bump.**
+
+---
+
 ## [1.19.3] — 2026-05-06
 
 ### Changed — drop version references from managed-block content

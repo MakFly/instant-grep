@@ -1,13 +1,13 @@
 [package]
 name = "instant-grep"
-version = "1.19.3"
+version = "1.19.4"
 edition = "2024"
-description = "Trigram-indexed regex search CLI — sub-ms code search for AI agents"
+description = "Trigram-indexed ripgrep alternative for AI agents — sub-ms regex code search in Rust with token-compressed git/grep/cat output"
 license = "MIT"
 repository = "https://github.com/MakFly/instant-grep"
 homepage = "https://instant-grep.pulseview.app"
 documentation = "https://instant-grep.pulseview.app/docs/getting-started"
-keywords = ["grep", "search", "code-search", "ai-agent", "cli"]
+keywords = ["ripgrep", "regex", "code-search", "ai-agent", "trigram"]
 categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"
 
