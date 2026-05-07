@@ -30,7 +30,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock, mpsc};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use lru::LruCache;
@@ -320,9 +320,9 @@ impl TenantState {
 
 // ─── Global state (multi-tenant) ────────────────────────────────────────────
 
-const DEFAULT_MAX_TENANTS: usize = 32;
-const DEFAULT_ACTIVE_PROJECT_IDLE_SECS: u64 = 30 * 60;
 const WATCH_DEBOUNCE: Duration = Duration::from_millis(750);
+const MEMORY_GOVERNOR_INTERVAL: Duration = Duration::from_secs(5);
+const MEMORY_SHUTDOWN_GRACE: Duration = Duration::from_millis(250);
 
 /// Events flowing into `watch_worker`. The OS watcher emits `Paths(...)`;
 /// the IPC `session_begin/end` ops emit the session variants on the same
@@ -331,6 +331,50 @@ enum WatchEvent {
     Paths(Vec<PathBuf>),
     SessionBegin,
     SessionEnd,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum MemoryPressure {
+    Normal,
+    Soft(u64),
+    Hard(u64),
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct MemoryLimits {
+    soft_bytes: u64,
+    hard_bytes: u64,
+    cooldown: Duration,
+}
+
+impl MemoryLimits {
+    fn from_config() -> Self {
+        let soft_bytes = mb_to_bytes(crate::config::daemon_soft_rss_mb());
+        let mut hard_bytes = mb_to_bytes(crate::config::daemon_hard_rss_mb());
+        if hard_bytes > 0 && soft_bytes > 0 && hard_bytes < soft_bytes {
+            hard_bytes = soft_bytes;
+        }
+        Self {
+            soft_bytes,
+            hard_bytes,
+            cooldown: Duration::from_secs(crate::config::daemon_cooldown_secs()),
+        }
+    }
+
+    fn pressure(self, rss_bytes: u64) -> MemoryPressure {
+        if self.hard_bytes > 0 && rss_bytes >= self.hard_bytes {
+            MemoryPressure::Hard(rss_bytes)
+        } else if self.soft_bytes > 0 && rss_bytes >= self.soft_bytes {
+            MemoryPressure::Soft(rss_bytes)
+        } else {
+            MemoryPressure::Normal
+        }
+    }
+}
+
+fn mb_to_bytes(mb: usize) -> u64 {
+    (mb as u64).saturating_mul(1024 * 1024)
 }
 
 struct ActiveProject {
@@ -362,6 +406,9 @@ struct GlobalState {
     active_projects: Mutex<HashMap<PathBuf, Arc<ActiveProject>>>,
     idle_timeout: Duration,
     active_projects_max: usize,
+    memory_limits: MemoryLimits,
+    shutdown_requested: AtomicBool,
+    last_pressure_log: Mutex<Option<Instant>>,
 }
 
 impl GlobalState {
@@ -370,14 +417,154 @@ impl GlobalState {
         Self {
             tenants: Mutex::new(LruCache::new(cap)),
             active_projects: Mutex::new(HashMap::new()),
-            idle_timeout: Duration::from_secs(
-                std::env::var("IG_DAEMON_PROJECT_IDLE_SECS")
-                    .ok()
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(DEFAULT_ACTIVE_PROJECT_IDLE_SECS),
-            ),
+            idle_timeout: Duration::from_secs(crate::config::daemon_project_idle_secs()),
             active_projects_max: max_tenants.max(1),
+            memory_limits: MemoryLimits::from_config(),
+            shutdown_requested: AtomicBool::new(false),
+            last_pressure_log: Mutex::new(None),
         }
+    }
+
+    fn memory_pressure(&self) -> MemoryPressure {
+        current_rss_bytes()
+            .map(|rss| self.memory_limits.pressure(rss))
+            .unwrap_or(MemoryPressure::Unknown)
+    }
+
+    fn enforce_growth_budget(&self, action: &str) -> Result<()> {
+        match self.memory_pressure() {
+            MemoryPressure::Normal | MemoryPressure::Unknown => Ok(()),
+            MemoryPressure::Soft(rss) => {
+                self.reclaim_memory(action, rss);
+                match self.memory_pressure() {
+                    MemoryPressure::Normal | MemoryPressure::Unknown => Ok(()),
+                    MemoryPressure::Soft(rss) => anyhow::bail!(
+                        "daemon memory soft limit reached during {} (rss={} MB, soft={} MB); background activation paused",
+                        action,
+                        bytes_to_mb(rss),
+                        bytes_to_mb(self.memory_limits.soft_bytes)
+                    ),
+                    MemoryPressure::Hard(rss) => {
+                        self.request_memory_shutdown(action, rss);
+                        anyhow::bail!(
+                            "daemon memory hard limit reached during {} (rss={} MB, hard={} MB); daemon is shutting down",
+                            action,
+                            bytes_to_mb(rss),
+                            bytes_to_mb(self.memory_limits.hard_bytes)
+                        )
+                    }
+                }
+            }
+            MemoryPressure::Hard(rss) => {
+                self.request_memory_shutdown(action, rss);
+                anyhow::bail!(
+                    "daemon memory hard limit reached during {} (rss={} MB, hard={} MB); daemon is shutting down",
+                    action,
+                    bytes_to_mb(rss),
+                    bytes_to_mb(self.memory_limits.hard_bytes)
+                )
+            }
+        }
+    }
+
+    fn can_run_background_rebuild(&self, action: &str) -> bool {
+        match self.enforce_growth_budget(action) {
+            Ok(()) => true,
+            Err(e) => {
+                eprintln!("memory governor: deferring {}: {}", action, e);
+                false
+            }
+        }
+    }
+
+    fn enforce_periodic_memory_budget(&self) {
+        match self.memory_pressure() {
+            MemoryPressure::Normal | MemoryPressure::Unknown => {}
+            MemoryPressure::Soft(rss) => self.reclaim_memory("periodic check", rss),
+            MemoryPressure::Hard(rss) => self.request_memory_shutdown("periodic check", rss),
+        }
+    }
+
+    fn reclaim_memory(&self, action: &str, rss: u64) {
+        let mut evicted_tenants = 0usize;
+        {
+            let mut tenants = self.tenants.lock().unwrap_or_else(|e| e.into_inner());
+            while tenants.len() > 1 {
+                if tenants.pop_lru().is_some() {
+                    evicted_tenants += 1;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        let mut evicted_projects = 0usize;
+        {
+            let mut projects = self
+                .active_projects
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let target = (self.active_projects_max / 2).max(1);
+            while projects.len() > target {
+                let Some(oldest) = projects
+                    .iter()
+                    .filter(|(_, p)| !p.session_active.load(Ordering::SeqCst))
+                    .max_by_key(|(_, p)| {
+                        p.last_seen
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .elapsed()
+                    })
+                    .map(|(root, _)| root.clone())
+                else {
+                    break;
+                };
+                projects.remove(&oldest);
+                evicted_projects += 1;
+            }
+        }
+
+        let mut should_log = false;
+        {
+            let mut last = self
+                .last_pressure_log
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if last.is_none_or(|t| t.elapsed() >= MEMORY_GOVERNOR_INTERVAL) {
+                *last = Some(Instant::now());
+                should_log = true;
+            }
+        }
+        if should_log || evicted_tenants > 0 || evicted_projects > 0 {
+            eprintln!(
+                "memory governor: soft pressure during {} (rss={} MB, soft={} MB); evicted {} tenant(s), {} active project(s)",
+                action,
+                bytes_to_mb(rss),
+                bytes_to_mb(self.memory_limits.soft_bytes),
+                evicted_tenants,
+                evicted_projects
+            );
+        }
+    }
+
+    fn request_memory_shutdown(&self, action: &str, rss: u64) {
+        if self.shutdown_requested.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        write_memory_cooldown(rss, self.memory_limits);
+        let _ = std::fs::remove_file(socket_path());
+        let _ = std::fs::remove_file(pid_path());
+        eprintln!(
+            "memory governor: hard limit during {} (rss={} MB, hard={} MB); daemon exits, cooldown={}s",
+            action,
+            bytes_to_mb(rss),
+            bytes_to_mb(self.memory_limits.hard_bytes),
+            self.memory_limits.cooldown.as_secs()
+        );
+        std::thread::spawn(|| {
+            std::thread::sleep(MEMORY_SHUTDOWN_GRACE);
+            std::process::exit(0);
+        });
     }
 
     /// Get-or-open a tenant for the canonical root path.
@@ -391,6 +578,7 @@ impl GlobalState {
                 return Ok(Arc::clone(t));
             }
         }
+        self.enforce_growth_budget("open tenant")?;
         let tenant = Arc::new(TenantState::open(&canonical)?);
         {
             let mut guard = self.tenants.lock().unwrap_or_else(|e| e.into_inner());
@@ -431,6 +619,7 @@ impl GlobalState {
             return Ok(project.status());
         }
 
+        self.enforce_growth_budget("warm project")?;
         self.catch_up_index(&canonical)?;
         let project = Arc::new(ActiveProject::start(&canonical, Arc::clone(self))?);
         let status = project.status();
@@ -706,7 +895,10 @@ fn watch_worker(
                 );
                 let mut drained = std::mem::take(&mut session_buffer);
                 session_pending.store(0, Ordering::SeqCst);
-                process_dirty(&root, &mut drained, &mut hash_cache, &state);
+                if !process_dirty(&root, &mut drained, &mut hash_cache, &state) {
+                    session_buffer.extend(drained);
+                    session_pending.store(session_buffer.len(), Ordering::SeqCst);
+                }
                 continue;
             }
             WatchEvent::Paths(paths) => {
@@ -744,7 +936,14 @@ fn watch_worker(
                     session_pending.store(session_buffer.len(), Ordering::SeqCst);
                     continue;
                 }
-                process_dirty(&root, &mut dirty, &mut hash_cache, &state);
+                if !session_buffer.is_empty() {
+                    dirty.append(&mut session_buffer);
+                    session_pending.store(0, Ordering::SeqCst);
+                }
+                if !process_dirty(&root, &mut dirty, &mut hash_cache, &state) {
+                    session_buffer.extend(dirty);
+                    session_pending.store(session_buffer.len(), Ordering::SeqCst);
+                }
             }
         }
     }
@@ -757,7 +956,7 @@ fn process_dirty(
     dirty: &mut Vec<PathBuf>,
     hash_cache: &mut LruCache<PathBuf, u64>,
     state: &Arc<GlobalState>,
-) {
+) -> bool {
     dirty.sort();
     dirty.dedup();
     // Drop paths whose content has not actually changed. Many IDEs and
@@ -767,7 +966,10 @@ fn process_dirty(
     // v1.19.4 hotfix and the report in docs/incidents/.
     dirty.retain(|p| should_propagate_change(p, hash_cache));
     if dirty.is_empty() {
-        return;
+        return true;
+    }
+    if !state.can_run_background_rebuild("watcher rebuild") {
+        return false;
     }
     if let Err(e) = writer::update_index_for_paths(root, true, DEFAULT_MAX_FILE_SIZE, dirty) {
         eprintln!("[{}] watcher update failed: {}", root.display(), e);
@@ -775,6 +977,7 @@ fn process_dirty(
         state.reload_tenant_if_open(root);
     }
     dirty.clear();
+    true
 }
 
 /// Decide whether a watcher event for `path` reflects a real content change.
@@ -949,6 +1152,16 @@ fn guard_suspicious_root(root: &Path) -> Result<()> {
 /// compatibility with `ig daemon foreground <path>` invocations from old
 /// launchd plists.
 pub fn start_daemon(_legacy_path: &Path) -> Result<()> {
+    if let Some(cooldown) = memory_cooldown_remaining() {
+        eprintln!(
+            "Daemon (global): memory cooldown active for {}s (rss={} MB, hard={} MB)",
+            cooldown.remaining_secs,
+            bytes_to_mb(cooldown.rss_bytes),
+            bytes_to_mb(cooldown.hard_bytes)
+        );
+        return Ok(());
+    }
+
     // Make sure the v1.19 layout exists before writing any daemon state.
     // ensure_layout is idempotent and a single stat in the hot path.
     let _ = crate::cache::ensure_layout();
@@ -966,10 +1179,7 @@ pub fn start_daemon(_legacy_path: &Path) -> Result<()> {
 
     purge_legacy_per_project_daemons();
 
-    let max_tenants = std::env::var("IG_DAEMON_TENANTS_MAX")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(DEFAULT_MAX_TENANTS);
+    let max_tenants = crate::config::daemon_max_active_projects();
 
     let state = Arc::new(GlobalState::new(max_tenants));
     let sock = socket_path();
@@ -1005,6 +1215,15 @@ pub fn start_daemon(_legacy_path: &Path) -> Result<()> {
             loop {
                 std::thread::sleep(Duration::from_secs(60));
                 state.prune_idle();
+            }
+        });
+    }
+    {
+        let state = Arc::clone(&state);
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(MEMORY_GOVERNOR_INTERVAL);
+                state.enforce_periodic_memory_budget();
             }
         });
     }
@@ -1391,6 +1610,17 @@ fn start_daemon_background_inner(silent: bool) -> Result<()> {
         }
         return Ok(());
     }
+    if let Some(cooldown) = memory_cooldown_remaining() {
+        if !silent {
+            eprintln!(
+                "Daemon (global) not started: memory cooldown active for {}s (rss={} MB, hard={} MB)",
+                cooldown.remaining_secs,
+                bytes_to_mb(cooldown.rss_bytes),
+                bytes_to_mb(cooldown.hard_bytes)
+            );
+        }
+        return Ok(());
+    }
 
     let exe = std::env::current_exe().context("get current exe")?;
     let log = log_path();
@@ -1444,15 +1674,136 @@ pub fn daemon_status(_legacy_path: &Path) -> Result<()> {
             .unwrap_or_default()
             .trim()
             .to_string();
+        let rss = pid
+            .parse::<i32>()
+            .ok()
+            .and_then(process_rss_bytes)
+            .map(bytes_to_mb);
         eprintln!(
             "Daemon (global): running (PID {}, socket: {})",
             pid,
             sock.display()
         );
+        if let Some(rss) = rss {
+            eprintln!(
+                "Memory: rss={} MB, soft={} MB, hard={} MB",
+                rss,
+                crate::config::daemon_soft_rss_mb(),
+                crate::config::daemon_hard_rss_mb()
+            );
+        }
     } else {
         eprintln!("Daemon (global): not running");
+        if let Some(cooldown) = memory_cooldown_remaining() {
+            eprintln!(
+                "Memory cooldown: {}s remaining (rss={} MB, hard={} MB)",
+                cooldown.remaining_secs,
+                bytes_to_mb(cooldown.rss_bytes),
+                bytes_to_mb(cooldown.hard_bytes)
+            );
+        }
     }
     Ok(())
+}
+
+fn bytes_to_mb(bytes: u64) -> u64 {
+    bytes / (1024 * 1024)
+}
+
+fn current_rss_bytes() -> Option<u64> {
+    process_rss_bytes(std::process::id() as i32)
+}
+
+#[cfg(target_os = "macos")]
+fn process_rss_bytes(pid: i32) -> Option<u64> {
+    let mut info = std::mem::MaybeUninit::<libc::proc_taskinfo>::uninit();
+    let size = std::mem::size_of::<libc::proc_taskinfo>() as i32;
+    let ret = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTASKINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size,
+        )
+    };
+    if ret == size {
+        let info = unsafe { info.assume_init() };
+        Some(info.pti_resident_size)
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn process_rss_bytes(pid: i32) -> Option<u64> {
+    let statm = std::fs::read_to_string(format!("/proc/{pid}/statm")).ok()?;
+    let resident_pages = statm.split_whitespace().nth(1)?.parse::<u64>().ok()?;
+    let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    if page_size <= 0 {
+        return None;
+    }
+    Some(resident_pages.saturating_mul(page_size as u64))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn process_rss_bytes(_pid: i32) -> Option<u64> {
+    None
+}
+
+#[derive(Serialize, Deserialize)]
+struct MemoryCooldownFile {
+    expires_at: u64,
+    rss_bytes: u64,
+    hard_bytes: u64,
+}
+
+struct MemoryCooldownStatus {
+    remaining_secs: u64,
+    rss_bytes: u64,
+    hard_bytes: u64,
+}
+
+fn memory_cooldown_path() -> PathBuf {
+    crate::cache::daemon_dir().join("memory.cooldown.json")
+}
+
+fn now_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn write_memory_cooldown(rss_bytes: u64, limits: MemoryLimits) {
+    let path = memory_cooldown_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let body = MemoryCooldownFile {
+        expires_at: now_unix_secs().saturating_add(limits.cooldown.as_secs()),
+        rss_bytes,
+        hard_bytes: limits.hard_bytes,
+    };
+    if let Ok(json) = serde_json::to_string(&body) {
+        let _ = std::fs::write(path, json);
+    }
+}
+
+fn memory_cooldown_remaining() -> Option<MemoryCooldownStatus> {
+    let path = memory_cooldown_path();
+    let body = std::fs::read_to_string(&path).ok()?;
+    let parsed: MemoryCooldownFile = serde_json::from_str(&body).ok()?;
+    let now = now_unix_secs();
+    if parsed.expires_at <= now {
+        let _ = std::fs::remove_file(path);
+        return None;
+    }
+    Some(MemoryCooldownStatus {
+        remaining_secs: parsed.expires_at - now,
+        rss_bytes: parsed.rss_bytes,
+        hard_bytes: parsed.hard_bytes,
+    })
 }
 
 fn is_daemon_alive() -> bool {

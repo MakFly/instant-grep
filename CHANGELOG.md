@@ -2,6 +2,27 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.19.7] — 2026-05-07
+
+### Added — daemon memory governor
+
+`ig daemon` now has a Cursor-style RSS governor: it stays useful under normal load, sheds background state under soft pressure, and exits with a short cooldown under hard pressure so Claude/Codex hooks cannot relaunch it in a memory loop.
+
+- Defaults: `daemon_soft_rss_mb = 768`, `daemon_hard_rss_mb = 1024`, `daemon_cooldown_secs = 60`.
+- Soft pressure evicts tenant LRU caches and inactive watched projects, then pauses new background activations/rebuilds if RSS is still above the soft limit.
+- Hard pressure removes the daemon socket/pid, writes `memory.cooldown.json`, and exits after a short grace period. Auto-start respects the cooldown.
+- `ig daemon status` now prints current RSS plus configured soft/hard limits.
+- New config/env controls: `IG_DAEMON_SOFT_RSS_MB`, `IG_DAEMON_HARD_RSS_MB`, `IG_DAEMON_COOLDOWN_SECS`, `IG_DAEMON_MAX_ACTIVE_PROJECTS`, `IG_INDEX_MEMORY_MB`, `IG_INDEX_BATCH_SIZE`.
+
+### Changed — lower background indexing footprint
+
+- Daemon active-project cap now defaults to 8 and idle project pruning to 5 minutes.
+- Full-index SPIMI budget is configurable and defaults to 64 MB instead of the old hardcoded 128 MB.
+- Full-index file batches are configurable and default to 250 files instead of the old hardcoded 1000.
+- Semantic co-occurrence indexing remains enabled for explicit CLI indexing, but is disabled by default inside the daemon. Set `daemon_semantic_index = true` or `IG_SEMANTIC=1` if you want daemon warms to build it.
+
+No on-disk format change, no `INDEX_VERSION` bump.
+
 ## [1.19.6] — 2026-05-07
 
 ### Fixed — multi-session agent holds

@@ -13,7 +13,8 @@ const SEGMENT_MAGIC: u32 = 0x4947_5347;
 const SEGMENT_VERSION: u32 = 1;
 const SEGMENT_HEADER_SIZE: usize = 16;
 
-/// Default memory budget: 128 MB
+/// Default memory budget used by test helpers.
+#[cfg(test)]
 pub const DEFAULT_MEMORY_BUDGET: usize = 128 * 1024 * 1024;
 
 /// Tracks estimated heap memory used by the postings accumulator.

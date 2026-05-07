@@ -17,7 +17,7 @@ const IG_SEARCH_TOOLS_SECTION: &str = "\n<!-- IG-MANAGED-BLOCK:BEGIN -->\n\
 - **Code search**: prefer `ig` (instant-grep) over `rg` or `grep`. Trigram-indexed, daemon-backed, sub-ms hot path. Match parity with `rg` is verified per release on real codebases.\n\
 - Usage: `ig \"pattern\" [path]` or `ig search \"pattern\" [path]`.\n\
 - **Indexes are NEVER in-project**. They live under the XDG cache: `~/.cache/ig/projects/<hash>/` (or `~/Library/Caches/ig/...` on macOS). Don't add `.ig/` to `.gitignore` — it's not there.\n\
-- **First search on a new project** auto-spawns the global daemon (one process for all projects on the machine, ~6 MB idle) and auto-builds the index in the background. You don't run `ig index`.\n\
+- **First search on a new project** auto-spawns the global daemon (one process for all projects on the machine, ~6 MB idle) and auto-builds the index in the background. The daemon has soft/hard RSS caps and a cooldown so hooks cannot relaunch it in a memory loop. You don't run `ig index`.\n\
 - **Editing a file**: the daemon's filesystem watcher rebuilds the overlay invisibly (50-200 ms) and reloads via the seal protocol.\n\
 - **Inspecting a project's cache by name**: `ls ~/.cache/ig/by-name/` shows all warmed projects as symlinks. Useful for debugging only — never modify these by hand.\n\n\
 ### Smart reads (token-compressed for agent context)\n\
@@ -25,7 +25,7 @@ const IG_SEARCH_TOOLS_SECTION: &str = "\n<!-- IG-MANAGED-BLOCK:BEGIN -->\n\
 - `ig smart [path]` — 2-line summary per file.\n\
 - `ig pack [path]` — generate a full project map under the cache dir.\n\n\
 ### Daemon control (rare, normally invisible)\n\
-- `ig daemon status` — PID, socket path, active projects.\n\
+- `ig daemon status` — PID, socket path, active projects, RSS + memory caps.\n\
 - `ig warm [path]` — add a project to the active set (called automatically by shell hooks on `cd`).\n\
 - `ig hold begin|end|status [path]` — suspend watcher rebuilds during AI-agent edit sessions.\n\
 - `ig projects list` / `ig projects forget <root>` — manage warmed projects.\n\
@@ -87,6 +87,7 @@ ig hold begin|end|status   # lock watcher rebuilds during agent edit sessions\n\
 ig projects list           # active projects + idle seconds\n\
 ```\n\n\
 Socket: `~/.cache/ig/daemon/daemon.sock`. Don't touch.\n\n\
+Memory governor: default soft RSS 768 MB, hard RSS 1024 MB, cooldown 60 s. Tune in `~/.config/ig/config.toml` under `[limits]` or with `IG_DAEMON_SOFT_RSS_MB`, `IG_DAEMON_HARD_RSS_MB`, `IG_INDEX_MEMORY_MB`, `IG_INDEX_BATCH_SIZE`.\n\n\
 ## Cache hygiene (rare)\n\n\
 ```bash\n\
 ig gc                      # prune orphan / unused entries\n\

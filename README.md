@@ -360,6 +360,7 @@ The synonyms are **learned from your own codebase** — if you have `VehicleWant
 
 Controls:
 - Disable build entirely: `IG_SEMANTIC=0 ig index`
+- Daemon warms skip semantic indexing by default to keep background RSS bounded; set `daemon_semantic_index = true` or `IG_SEMANTIC=1` to opt in.
 - Opt-out per query: just don't pass `--semantic`
 - Inspect: the stderr line `(semantic: expanded 'x' → …)` shows exactly what was added — no magic
 
@@ -398,21 +399,40 @@ ig git branch -a                  # passthrough (already compact)
 
 A single global daemon serves searches for **every** indexed project on the
 machine. One process, one socket, one systemd / launchd unit. Tenants are
-opened lazily on first query and kept in an LRU cache (default cap 32, set
-`IG_DAEMON_TENANTS_MAX` to override).
+opened lazily on first query and kept in an LRU cache (default cap 8, set
+`IG_DAEMON_TENANTS_MAX` or `IG_DAEMON_MAX_ACTIVE_PROJECTS` to override).
 
 ```bash
 ig daemon start                   # start the global daemon (foreground or backgrounded)
-ig daemon status                  # PID + socket
+ig daemon status                  # PID + socket + RSS / RAM limits
 ig daemon stop                    # SIGTERM the daemon
 ig daemon install                 # systemd-user (Linux) or launchd (macOS), auto-start on login
 
 ig query "pattern" /path/to/proj  # 0.06–1.3 ms response via the global Unix socket
 ```
 
-**RAM**: ~6 MB idle, ~12 MB with 3 hot tenants, ~19 MB with 5. Compared to the
-pre-v1.16.0 per-project model, this is **~14× less** in typical workstation
-use (16 cached projects went from 995 MB to 19 MB).
+**RAM governor**: the daemon has soft/hard RSS caps. Defaults are soft 768 MB,
+hard 1 GB, with a 60 s cooldown after a hard stop so Claude/Codex hooks cannot
+relaunch it in a loop. Under soft pressure the daemon evicts tenant caches and
+inactive watchers, then pauses new background warms/rebuilds until memory drops.
+
+```toml
+# ~/.config/ig/config.toml
+[limits]
+daemon_soft_rss_mb = 768
+daemon_hard_rss_mb = 1024
+daemon_cooldown_secs = 60
+daemon_max_active_projects = 8
+daemon_project_idle_secs = 300
+index_memory_mb = 64
+index_batch_size = 250
+semantic_index = true
+daemon_semantic_index = false
+```
+
+Equivalent env overrides: `IG_DAEMON_SOFT_RSS_MB`, `IG_DAEMON_HARD_RSS_MB`,
+`IG_DAEMON_COOLDOWN_SECS`, `IG_INDEX_MEMORY_MB`, `IG_INDEX_BATCH_SIZE`,
+`IG_SEMANTIC`, `IG_DAEMON_TENANTS_MAX`.
 
 **Wire format**: each query carries the project root in its JSON payload
 (`{"root": "/abs/path", "pattern": "...", …}`), so the daemon dispatches
@@ -799,7 +819,7 @@ Sparse grams:  3 keys →  4 candidate files (12x better)
 | `lexicon.bin` | Hash table: `[NgramKey:u64, offset:u32, byte_len:u32, bloom:u8, loc_mask:u8]` | 31 MB |
 | `postings.bin` | Tagged VByte `PostingEntry { doc_id, next_mask, loc_mask, zone_mask }` streams; dense lists include skip blocks | 7.1 MB |
 
-Memory-mapped. Streaming SPIMI pipeline (128MB budget). Overlay index for incremental updates. Query execution uses per-document bloom, loc and exact small-position masks as Cursor-style prefilters; v13 skip blocks carry aggregate masks so selective intersections can jump through dense posting lists before final regex verification.
+Memory-mapped. Streaming SPIMI pipeline (64 MB default budget, configurable via `index_memory_mb` / `IG_INDEX_MEMORY_MB`). Overlay index for incremental updates. Query execution uses per-document bloom, loc and exact small-position masks as Cursor-style prefilters; v13 skip blocks carry aggregate masks so selective intersections can jump through dense posting lists before final regex verification.
 
 ### BM25 ranking (v1.10.0)
 

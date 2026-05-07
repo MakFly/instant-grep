@@ -21,10 +21,6 @@ use crate::walk::walk_files;
 /// Max changed files for overlay path (above this, full rebuild).
 const OVERLAY_THRESHOLD: usize = 100;
 
-/// Batch size for streaming file processing.
-/// Only this many files' ngrams are in memory at once.
-const BATCH_SIZE: usize = 1000;
-
 /// Build or incrementally update the index.
 pub fn build_index(
     root: &Path,
@@ -87,10 +83,13 @@ pub fn build_index(
     generate_tree(&root, &ig);
     crate::pack::generate_context_quiet(&root, &ig);
 
-    // Build the PMI co-occurrence table for semantic expansion.
-    // Opt-out via `IG_SEMANTIC=0`. Failures here are non-fatal: the trigram
-    // index is what users rely on; semantic expansion is a bonus.
-    let _ = crate::semantic::cooccur::build_for_root(&root, use_default_excludes, max_file_size);
+    // Build the PMI co-occurrence table for semantic expansion when enabled.
+    // The daemon disables this by default to keep its background RSS bounded;
+    // explicit CLI indexing keeps the historical default unless configured.
+    if crate::config::semantic_index_enabled() {
+        let _ =
+            crate::semantic::cooccur::build_for_root(&root, use_default_excludes, max_file_size);
+    }
 
     // Record provenance in the cache entry (no-op if `ig` is a local .ig/).
     let _ = crate::cache::write_meta(&ig, &root);
@@ -352,8 +351,8 @@ fn generate_tree(root: &Path, ig: &Path) {
     let _ = fs::write(&tree_path, output.as_bytes());
 }
 
-/// Streaming full rebuild: processes files in batches of BATCH_SIZE.
-/// Only one batch of ngrams is in memory at a time — truly bounded RAM.
+/// Streaming full rebuild: processes files in bounded batches.
+/// Only one batch of ngrams is in memory at a time.
 fn full_rebuild(
     root: &Path,
     use_default_excludes: bool,
@@ -374,7 +373,7 @@ fn full_rebuild(
     let segment_dir = ig.join("segments");
     fs::create_dir_all(&segment_dir).context("create segment directory")?;
 
-    let mut budget = spimi::MemoryBudget::new(spimi::DEFAULT_MEMORY_BUDGET);
+    let mut budget = spimi::MemoryBudget::new(crate::config::index_memory_budget_bytes());
     let mut postings_map: AHashMap<NgramKey, Vec<PostingEntry>> = AHashMap::new();
     let mut files: Vec<IndexedFile> = Vec::with_capacity(paths.len());
     let mut segments: Vec<spimi::SegmentInfo> = Vec::new();
@@ -386,8 +385,9 @@ fn full_rebuild(
     // Load previous DF table if available (bootstraps IDF weighting on rebuild)
     let prev_df_table = BigramDfTable::load(&ig);
 
-    // Process files in batches — only BATCH_SIZE files' ngrams in memory at once
-    for batch in paths.chunks(BATCH_SIZE) {
+    // Process files in batches — only one batch's ngrams are in memory at once.
+    let batch_size = crate::config::index_batch_size();
+    for batch in paths.chunks(batch_size) {
         let batch_data: Vec<_> = batch
             .par_iter()
             .filter_map(|path| {

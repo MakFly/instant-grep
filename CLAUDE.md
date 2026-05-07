@@ -22,7 +22,9 @@ cp target/release/ig ~/.local/bin/ig
 
 Sparse n-grams (port of GitHub Blackbird / danlark1/sparse_ngrams) with covering algorithm. The index lives in the **XDG cache** (`~/.cache/ig/projects/<hash-of-root>/`) by default, not in `<root>/.ig/`. `find_root` recognises `package.json`, `Cargo.toml`, `go.mod`, etc. in addition to `.git/`. Set `IG_LOCAL_INDEX=1` to force local mode.
 
-A **single global daemon** serves every project on the machine via `~/.cache/ig/daemon/daemon.sock`. `GlobalState` holds an `LRU<root, Arc<TenantState>>` (cap 32, override via `IG_DAEMON_TENANTS_MAX`). Each `TenantState` lazily opens its `IndexReader` on first query and keeps per-tenant regex / `NgramQuery` LRU caches.
+A **single global daemon** serves every project on the machine via `~/.cache/ig/daemon/daemon.sock`. `GlobalState` holds an `LRU<root, Arc<TenantState>>` (cap 8 by default, override via `IG_DAEMON_TENANTS_MAX` / `IG_DAEMON_MAX_ACTIVE_PROJECTS`). Each `TenantState` lazily opens its `IndexReader` on first query and keeps per-tenant regex / `NgramQuery` LRU caches.
+
+The daemon has a Cursor-style RSS governor: soft pressure evicts tenant caches and inactive watchers; hard pressure removes the socket/pid, writes `~/.cache/ig/daemon/memory.cooldown.json`, then exits so hooks cannot relaunch it in a loop. Defaults live in `~/.config/ig/config.toml` under `[limits]`: `daemon_soft_rss_mb = 768`, `daemon_hard_rss_mb = 1024`, `index_memory_mb = 64`, `index_batch_size = 250`, `daemon_semantic_index = false`.
 
 Cache invalidation uses a 16-byte **seal** file (`generation: u64`, `finalized_at_nanos: u64`) atomic-renamed as the final act of every rebuild. The daemon checks the seal on each query (pull, authoritative) **and** has a `notify` watcher on `.ig/` (push, best-effort). Full contract: `docs/specs/SPEC-daemon-cache-invalidation.md`.
 
