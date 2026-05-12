@@ -71,7 +71,10 @@ fn main() -> Result<()> {
 
     if !matches!(
         &cli.command,
-        Some(Commands::Gc { .. }) | Some(Commands::CacheLs) | Some(Commands::Uninstall { .. })
+        Some(Commands::Gc { .. })
+            | Some(Commands::CacheLs)
+            | Some(Commands::Uninstall { .. })
+            | Some(Commands::Version)
     ) {
         cache::auto_gc();
     }
@@ -887,6 +890,10 @@ fn main() -> Result<()> {
 
         Some(Commands::Autoignore { path, force }) => {
             autoignore::run_autoignore(path, force)?;
+        }
+
+        Some(Commands::Version) => {
+            println!("ig {}", env!("CARGO_PKG_VERSION"));
         }
 
         Some(Commands::Gc {

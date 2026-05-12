@@ -736,7 +736,7 @@ dependencies = [
 
 [[package]]
 name = "instant-grep"
-version = "1.19.9"
+version = "1.19.10"
 dependencies = [
  "ahash",
  "anyhow",

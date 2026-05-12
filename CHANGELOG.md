@@ -2,6 +2,16 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.19.10] — 2026-05-12
+
+### Added — `ig version` subcommand
+
+`ig` parses bare words as a search shortcut (`ig "pattern"` = `ig search "pattern"`). Until now, typing the universal `ig version` silently searched for the word "version" across the project — a surprising no-op for new users coming from `cargo`, `gh`, `docker`, `kubectl`, etc., where `tool version` is canonical.
+
+- New `Version` subcommand prints `ig <semver>` (same output as `ig --version` / `-V`).
+- Excluded from `auto_gc` startup path — pure metadata query, no cache work.
+- Search shortcut for *any other* word is unchanged (`ig foo`, `ig start`, `ig init` still search). Only `version` is intercepted, because it has a universal CLI convention and no legitimate code-search use case (developers searching for the literal token "version" can use `ig search version` or `ig -F version`).
+
 ## [1.19.9] — 2026-05-12
 
 ### Fixed — silent bash/fish shell hooks

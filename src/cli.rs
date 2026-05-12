@@ -562,6 +562,12 @@ pub enum Commands {
         #[arg(long)]
         force: bool,
     },
+
+    /// Print the ig version (alias for `--version`)
+    ///
+    /// `ig <word>` is otherwise treated as a search shortcut — without this
+    /// subcommand, `ig version` would silently search for the word "version".
+    Version,
 }
 
 #[cfg(feature = "embed-poc")]
