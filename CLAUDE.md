@@ -129,7 +129,7 @@ ig daemon status             # daemon PID + socket
 ig daemon install            # systemd-user (Linux) or launchd (macOS) auto-start
 ig daemon uninstall          # remove auto-restart
 ig query <pattern> [path]    # query daemon directly
-ig gc [--days N] [--dry-run] # prune stale XDG cache entries (v1.15.0)
+ig gc [--days N] [--max-size 5GB] [--dry-run] # prune stale / oversized XDG cache
 ig migrate [--dry-run]       # move <root>/.ig/ to ~/.cache/ig/ (v1.15.0)
 ig cache-ls                  # list cache entries with size + last_used (v1.15.0)
 ig files [path]              # list project files

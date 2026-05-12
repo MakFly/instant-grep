@@ -14,6 +14,8 @@ pub struct IgConfig {
     pub filters: FilterConfig,
     #[serde(default)]
     pub limits: LimitsConfig,
+    #[serde(default)]
+    pub cache: CacheConfig,
 }
 
 #[derive(Deserialize)]
@@ -64,6 +66,29 @@ pub struct LimitsConfig {
     pub semantic_index: bool,
     #[serde(default = "default_daemon_semantic_index")]
     pub daemon_semantic_index: bool,
+}
+
+#[derive(Deserialize)]
+pub struct CacheConfig {
+    #[serde(default = "default_auto_gc")]
+    pub auto_gc: bool,
+    #[serde(default = "default_auto_gc_interval_secs")]
+    pub auto_gc_interval_secs: u64,
+    #[serde(default = "default_auto_gc_days")]
+    pub auto_gc_days: u64,
+    #[serde(default = "default_auto_gc_max_size_mb")]
+    pub auto_gc_max_size_mb: u64,
+}
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        Self {
+            auto_gc: default_auto_gc(),
+            auto_gc_interval_secs: default_auto_gc_interval_secs(),
+            auto_gc_days: default_auto_gc_days(),
+            auto_gc_max_size_mb: default_auto_gc_max_size_mb(),
+        }
+    }
 }
 
 impl Default for LimitsConfig {
@@ -128,6 +153,22 @@ fn default_daemon_semantic_index() -> bool {
     false
 }
 
+fn default_auto_gc() -> bool {
+    true
+}
+
+fn default_auto_gc_interval_secs() -> u64 {
+    60 * 60
+}
+
+fn default_auto_gc_days() -> u64 {
+    30
+}
+
+fn default_auto_gc_max_size_mb() -> u64 {
+    5 * 1024
+}
+
 fn env_usize(name: &str) -> Option<usize> {
     std::env::var(name).ok().and_then(|s| s.parse().ok())
 }
@@ -188,6 +229,26 @@ pub fn semantic_index_enabled() -> bool {
     }
 }
 
+pub fn cache_auto_gc_enabled() -> bool {
+    env_bool("IG_AUTO_GC").unwrap_or(config().cache.auto_gc)
+}
+
+pub fn cache_auto_gc_interval_secs() -> u64 {
+    env_u64("IG_CACHE_GC_INTERVAL_SECS")
+        .unwrap_or(config().cache.auto_gc_interval_secs)
+        .max(60)
+}
+
+pub fn cache_auto_gc_days() -> Option<u64> {
+    let days = env_u64("IG_CACHE_GC_DAYS").unwrap_or(config().cache.auto_gc_days);
+    (days > 0).then_some(days)
+}
+
+pub fn cache_auto_gc_max_size_bytes() -> Option<u64> {
+    let mb = env_u64("IG_CACHE_MAX_SIZE_MB").unwrap_or(config().cache.auto_gc_max_size_mb);
+    (mb > 0).then_some(mb.saturating_mul(1024 * 1024))
+}
+
 static CONFIG: OnceLock<IgConfig> = OnceLock::new();
 
 /// Get the global config singleton. Loads from disk on first call.
@@ -240,6 +301,10 @@ mod tests {
         assert!(cfg.limits.semantic_index);
         assert!(!cfg.limits.daemon_semantic_index);
         assert!(cfg.filters.user_dir.is_none());
+        assert!(cfg.cache.auto_gc);
+        assert_eq!(cfg.cache.auto_gc_interval_secs, 3600);
+        assert_eq!(cfg.cache.auto_gc_days, 30);
+        assert_eq!(cfg.cache.auto_gc_max_size_mb, 5120);
     }
 
     #[test]
@@ -281,6 +346,12 @@ index_memory_mb = 32
 index_batch_size = 100
 semantic_index = false
 daemon_semantic_index = false
+
+[cache]
+auto_gc = false
+auto_gc_interval_secs = 120
+auto_gc_days = 14
+auto_gc_max_size_mb = 2048
 "#;
         let cfg: IgConfig = toml::from_str(toml).unwrap();
         assert_eq!(cfg.tracking.retention_days, 60);
@@ -299,5 +370,9 @@ daemon_semantic_index = false
         assert_eq!(cfg.limits.index_batch_size, 100);
         assert!(!cfg.limits.semantic_index);
         assert!(!cfg.limits.daemon_semantic_index);
+        assert!(!cfg.cache.auto_gc);
+        assert_eq!(cfg.cache.auto_gc_interval_secs, 120);
+        assert_eq!(cfg.cache.auto_gc_days, 14);
+        assert_eq!(cfg.cache.auto_gc_max_size_mb, 2048);
     }
 }

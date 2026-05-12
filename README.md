@@ -486,7 +486,15 @@ Set `IG_LOCAL_INDEX=1` to fall back to `<root>/.ig/` for a project, or
 ig cache-ls                       # list every cached project (size, last_used)
 ig migrate [--dry-run]            # move <root>/.ig/ to the XDG cache
 ig gc [--days N] [--dry-run]      # drop entries whose root is gone, or unused for N days
+ig gc --max-size 5GB --dry-run    # preview LRU pruning when the cache exceeds a cap
 ```
+
+Cache GC also runs automatically on `ig` startup, at most once per hour by
+default. It removes orphaned projects, drops entries unused for 30 days, and
+keeps total cache size under 5 GB by pruning least-recently-used entries. Tune
+with `[cache]` in `~/.config/ig/config.toml` or env vars:
+`IG_AUTO_GC`, `IG_CACHE_GC_INTERVAL_SECS`, `IG_CACHE_GC_DAYS`,
+`IG_CACHE_MAX_SIZE_MB`.
 
 **Layout (v1.19.0+)** — the cache root is now grouped by purpose. `ensure_layout()`
 runs at the entry of every command and migrates pre-v1.19 installs (hash dirs at
@@ -591,6 +599,7 @@ ig index /path/to/project         # force a full rebuild for one project
 ig watch /path/to/project         # keep one project rebuilt on file changes
 ig cache-ls                       # inspect cached indexes
 ig gc --dry-run                   # preview orphan/stale cache cleanup
+ig gc --max-size 5GB --dry-run    # preview size-cap LRU cleanup
 ig gc                             # remove orphan cache entries
 ```
 

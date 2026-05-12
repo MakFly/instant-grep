@@ -531,6 +531,10 @@ pub enum Commands {
         #[arg(long, value_name = "N")]
         days: Option<u64>,
 
+        /// Also prune least-recently-used entries until cache is under SIZE (e.g. 5GB)
+        #[arg(long, value_name = "SIZE")]
+        max_size: Option<String>,
+
         /// Show what would be removed without deleting anything
         #[arg(long)]
         dry_run: bool,

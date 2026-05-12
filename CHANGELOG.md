@@ -2,6 +2,34 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.19.8] — 2026-05-12
+
+### Added — automatic cache GC
+
+- `ig` now runs opportunistic cache GC on startup, at most once per hour by default.
+- Auto-GC removes orphaned project caches, entries unused for 30 days, and least-recently-used entries when total cache size exceeds 5 GB.
+- New manual cap: `ig gc --max-size 5GB [--dry-run]`.
+- New config/env controls: `[cache] auto_gc`, `auto_gc_interval_secs`, `auto_gc_days`, `auto_gc_max_size_mb`; env `IG_AUTO_GC`, `IG_CACHE_GC_INTERVAL_SECS`, `IG_CACHE_GC_DAYS`, `IG_CACHE_MAX_SIZE_MB`.
+
+### Fixed — 9 issues from external code review
+
+Round of hardenings around daemon synchronisation, hook safety, and parity gaps. No on-disk format changes (`INDEX_VERSION` unchanged).
+
+- **#1 `ig hold end` now blocks** until the worker has flushed buffered paths and bumped the seal. The IPC handler waits on a `SyncSender<()>` ack with a 30 s timeout; a follow-up search no longer hits a stale index.
+- **#2 Daemon `--type` reuses the in-process alias resolver** (`ts→ts|tsx`, `rust→rs`, `python→py|pyi`, `c→c|h`, …). Daemon and non-daemon search now return identical file sets.
+- **#3 `ig rewrite` is shell-injection-safe.** New POSIX single-quote helper escapes patterns/paths containing `$()`, backticks, `;`, `"`, `\`. The old `"{}"` double-quoting was vulnerable.
+- **#4 Rewrites preserve command semantics.** `find some/subdir -name "*.rs"` keeps the search root, `git -C /tmp/repo status` is now passthrough (was silently dropped), `tree` no longer routes through the dead `.ig/tree.txt`.
+- **#5 Daemon PID safety.** `stop_daemon` and `is_daemon_alive` verify the recorded PID is an `ig` daemon (Linux `/proc/<pid>/cmdline`, macOS `ps -p`) before SIGTERM. PID reuse after a crash can no longer signal an unrelated process.
+- **#6 UTF-8 safe truncation.** Compact-output and analytics paths now use `str::floor_char_boundary` instead of raw byte slicing. Long lines containing emoji or accented characters no longer panic.
+- **#7 Fresh projects appear in `by-name/` immediately.** `write_meta` now incrementally refreshes the symlink and the global manifest, instead of waiting for migration or GC.
+- **#8 First-search auto-build for agents.** Non-TTY callers (Claude Code, codex, CI) now get a detached `ig index <root>` spawned on the brute-force fallback path, so the next call lands on a real index. Previously the auto-build was TTY-gated.
+- **#9 Layout lock can no longer be stolen from a live holder.** `.layout.lock` now records the holder PID; another process only takes over when the PID is dead, or after `LAYOUT_LOCK_LIVE_TIMEOUT` (60 s) of polling.
+
+### Added — E2E test harness
+
+- `tests/e2e_review_fixes.rs` drives the real `ig` binary through subprocess invocations against an isolated `IG_CACHE_DIR`. Covers issues #1, #2, #3, #6 with no interference with the user's running daemon.
+- Suite totals: **436 unit + 49 integration + 4 E2E tests passing.**
+
 ## [1.19.7] — 2026-05-07
 
 ### Added — daemon memory governor

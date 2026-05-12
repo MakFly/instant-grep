@@ -34,7 +34,7 @@ const IG_SEARCH_TOOLS_SECTION: &str = "\n<!-- IG-MANAGED-BLOCK:BEGIN -->\n\
 - Claude Code: `ig setup` installs `~/.claude/hooks/session-start.sh` and registers `SessionStart` / `SessionEnd` hooks in `~/.claude/settings.json`.\n\
 - Codex CLI: no native hook system; wrap runs manually with `ig hold begin \"$PWD\"` and `ig hold end \"$PWD\"`.\n\n\
 ### Cache hygiene (rare)\n\
-- `ig gc [--dry-run]` — prune orphan / stale cache entries.\n\
+- `ig gc [--dry-run]` — prune orphan / stale / oversized cache entries.\n\
 - `ig cache-ls` — list per-project cache size + last-used.\n\n\
 Fall back to `rg` only if `ig --version` errors out. Never use plain `grep` for code search.\n\
 <!-- IG-MANAGED-BLOCK:END -->\n";
@@ -88,10 +88,12 @@ ig projects list           # active projects + idle seconds\n\
 ```\n\n\
 Socket: `~/.cache/ig/daemon/daemon.sock`. Don't touch.\n\n\
 Memory governor: default soft RSS 768 MB, hard RSS 1024 MB, cooldown 60 s. Tune in `~/.config/ig/config.toml` under `[limits]` or with `IG_DAEMON_SOFT_RSS_MB`, `IG_DAEMON_HARD_RSS_MB`, `IG_INDEX_MEMORY_MB`, `IG_INDEX_BATCH_SIZE`.\n\n\
+Cache GC is automatic by default: hourly, orphan cleanup, 30-day stale cleanup, 5 GB total cache cap. Tune under `[cache]` or with `IG_AUTO_GC`, `IG_CACHE_GC_INTERVAL_SECS`, `IG_CACHE_GC_DAYS`, `IG_CACHE_MAX_SIZE_MB`.\n\n\
 ## Cache hygiene (rare)\n\n\
 ```bash\n\
 ig gc                      # prune orphan / unused entries\n\
 ig gc --days 30 --dry-run  # what would be pruned (no delete)\n\
+ig gc --max-size 5GB --dry-run # preview LRU size-cap pruning\n\
 ig cache-ls                # list cached projects with size + last-used\n\
 ```\n\n\
 ## Subagent snippet\n\n\
