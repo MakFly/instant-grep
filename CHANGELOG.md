@@ -2,6 +2,15 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.19.9] — 2026-05-12
+
+### Fixed — silent bash/fish shell hooks
+
+- The managed shell hook (`# >>> ig managed >>>` block written by `ig setup`) used a bare `&` to background `ig warm` on every `cd`. On zsh this was paired with `&!` (disown), so nothing was printed. On **bash**, with no equivalent to `&!`, the job stayed under job control and the shell printed `[N] PID` at launch then `[N] Done` / `[N] Exit N` at every subsequent prompt — visibly polluting interactive sessions on Linux.
+- **bash**: `cmd &` → `(cmd &)`. The sub-shell exits immediately so the parent never registers the job; no job-control notification can be emitted. POSIX-portable.
+- **fish**: added explicit `disown` after each `&` to suppress fish's `Job N, '…' has ended` messages.
+- Run `ig setup` (or any `ig update`, which refreshes managed blocks) to pick up the silent hook in `~/.bashrc` / `~/.config/fish/config.fish`. zsh users are unaffected.
+
 ## [1.19.8] — 2026-05-12
 
 ### Added — automatic cache GC

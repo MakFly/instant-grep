@@ -1366,23 +1366,33 @@ if [[ -n "$ZSH_VERSION" ]]; then
 fi
 # <<< ig managed <<<"#;
 
+// bash has no `&!` (zsh-only). A bare `&` leaves the job under job control,
+// so bash prints `[N] PID` at launch and `[N] Done` / `[N] Exit N` at the
+// next prompt — spammy and visible to users. Wrapping in `(cmd &)` spawns the
+// job in a sub-shell that exits immediately; the parent shell never registers
+// the job, so nothing is printed. POSIX-portable.
 const SHELL_HOOK_BASH: &str = r#"# >>> ig managed >>>
 _ig_autostart() {
     command -v ig >/dev/null 2>&1 || return 0
-    ig warm --silent "$PWD" >/dev/null 2>&1 &
+    (ig warm --silent "$PWD" >/dev/null 2>&1 &)
     if [[ -d .ig && ! -f .ignore ]]; then
-        ig autoignore "$PWD" >/dev/null 2>&1 &
+        (ig autoignore "$PWD" >/dev/null 2>&1 &)
     fi
 }
 PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }_ig_autostart"
 # <<< ig managed <<<"#;
 
+// fish prints "fish: Job N, '…' has ended" for background jobs unless they
+// are explicitly disowned. `disown` is a fish builtin and silences the
+// notification.
 const SHELL_HOOK_FISH: &str = r#"# >>> ig managed >>>
 function _ig_autostart --on-variable PWD
     command -q ig; or return
     ig warm --silent $PWD >/dev/null 2>&1 &
+    disown
     if test -d .ig; and not test -f .ignore
         ig autoignore $PWD >/dev/null 2>&1 &
+        disown
     end
 end
 # <<< ig managed <<<"#;
