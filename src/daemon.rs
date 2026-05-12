@@ -1957,7 +1957,7 @@ fn pid_is_ig_daemon(pid: i32) -> bool {
             None => return false,
         };
         let basename = exe.rsplit('/').next().unwrap_or(exe);
-        basename == "ig" && parts.iter().any(|p| *p == "daemon")
+        basename == "ig" && parts.contains(&"daemon")
     }
     #[cfg(not(target_os = "linux"))]
     {
