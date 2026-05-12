@@ -278,7 +278,11 @@ fn truncate_str(s: &str, max: usize) -> String {
     if s.len() <= max {
         s.to_string()
     } else {
-        format!("{}…", &s[..max - 1])
+        // Snap to a UTF-8 boundary so cutting inside a multi-byte char never
+        // panics (issue #6). `max.saturating_sub(1)` reserves room for the
+        // ellipsis byte budget at the byte level.
+        let cut = s.floor_char_boundary(max.saturating_sub(1));
+        format!("{}…", &s[..cut])
     }
 }
 

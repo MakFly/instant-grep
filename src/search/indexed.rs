@@ -183,8 +183,10 @@ pub fn search_indexed(
     Ok((results, stats))
 }
 
-/// Simple type matching based on file extension.
-fn matches_type(path: &str, file_type: &str) -> bool {
+/// Type-alias-aware extension matching, shared between the in-process
+/// indexed search path and the daemon path so `--type ts` / `--type rust`
+/// etc. return the exact same files in both modes (issue #2 parity).
+pub(crate) fn matches_type(path: &str, file_type: &str) -> bool {
     let ext = match path.rsplit('.').next() {
         Some(e) => e,
         None => return false,

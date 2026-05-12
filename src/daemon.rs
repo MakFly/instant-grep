@@ -327,11 +327,33 @@ const MEMORY_SHUTDOWN_GRACE: Duration = Duration::from_millis(250);
 /// Events flowing into `watch_worker`. The OS watcher emits `Paths(...)`;
 /// the IPC `session_begin/end` ops emit the session variants on the same
 /// channel so ordering with file events is preserved naturally.
+///
+/// `SessionEnd` optionally carries a sync acknowledgement sender: when
+/// present, the worker fires it after `process_dirty` returns (whether the
+/// flush succeeded, was a no-op, or was skipped under memory pressure). The
+/// blocking IPC path uses this to guarantee `ig hold end` only returns once
+/// the index/seal has been updated.
 enum WatchEvent {
     Paths(Vec<PathBuf>),
     SessionBegin,
-    SessionEnd,
+    SessionEnd(Option<mpsc::SyncSender<()>>),
 }
+
+/// Outcome of a blocking session-end IPC call.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum SessionEndOutcome {
+    /// Worker confirmed the flush completed (or was a no-op).
+    Flushed,
+    /// We were not the final holder; no flush scheduled.
+    NotFinal,
+    /// Worker did not ack within the timeout.
+    Timeout,
+}
+
+/// How long `ig hold end` blocks before giving up on the worker ack.
+/// Real flushes on 50–200 files take well under a second; 30 s is a generous
+/// upper bound that still prevents an indefinite IPC hang on a wedged watcher.
+const SESSION_END_FLUSH_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum MemoryPressure {
@@ -688,6 +710,30 @@ impl GlobalState {
         Ok(project.status())
     }
 
+    /// Blocking variant of `session_signal(.., false)`: returns once the
+    /// worker has flushed the buffered paths (or until `timeout`). Used by
+    /// the IPC `session_end` op to make `ig hold end` a real barrier.
+    fn session_signal_end_blocking(
+        self: &Arc<Self>,
+        root: &Path,
+        timeout: Duration,
+    ) -> Result<(ProjectStatus, SessionEndOutcome)> {
+        let canonical = root
+            .canonicalize()
+            .with_context(|| format!("canonicalize {}", root.display()))?;
+        guard_suspicious_root(&canonical)?;
+        self.warm_project(&canonical)?;
+        let project = self
+            .active_projects
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&canonical)
+            .cloned()
+            .context("project not active after warm")?;
+        let (_active, outcome) = project.signal_session_end_blocking(timeout);
+        Ok((project.status(), outcome))
+    }
+
     fn project_status(&self, root: &Path) -> Result<Option<ProjectStatus>> {
         let canonical = root
             .canonicalize()
@@ -793,7 +839,35 @@ impl ActiveProject {
     /// Send a session control event onto the worker channel. Returns the new
     /// active state. Multiple concurrent sessions are reference-counted: only
     /// the first `begin` suspends rebuilds, and only the final `end` flushes.
+    ///
+    /// Non-blocking: the worker thread handles the flush asynchronously. For
+    /// `ig hold end` semantics where the caller must observe the seal bump
+    /// before returning, use [`signal_session_end_blocking`] instead.
     fn signal_session(&self, begin: bool) -> bool {
+        self.signal_session_inner(begin, None)
+    }
+
+    /// Like [`signal_session`] but for the end path: blocks until the worker
+    /// acknowledges that the flush completed (or until `timeout` elapses).
+    /// Returns the outcome so the IPC layer can surface it to the client.
+    fn signal_session_end_blocking(&self, timeout: Duration) -> (bool, SessionEndOutcome) {
+        let (tx, rx) = mpsc::sync_channel::<()>(1);
+        // The ack is only consumed by the worker when we actually sent a
+        // `SessionEnd(Some(tx))` — i.e. when this caller was the final holder.
+        let was_final = self.signal_session_inner(false, Some(tx));
+        let active = self.session_active.load(Ordering::SeqCst);
+        if !was_final {
+            return (active, SessionEndOutcome::NotFinal);
+        }
+        match rx.recv_timeout(timeout) {
+            Ok(()) => (active, SessionEndOutcome::Flushed),
+            Err(_) => (active, SessionEndOutcome::Timeout),
+        }
+    }
+
+    /// Returns `true` iff this call was the final holder release (i.e. the
+    /// caller can/should expect a flush ack on the provided channel).
+    fn signal_session_inner(&self, begin: bool, ack: Option<mpsc::SyncSender<()>>) -> bool {
         if begin {
             let prev = self.session_holders.fetch_add(1, Ordering::SeqCst);
             self.session_active.store(true, Ordering::SeqCst);
@@ -804,7 +878,7 @@ impl ActiveProject {
                     .unwrap_or_else(|e| e.into_inner())
                     .send(WatchEvent::SessionBegin);
             }
-            return true;
+            return false;
         }
 
         let prev = loop {
@@ -830,10 +904,10 @@ impl ActiveProject {
                 .session_tx
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .send(WatchEvent::SessionEnd);
-            false
-        } else {
+                .send(WatchEvent::SessionEnd(ack));
             true
+        } else {
+            false
         }
     }
 
@@ -884,7 +958,7 @@ fn watch_worker(
                 eprintln!("[{}] session begin — rebuilds suspended", root.display());
                 continue;
             }
-            WatchEvent::SessionEnd => {
+            WatchEvent::SessionEnd(ack) => {
                 session_open = false;
                 session_active.store(false, Ordering::SeqCst);
                 let count = session_buffer.len();
@@ -899,6 +973,15 @@ fn watch_worker(
                     session_buffer.extend(drained);
                     session_pending.store(session_buffer.len(), Ordering::SeqCst);
                 }
+                // Wake up the blocking IPC caller (`ig hold end`) AFTER the
+                // flush has completed (or been declined under memory pressure).
+                // We send unconditionally: the caller's contract is "I waited
+                // for the daemon to finish what it was going to do", not "the
+                // index is guaranteed up-to-date". Memory-pressure declines are
+                // visible in the daemon log.
+                if let Some(tx) = ack {
+                    let _ = tx.send(());
+                }
                 continue;
             }
             WatchEvent::Paths(paths) => {
@@ -906,6 +989,7 @@ fn watch_worker(
                 // Drain the debounce window. Session events stop the drain so
                 // they are processed promptly.
                 let mut session_end_during_drain = false;
+                let mut pending_ack: Option<mpsc::SyncSender<()>> = None;
                 while let Ok(ev2) = rx.recv_timeout(WATCH_DEBOUNCE) {
                     match ev2 {
                         WatchEvent::Paths(p) => dirty.extend(p),
@@ -917,10 +1001,11 @@ fn watch_worker(
                                 root.display()
                             );
                         }
-                        WatchEvent::SessionEnd => {
+                        WatchEvent::SessionEnd(ack) => {
                             session_open = false;
                             session_active.store(false, Ordering::SeqCst);
                             session_end_during_drain = true;
+                            pending_ack = ack;
                             // Fold any buffered session paths into this batch
                             // so they are flushed together.
                             dirty.append(&mut session_buffer);
@@ -943,6 +1028,11 @@ fn watch_worker(
                 if !process_dirty(&root, &mut dirty, &mut hash_cache, &state) {
                     session_buffer.extend(dirty);
                     session_pending.store(session_buffer.len(), Ordering::SeqCst);
+                }
+                // If a `SessionEnd` was folded into this drain, ack the
+                // blocking IPC caller now that the flush is done.
+                if let Some(tx) = pending_ack {
+                    let _ = tx.send(());
                 }
             }
         }
@@ -1352,23 +1442,45 @@ fn process_request(line: &str, state: &Arc<GlobalState>) -> QueryResponse {
 
     if req.op == "session_begin" || req.op == "session_end" {
         let begin = req.op == "session_begin";
-        return match state.session_signal(&root, begin) {
-            Ok(status) => QueryResponse {
-                results: None,
-                error: None,
-                candidates: 0,
-                total_files: 0,
-                search_ms: 0.0,
-                reloaded: false,
-                status: Some(if begin {
-                    "session_begin".into()
-                } else {
-                    "session_end".into()
-                }),
-                root: Some(status.root.clone()),
-                projects: Some(vec![status]),
-            },
-            Err(e) => err_response(format!("{}: {}", req.op, e)),
+        if begin {
+            return match state.session_signal(&root, begin) {
+                Ok(status) => QueryResponse {
+                    results: None,
+                    error: None,
+                    candidates: 0,
+                    total_files: 0,
+                    search_ms: 0.0,
+                    reloaded: false,
+                    status: Some("session_begin".into()),
+                    root: Some(status.root.clone()),
+                    projects: Some(vec![status]),
+                },
+                Err(e) => err_response(format!("{}: {}", req.op, e)),
+            };
+        }
+        // session_end: block until the watcher has flushed and bumped the seal
+        // (or timeout). This is what makes `ig hold end` a real barrier: hooks
+        // that run a search immediately after won't hit a stale index.
+        return match state.session_signal_end_blocking(&root, SESSION_END_FLUSH_TIMEOUT) {
+            Ok((status, outcome)) => {
+                let status_str = match outcome {
+                    SessionEndOutcome::Flushed => "session_end",
+                    SessionEndOutcome::NotFinal => "session_end_pending",
+                    SessionEndOutcome::Timeout => "session_end_timeout",
+                };
+                QueryResponse {
+                    results: None,
+                    error: None,
+                    candidates: 0,
+                    total_files: 0,
+                    search_ms: 0.0,
+                    reloaded: false,
+                    status: Some(status_str.into()),
+                    root: Some(status.root.clone()),
+                    projects: Some(vec![status]),
+                }
+            }
+            Err(e) => err_response(format!("session_end: {}", e)),
         };
     }
 
@@ -1519,11 +1631,10 @@ fn process_query_cached(req: &QueryRequest, tenant: &TenantState, reloaded: bool
         .iter()
         .filter_map(|doc_id| {
             let rel_path = rv.reader.file_path(*doc_id).to_string();
-            if let Some(ref ft) = req.file_type {
-                let ext = rel_path.rsplit('.').next().unwrap_or("");
-                if ext != ft.as_str() {
-                    return None;
-                }
+            if let Some(ref ft) = req.file_type
+                && !crate::search::indexed::matches_type(&rel_path, ft)
+            {
+                return None;
             }
             Some((*doc_id, rel_path))
         })
@@ -1657,10 +1768,21 @@ pub fn stop_daemon(_legacy_path: &Path) -> Result<()> {
         && let Ok(pid_str) = std::fs::read_to_string(&pid_file)
         && let Ok(pid) = pid_str.trim().parse::<i32>()
     {
-        unsafe {
-            libc::kill(pid, libc::SIGTERM);
+        // Issue #5: never SIGTERM a PID we can't prove belongs to an ig
+        // daemon — after a crash + PID reuse this could kill an unrelated
+        // process owned by the user. If the pidfile is stale, just clean up
+        // and let the next daemon start cleanly.
+        if pid_is_ig_daemon(pid) {
+            unsafe {
+                libc::kill(pid, libc::SIGTERM);
+            }
+            eprintln!("SIGTERM sent to daemon PID {}", pid);
+        } else {
+            eprintln!(
+                "Stale daemon pidfile (PID {} is not an ig daemon), cleaning up",
+                pid
+            );
         }
-        eprintln!("SIGTERM sent to daemon PID {}", pid);
         let _ = std::fs::remove_file(&pid_file);
     }
     let _ = std::fs::remove_file(socket_path());
@@ -1806,11 +1928,69 @@ fn memory_cooldown_remaining() -> Option<MemoryCooldownStatus> {
     })
 }
 
+/// Verify a PID belongs to an `ig daemon` process before treating it as
+/// "the daemon" (issue #5). Bare `kill(pid, 0)` and SIGTERM without this
+/// check would, after a crash + OS PID reuse, signal an unrelated process
+/// owned by the same user.
+///
+/// Platform notes:
+///   * Linux: `/proc/<pid>/cmdline` is the cheapest source of truth.
+///   * macOS / BSD: shell out to `ps -p <pid> -o command=` (no native
+///     equivalent of `/proc` for arbitrary processes without entitlements).
+///
+/// Returns `false` on any error (missing file, parse failure, ps not in
+/// PATH) — callers should treat that as "stale pid, clean up".
+fn pid_is_ig_daemon(pid: i32) -> bool {
+    if pid <= 1 {
+        return false;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let bytes = match std::fs::read(format!("/proc/{}/cmdline", pid)) {
+            Ok(b) => b,
+            Err(_) => return false,
+        };
+        let s = String::from_utf8_lossy(&bytes);
+        let parts: Vec<&str> = s.split('\0').filter(|p| !p.is_empty()).collect();
+        let exe = match parts.first() {
+            Some(e) => *e,
+            None => return false,
+        };
+        let basename = exe.rsplit('/').next().unwrap_or(exe);
+        basename == "ig" && parts.iter().any(|p| *p == "daemon")
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let output = match std::process::Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "command="])
+            .output()
+        {
+            Ok(o) if o.status.success() => o,
+            _ => return false,
+        };
+        let s = String::from_utf8_lossy(&output.stdout);
+        let line = s.trim();
+        if line.is_empty() {
+            return false;
+        }
+        let mut parts = line.split_whitespace();
+        let exe = match parts.next() {
+            Some(e) => e,
+            None => return false,
+        };
+        let basename = exe.rsplit('/').next().unwrap_or(exe);
+        basename == "ig" && parts.any(|p| p == "daemon")
+    }
+}
+
 fn is_daemon_alive() -> bool {
     if let Ok(pid_str) = std::fs::read_to_string(pid_path())
         && let Ok(pid) = pid_str.trim().parse::<i32>()
     {
-        return unsafe { libc::kill(pid, 0) } == 0;
+        // Both checks needed: kill(pid, 0)==0 says "a process with this pid
+        // exists" but doesn't say it's ours — PID reuse after a crash would
+        // otherwise let us latch onto a stranger.
+        return unsafe { libc::kill(pid, 0) } == 0 && pid_is_ig_daemon(pid);
     }
     false
 }
@@ -2282,11 +2462,10 @@ fn process_query(line: &str, reader: &IndexReader, root: &Path, reloaded: bool) 
         .iter()
         .filter_map(|doc_id| {
             let rel_path = reader.file_path(*doc_id).to_string();
-            if let Some(ref ft) = req.file_type {
-                let ext = rel_path.rsplit('.').next().unwrap_or("");
-                if ext != ft.as_str() {
-                    return None;
-                }
+            if let Some(ref ft) = req.file_type
+                && !crate::search::indexed::matches_type(&rel_path, ft)
+            {
+                return None;
             }
             Some((*doc_id, rel_path))
         })
@@ -2555,6 +2734,81 @@ mod tests {
             !status.session_active,
             "extra end should remain safely inactive"
         );
+
+        drop(dir);
+    }
+
+    #[test]
+    fn test_session_end_blocking_waits_for_flush() {
+        // Regression test for issue #1 from the v1.19.7 review: `ig hold end`
+        // (= IPC `session_end`) must NOT return before the watcher has
+        // drained the queued paths and bumped the seal. Before the fix, the
+        // IPC handler sent SessionEnd on the mpsc channel and immediately
+        // replied "session_end", letting a subsequent search hit a stale
+        // index.
+        let (dir, root) = setup_test_project();
+        let canonical = root.canonicalize().unwrap();
+        let state = Arc::new(GlobalState::new(8));
+
+        // Open a session.
+        let _ = state.session_signal(&canonical, true).unwrap();
+
+        // Final-holder release with no buffered paths must report Flushed
+        // (worker drained an empty buffer and acked).
+        let (status, outcome) = state
+            .session_signal_end_blocking(&canonical, Duration::from_secs(5))
+            .unwrap();
+        assert!(
+            !status.session_active,
+            "session must be inactive after blocking end"
+        );
+        assert_eq!(
+            outcome,
+            SessionEndOutcome::Flushed,
+            "blocking end with no holders left must observe the worker ack"
+        );
+
+        // Calling blocking end again (with holders already at 0) takes the
+        // NotFinal path: no ack is expected and the call returns immediately.
+        let (_status, outcome) = state
+            .session_signal_end_blocking(&canonical, Duration::from_secs(1))
+            .unwrap();
+        assert_eq!(
+            outcome,
+            SessionEndOutcome::NotFinal,
+            "extra end on a closed session must return NotFinal, not Timeout"
+        );
+
+        drop(dir);
+    }
+
+    #[test]
+    fn test_session_end_blocking_returns_notfinal_when_not_last_holder() {
+        // Two `session_begin` → two holders. The first `session_end` is NOT
+        // the final release; the blocking variant must short-circuit with
+        // NotFinal instead of waiting for an ack that will never come.
+        let (dir, root) = setup_test_project();
+        let canonical = root.canonicalize().unwrap();
+        let state = Arc::new(GlobalState::new(8));
+
+        let _ = state.session_signal(&canonical, true).unwrap();
+        let _ = state.session_signal(&canonical, true).unwrap();
+
+        let (status, outcome) = state
+            .session_signal_end_blocking(&canonical, Duration::from_secs(1))
+            .unwrap();
+        assert!(
+            status.session_active,
+            "session must remain active when another holder is still around"
+        );
+        assert_eq!(outcome, SessionEndOutcome::NotFinal);
+
+        // Now release the last holder — this one waits for the flush ack.
+        let (status, outcome) = state
+            .session_signal_end_blocking(&canonical, Duration::from_secs(5))
+            .unwrap();
+        assert!(!status.session_active);
+        assert_eq!(outcome, SessionEndOutcome::Flushed);
 
         drop(dir);
     }

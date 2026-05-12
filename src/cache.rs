@@ -85,6 +85,12 @@ pub fn manifest_path() -> PathBuf {
 
 const LAYOUT_LOCK: &str = ".layout.lock";
 const LAYOUT_MARKER: &str = ".layout-v1";
+/// How long to wait for a live lock holder before bailing out (issue #9).
+/// Was effectively 5 s with a silent steal; we now wait longer but never
+/// steal from a live PID.
+const LAYOUT_LOCK_LIVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+const GC_LOCK: &str = ".gc.lock";
+const GC_STAMP: &str = ".gc-last-run";
 
 /// Stable cache key for a project root: 16 hex chars of SHA-256 over the
 /// canonical absolute path. Collisions are astronomically unlikely across one
@@ -159,6 +165,12 @@ fn is_xdg_entry(cache_dir: &Path) -> bool {
 /// Write the cache meta file. Idempotent: preserves `created_at` if present.
 /// No-op for local `<root>/.ig/` indexes — the meta only matters for entries
 /// living under the XDG cache (consumed by `ig gc` and `ig migrate`).
+///
+/// Issue #7: after writing the meta we also (best-effort) refresh the
+/// `by-name/` symlink for this project and the global `manifest.json`. Before
+/// the fix these were only rebuilt during migration / GC, so a freshly
+/// indexed project never appeared under `~/.cache/ig/by-name/` until the
+/// next `ig gc` or layout migration ran.
 pub fn write_meta(cache_dir: &Path, root: &Path) -> Result<()> {
     if !is_xdg_entry(cache_dir) {
         return Ok(());
@@ -168,6 +180,7 @@ pub fn write_meta(cache_dir: &Path, root: &Path) -> Result<()> {
     let now = now_secs();
     let existing = read_meta(cache_dir).ok();
     let created_at = existing.as_ref().map(|m| m.created_at).unwrap_or(now);
+    let was_new = existing.is_none();
     let m = CacheMeta {
         root_path: canonical.to_string_lossy().into_owned(),
         created_at,
@@ -176,6 +189,59 @@ pub fn write_meta(cache_dir: &Path, root: &Path) -> Result<()> {
     };
     let body = serde_json::to_string_pretty(&m)?;
     fs::write(meta_path(cache_dir), body)?;
+    // Best-effort refresh. The symlink update is incremental (skip if it
+    // already points at us), and the manifest rebuild does an atomic
+    // tmp+rename so concurrent index builds don't tear it.
+    let _ = ensure_by_name_symlink(cache_dir, &canonical);
+    // Only rebuild the full manifest when this entry is brand new — for
+    // existing projects only the timestamp changed, which `cache-ls` lazily
+    // re-reads via the per-project `cache-meta.json` anyway. Avoids O(projects)
+    // work on every overlay rebuild.
+    if was_new {
+        let _ = rebuild_manifest();
+    }
+    Ok(())
+}
+
+/// Idempotent: create (or leave alone) the `by-name/<slug>` → cache_dir
+/// symlink for `root`. Used by `write_meta` so fresh projects show up under
+/// `~/.cache/ig/by-name/` without waiting for a full `rebuild_symlinks`.
+pub fn ensure_by_name_symlink(cache_dir: &Path, root: &Path) -> Result<()> {
+    let by_name = by_name_dir();
+    fs::create_dir_all(&by_name).ok();
+    let hash = match cache_dir.file_name().and_then(|n| n.to_str()) {
+        Some(n) if is_short_hash(n) => n.to_string(),
+        _ => return Ok(()),
+    };
+    let basename = root
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("project");
+    let mut slug = slugify(basename);
+    let mut link_path = by_name.join(&slug);
+    let target = Path::new("..").join("projects").join(&hash);
+
+    // If a symlink with this slug already points at our hash, nothing to do.
+    if let Ok(existing) = fs::read_link(&link_path)
+        && existing == target
+    {
+        return Ok(());
+    }
+    // Slug collision with a *different* hash → suffix with first 4 chars of
+    // hash to disambiguate, matching `rebuild_symlinks`.
+    if link_path.symlink_metadata().is_ok() {
+        slug.push('-');
+        slug.push_str(&hash[..hash.len().min(4)]);
+        link_path = by_name.join(&slug);
+        if let Ok(existing) = fs::read_link(&link_path)
+            && existing == target
+        {
+            return Ok(());
+        }
+        let _ = fs::remove_file(&link_path);
+    }
+    std::os::unix::fs::symlink(&target, &link_path)
+        .with_context(|| format!("symlink {} -> {}", link_path.display(), target.display()))?;
     Ok(())
 }
 
@@ -276,6 +342,7 @@ fn dir_size(p: &Path) -> Result<u64> {
 pub struct GcReport {
     pub orphan_count: usize,
     pub stale_count: usize,
+    pub size_pruned_count: usize,
     pub freed_bytes: u64,
 }
 
@@ -283,36 +350,91 @@ pub struct GcReport {
 ///
 /// - Removes entries whose `root_path` no longer exists (orphans).
 /// - If `max_age_days` is set, also removes entries unused for that many days.
+/// - If `max_size_bytes` is set, also removes least-recently-used entries until
+///   the remaining cache is below the cap.
 /// - `dry_run` reports without deleting.
-pub fn gc(max_age_days: Option<u64>, dry_run: bool) -> Result<GcReport> {
+pub fn gc(
+    max_age_days: Option<u64>,
+    max_size_bytes: Option<u64>,
+    dry_run: bool,
+) -> Result<GcReport> {
+    gc_impl(max_age_days, max_size_bytes, dry_run, true)
+}
+
+fn gc_impl(
+    max_age_days: Option<u64>,
+    max_size_bytes: Option<u64>,
+    dry_run: bool,
+    verbose: bool,
+) -> Result<GcReport> {
     let now = now_secs();
     let mut report = GcReport::default();
-    for entry in list_entries()? {
-        let mut should_delete = false;
-        let mut reason = "";
+    let entries = list_entries()?;
+    let mut deleted = vec![false; entries.len()];
+    let mut removals: Vec<(usize, &'static str)> = Vec::new();
+    let mut remaining_size = 0u64;
+
+    for (idx, entry) in entries.iter().enumerate() {
+        let mut reason: Option<&'static str> = None;
         match &entry.meta {
             None => {
-                should_delete = true;
-                reason = "no meta";
+                reason = Some("no meta");
                 report.orphan_count += 1;
             }
             Some(m) => {
                 if !Path::new(&m.root_path).exists() {
-                    should_delete = true;
-                    reason = "orphan";
+                    reason = Some("orphan");
                     report.orphan_count += 1;
                 } else if let Some(days) = max_age_days {
                     let age_secs = now.saturating_sub(m.last_used_at);
                     if age_secs > days * 86_400 {
-                        should_delete = true;
-                        reason = "stale";
+                        reason = Some("stale");
                         report.stale_count += 1;
                     }
                 }
             }
         }
-        if should_delete {
+
+        if let Some(reason) = reason {
+            deleted[idx] = true;
             report.freed_bytes += entry.size_bytes;
+            removals.push((idx, reason));
+        } else {
+            remaining_size = remaining_size.saturating_add(entry.size_bytes);
+        }
+    }
+
+    if let Some(max_size) = max_size_bytes
+        && remaining_size > max_size
+    {
+        let mut kept: Vec<usize> = entries
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, _)| (!deleted[idx]).then_some(idx))
+            .collect();
+        kept.sort_by_key(|idx| {
+            entries[*idx]
+                .meta
+                .as_ref()
+                .map(|m| m.last_used_at)
+                .unwrap_or(0)
+        });
+
+        for idx in kept {
+            if remaining_size <= max_size {
+                break;
+            }
+            deleted[idx] = true;
+            remaining_size = remaining_size.saturating_sub(entries[idx].size_bytes);
+            report.freed_bytes = report.freed_bytes.saturating_add(entries[idx].size_bytes);
+            report.size_pruned_count += 1;
+            removals.push((idx, "size-cap"));
+        }
+    }
+
+    for (idx, reason) in removals {
+        let entry = &entries[idx];
+        if verbose {
             let display_root = entry
                 .meta
                 .as_ref()
@@ -325,12 +447,99 @@ pub fn gc(max_age_days: Option<u64>, dry_run: bool) -> Result<GcReport> {
                 display_root,
                 reason,
             );
-            if !dry_run {
-                let _ = fs::remove_dir_all(&entry.dir);
-            }
+        }
+        if !dry_run {
+            let _ = fs::remove_dir_all(&entry.dir);
         }
     }
+
+    if !dry_run && (report.orphan_count + report.stale_count + report.size_pruned_count) > 0 {
+        let _ = rebuild_symlinks();
+        let _ = rebuild_manifest();
+    }
+
     Ok(report)
+}
+
+struct CacheLock {
+    path: PathBuf,
+}
+
+impl Drop for CacheLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+fn try_cache_lock(name: &str) -> Option<CacheLock> {
+    let path = cache_root().join(name);
+    match fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&path)
+    {
+        Ok(_) => Some(CacheLock { path }),
+        Err(_) => None,
+    }
+}
+
+/// Opportunistic auto-GC, called on command startup. It is silent, lock-file
+/// protected, and rate-limited so normal searches only pay one cheap stat.
+pub fn auto_gc() {
+    if !crate::config::cache_auto_gc_enabled() {
+        return;
+    }
+    let root = cache_root();
+    if fs::create_dir_all(&root).is_err() {
+        return;
+    }
+    let Some(_lock) = try_cache_lock(GC_LOCK) else {
+        return;
+    };
+
+    let now = now_secs();
+    let stamp = root.join(GC_STAMP);
+    if let Ok(body) = fs::read_to_string(&stamp)
+        && let Ok(last) = body.trim().parse::<u64>()
+    {
+        let interval = crate::config::cache_auto_gc_interval_secs();
+        if now.saturating_sub(last) < interval {
+            return;
+        }
+    }
+
+    let _ = gc_impl(
+        crate::config::cache_auto_gc_days(),
+        crate::config::cache_auto_gc_max_size_bytes(),
+        false,
+        false,
+    );
+    let _ = fs::write(stamp, now.to_string());
+}
+
+pub fn parse_size_bytes(value: &str) -> Result<u64> {
+    let value = value.trim();
+    if value.is_empty() {
+        anyhow::bail!("empty size");
+    }
+
+    let split_at = value
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(value.len());
+    let (digits, suffix) = value.split_at(split_at);
+    if digits.is_empty() {
+        anyhow::bail!("invalid size: {value}");
+    }
+    let n: u64 = digits.parse().context("invalid size number")?;
+    let suffix = suffix.trim().to_ascii_lowercase();
+    let multiplier = match suffix.as_str() {
+        "" | "b" => 1,
+        "k" | "kb" | "kib" => 1024,
+        "m" | "mb" | "mib" => 1024 * 1024,
+        "g" | "gb" | "gib" => 1024 * 1024 * 1024,
+        other => anyhow::bail!("unsupported size suffix: {other}"),
+    };
+    Ok(n.saturating_mul(multiplier))
 }
 
 #[derive(Debug, Default)]
@@ -423,31 +632,60 @@ pub fn ensure_layout() -> Result<()> {
     fs::create_dir_all(&root).context("create cache root")?;
 
     let lock_path = root.join(LAYOUT_LOCK);
-    let lock = match fs::OpenOptions::new()
+    // Issue #9: the previous "wait 5s then steal" logic could rip the lock
+    // out from under a legitimate migration that simply took longer on a
+    // big cache. We now record the holder's PID inside the lock file and
+    // only steal if either (a) the marker file appears (migration finished
+    // under us), or (b) the recorded PID is no longer alive. Live holders
+    // get up to LAYOUT_LOCK_LIVE_TIMEOUT before we bail with an error.
+    let mut acquired = match fs::OpenOptions::new()
         .create_new(true)
         .write(true)
         .open(&lock_path)
     {
-        Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            // Another process is migrating. Wait briefly for the marker.
-            for _ in 0..50 {
-                if root.join(LAYOUT_MARKER).exists() {
-                    return Ok(());
-                }
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-            // Still not done — assume the lock holder died, take over.
-            let _ = fs::remove_file(&lock_path);
-            fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&lock_path)
-                .context("acquire layout lock after stale retry")?
-        }
-        Err(e) => return Err(e).context("create layout lock"),
+        Ok(f) => Some(f),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => None,
+        Err(e) => return Err(e).context("create layout lock")?,
     };
-    drop(lock); // we hold ownership via existence; close the fd.
+    if acquired.is_none() {
+        let deadline = std::time::Instant::now() + LAYOUT_LOCK_LIVE_TIMEOUT;
+        loop {
+            if root.join(LAYOUT_MARKER).exists() {
+                return Ok(());
+            }
+            let holder_alive = fs::read_to_string(&lock_path)
+                .ok()
+                .and_then(|s| s.trim().parse::<i32>().ok())
+                .filter(|pid| *pid > 1)
+                .map(|pid| unsafe { libc::kill(pid, 0) } == 0)
+                .unwrap_or(false);
+            if !holder_alive {
+                let _ = fs::remove_file(&lock_path);
+                acquired = Some(
+                    fs::OpenOptions::new()
+                        .create_new(true)
+                        .write(true)
+                        .open(&lock_path)
+                        .context("acquire layout lock after dead-holder takeover")?,
+                );
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                anyhow::bail!(
+                    "layout lock {} held by live PID for > {}s; refusing to steal",
+                    lock_path.display(),
+                    LAYOUT_LOCK_LIVE_TIMEOUT.as_secs()
+                );
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+    // Record our PID so other processes can tell us apart from a dead holder.
+    if let Some(mut f) = acquired {
+        use std::io::Write;
+        let _ = writeln!(f, "{}", std::process::id());
+        drop(f);
+    }
 
     let outcome = (|| -> Result<()> {
         // A pre-v1.19 daemon will keep writing to legacy paths during migration
@@ -955,5 +1193,67 @@ mod tests {
         assert_eq!(m.version, 1);
         assert_eq!(m.entries.len(), 1);
         assert_eq!(m.entries[0].hash, hash);
+    }
+
+    #[test]
+    fn parse_size_bytes_accepts_common_suffixes() {
+        assert_eq!(parse_size_bytes("42").unwrap(), 42);
+        assert_eq!(parse_size_bytes("2KB").unwrap(), 2 * 1024);
+        assert_eq!(parse_size_bytes("3mb").unwrap(), 3 * 1024 * 1024);
+        assert_eq!(parse_size_bytes("4GiB").unwrap(), 4 * 1024 * 1024 * 1024);
+        assert!(parse_size_bytes("12tb").is_err());
+    }
+
+    #[test]
+    fn gc_prunes_oldest_entries_to_size_cap() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("IG_CACHE_DIR", tmp.path());
+        }
+        ensure_layout().unwrap();
+
+        let old_root = tempdir().unwrap();
+        let new_root = tempdir().unwrap();
+        let old_entry = projects_dir().join("1111111111111111");
+        let new_entry = projects_dir().join("2222222222222222");
+        fs::create_dir_all(&old_entry).unwrap();
+        fs::create_dir_all(&new_entry).unwrap();
+        fs::write(old_entry.join("postings.bin"), vec![1u8; 1024]).unwrap();
+        fs::write(new_entry.join("postings.bin"), vec![2u8; 1024]).unwrap();
+        write_meta(&old_entry, old_root.path()).unwrap();
+        write_meta(&new_entry, new_root.path()).unwrap();
+
+        let mut old_meta = read_meta(&old_entry).unwrap();
+        old_meta.last_used_at = 10;
+        fs::write(
+            meta_path(&old_entry),
+            serde_json::to_string_pretty(&old_meta).unwrap(),
+        )
+        .unwrap();
+        let mut new_meta = read_meta(&new_entry).unwrap();
+        new_meta.last_used_at = 20;
+        fs::write(
+            meta_path(&new_entry),
+            serde_json::to_string_pretty(&new_meta).unwrap(),
+        )
+        .unwrap();
+
+        let entries = list_entries().unwrap();
+        let newest_size = entries
+            .iter()
+            .find(|e| e.dir == new_entry)
+            .map(|e| e.size_bytes)
+            .unwrap();
+
+        let report = gc(None, Some(newest_size), false).unwrap();
+        let old_exists = old_entry.exists();
+        let new_exists = new_entry.exists();
+        unsafe {
+            std::env::remove_var("IG_CACHE_DIR");
+        }
+        assert_eq!(report.size_pruned_count, 1);
+        assert!(!old_exists, "least-recently-used entry should be pruned");
+        assert!(new_exists, "newest entry should remain");
     }
 }

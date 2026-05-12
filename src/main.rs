@@ -39,7 +39,7 @@ mod verify;
 mod walk;
 mod watch;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{Context, Result};
@@ -68,6 +68,13 @@ fn main() -> Result<()> {
 
     // Check for updates in the background (non-blocking)
     update::check_update_background();
+
+    if !matches!(
+        &cli.command,
+        Some(Commands::Gc { .. }) | Some(Commands::CacheLs) | Some(Commands::Uninstall { .. })
+    ) {
+        cache::auto_gc();
+    }
 
     // Extract search flags from top-level (shared between shortcut and subcommand)
     let ignore_case = cli.ignore_case;
@@ -882,12 +889,21 @@ fn main() -> Result<()> {
             autoignore::run_autoignore(path, force)?;
         }
 
-        Some(Commands::Gc { days, dry_run }) => {
-            let report = cache::gc(days, dry_run)?;
+        Some(Commands::Gc {
+            days,
+            max_size,
+            dry_run,
+        }) => {
+            let max_size_bytes = max_size
+                .as_deref()
+                .map(cache::parse_size_bytes)
+                .transpose()?;
+            let report = cache::gc(days, max_size_bytes, dry_run)?;
             eprintln!(
-                "{} orphan(s), {} stale, {} freed{}",
+                "{} orphan(s), {} stale, {} size-pruned, {} freed{}",
                 report.orphan_count,
                 report.stale_count,
+                report.size_pruned_count,
                 util::format_bytes(report.freed_bytes),
                 if dry_run { " (dry-run)" } else { "" },
             );
@@ -1232,14 +1248,18 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
         // Build missing indexes after results are printed. If an index already
         // exists but is stale/corrupt, do not try to repair it on the search
         // hot path; explicit `ig index` is safer and gives visible errors.
+        //
+        // Issue #8: previously the auto-build was gated on stdout being a TTY,
+        // which silently disabled it for agent / non-TTY callers (Claude Code,
+        // codex, CI). That left agents permanently on the brute-force path on
+        // unindexed projects. We now build inline for TTYs (live feedback) and
+        // fan out a detached `ig index` subprocess for non-TTY callers so the
+        // current call returns immediately while the index gets built in the
+        // background for the next call.
         if !index_exists && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
             let _ = writer::build_index(&root, use_excludes, max_size);
         } else if !index_exists {
-            eprintln!(
-                "warning: no index at {}; run `ig index {}` to build one",
-                ig.display(),
-                root.display()
-            );
+            let _ = spawn_background_index_build(&root);
         } else {
             eprintln!(
                 "warning: existing index at {} is invalid or stale; run `ig index {}` to rebuild",
@@ -1406,8 +1426,12 @@ fn print_compact(results: &[search::matcher::FileMatches]) {
             }
             let line_text = String::from_utf8_lossy(&m.line);
             let line_text = line_text.trim();
+            // floor_char_boundary keeps us on a valid UTF-8 boundary so a line
+            // like "café…" doesn't panic when MAX_LINE_LEN lands inside a
+            // multi-byte character (issue #6).
             let truncated = if line_text.len() > MAX_LINE_LEN {
-                format!("{}...", &line_text[..MAX_LINE_LEN])
+                let cut = line_text.floor_char_boundary(MAX_LINE_LEN);
+                format!("{}...", &line_text[..cut])
             } else {
                 line_text.to_string()
             };
@@ -1416,6 +1440,25 @@ fn print_compact(results: &[search::matcher::FileMatches]) {
         }
         println!();
     }
+}
+
+/// Spawn a detached `ig index <root>` so the current search can return
+/// immediately while the background process builds the index for the next
+/// call. Used on the non-TTY (agent) auto-build path (issue #8): we don't
+/// want to block the agent's pipeline on a multi-second index build, but
+/// we also don't want to leave it permanently on brute-force search.
+fn spawn_background_index_build(root: &Path) -> Result<()> {
+    use std::process::{Command, Stdio};
+    let exe = std::env::current_exe().context("get current exe")?;
+    Command::new(exe)
+        .arg("index")
+        .arg(root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("spawn background ig index")?;
+    Ok(())
 }
 
 fn search_command_label(opts: &SearchOpts) -> String {

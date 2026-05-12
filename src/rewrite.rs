@@ -9,6 +9,40 @@
 
 use std::process;
 
+/// Quote a single argument for safe inclusion in a /bin/sh command line.
+///
+/// We use POSIX single-quote rules: wrap the value in `'…'`, replacing any
+/// embedded `'` with the `'\''` escape sequence. Strings made entirely of
+/// shell-safe characters are emitted bare to keep rewritten commands legible
+/// in hook output.
+///
+/// This is the only correct way to embed user-provided patterns/paths in a
+/// rewritten command line — the previous `"{}"` double-quoting was vulnerable
+/// to `"`, `$`, backticks, `\`, and `;` in patterns or filenames (issue #3).
+pub(crate) fn shell_quote(s: &str) -> String {
+    if s.is_empty() {
+        return "''".to_string();
+    }
+    let safe = s.chars().all(|c| {
+        c.is_ascii_alphanumeric()
+            || matches!(c, '_' | '-' | '.' | '/' | ':' | '@' | '+' | '=' | ',' | '%')
+    });
+    if safe {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('\'');
+    for ch in s.chars() {
+        if ch == '\'' {
+            out.push_str("'\\''");
+        } else {
+            out.push(ch);
+        }
+    }
+    out.push('\'');
+    out
+}
+
 pub enum RewriteResult {
     Rewrite(String), // exit 0 — rewrite + auto-allow
     Passthrough,     // exit 1 — no rewrite
@@ -397,12 +431,19 @@ fn rewrite_grep(parts: &[String]) -> Option<String> {
 
     match path {
         Some(p) if p != "." => Some(format!(
-            "IG_COMPACT=1 ig{}{}{} \"{}\" {}",
-            case_flag, fixed_flag, files_flag, pattern, p
+            "IG_COMPACT=1 ig{}{}{} {} {}",
+            case_flag,
+            fixed_flag,
+            files_flag,
+            shell_quote(pattern),
+            shell_quote(p)
         )),
         _ => Some(format!(
-            "IG_COMPACT=1 ig{}{}{} \"{}\"",
-            case_flag, fixed_flag, files_flag, pattern
+            "IG_COMPACT=1 ig{}{}{} {}",
+            case_flag,
+            fixed_flag,
+            files_flag,
+            shell_quote(pattern)
         )),
     }
 }
@@ -447,28 +488,42 @@ fn rewrite_rg(parts: &[String]) -> Option<String> {
 
     let pattern = pattern?;
     let type_arg = match type_filter {
-        Some(t) => format!(" --type {}", t),
+        Some(t) => format!(" --type {}", shell_quote(t)),
         None => String::new(),
     };
     match path {
         Some(p) => Some(format!(
-            "IG_COMPACT=1 ig{}{} \"{}\" {}",
-            case_flag, type_arg, pattern, p
+            "IG_COMPACT=1 ig{}{} {} {}",
+            case_flag,
+            type_arg,
+            shell_quote(pattern),
+            shell_quote(p)
         )),
         None => Some(format!(
-            "IG_COMPACT=1 ig{}{} \"{}\"",
-            case_flag, type_arg, pattern
+            "IG_COMPACT=1 ig{}{} {}",
+            case_flag,
+            type_arg,
+            shell_quote(pattern)
         )),
     }
 }
 
-/// tree → cat .ig/tree.txt (if exists) or ig ls
+/// tree → ig ls
+///
+/// Pre-v1.15 we routed through `cat .ig/tree.txt`, but the index has lived
+/// in the XDG cache since v1.15 and `.ig/tree.txt` no longer exists in the
+/// project tree (issue #4). `ig ls` produces an equivalent compact listing.
 fn rewrite_tree(_parts: &[String]) -> Option<String> {
-    // Always rewrite tree (with or without flags like -L N -I pattern)
-    Some("cat .ig/tree.txt 2>/dev/null || ig ls".to_string())
+    Some("ig ls".to_string())
 }
 
-/// find . -name "*.ts" → ig files --glob "*.ts"
+/// `find [path] -name "*.ts"` → `ig files [path] --glob "*.ts"`
+///
+/// Pre-v1.19.8: the search root was dropped on the floor (issue #4) —
+/// `find sub/dir -name "*.rs"` became `ig files --glob "*.rs"` which scans
+/// the whole project. We now preserve the first non-flag arg (the search
+/// root) and pass it to `ig files`. Pattern and root are shell-quoted to
+/// defeat injection (issue #3).
 fn rewrite_find(parts: &[String]) -> Option<String> {
     // Only rewrite find with -name pattern
     let name_idx = parts.iter().position(|p| p == "-name" || p == "-iname")?;
@@ -481,6 +536,15 @@ fn rewrite_find(parts: &[String]) -> Option<String> {
     {
         return None;
     }
+
+    // Capture the first non-flag positional arg (the search root). `find` puts
+    // it right after the executable name, before any predicate flag.
+    let root: Option<&str> = parts
+        .iter()
+        .skip(1)
+        .find(|p| !p.starts_with('-'))
+        .map(|s| s.as_str())
+        .filter(|s| *s != ".");
 
     // Allow -type f (file-only filter — always safe to ignore since ig only indexes files)
     // Reject other -type values (d, l, etc.)
@@ -498,8 +562,15 @@ fn rewrite_find(parts: &[String]) -> Option<String> {
         i += 1;
     }
 
-    // Fix R4: quote the glob pattern in output
-    Some(format!("ig files --glob \"{}\"", pattern))
+    let quoted_pattern = shell_quote(pattern);
+    match root {
+        Some(r) => Some(format!(
+            "ig files {} --glob {}",
+            shell_quote(r),
+            quoted_pattern
+        )),
+        None => Some(format!("ig files --glob {}", quoted_pattern)),
+    }
 }
 
 /// ls [dir] → ig ls [dir]
@@ -546,23 +617,29 @@ fn rewrite_git(parts: &[String]) -> Option<String> {
         return None;
     }
 
-    // Skip global options to locate the actual subcommand.
+    // Skip global options to locate the actual subcommand. Options that
+    // change the execution context (working directory or repository path)
+    // would alter the meaning of the rewritten command if silently dropped
+    // (issue #4: `git -C /tmp/repo status` would become `ig git status` and
+    // operate on the caller's cwd, not /tmp/repo). When any such option is
+    // present we bail out so the original `git` invocation runs unchanged.
     let mut i = 1;
     while i < parts.len() {
         let p = parts[i].as_str();
         match p {
-            "-C" | "-c" => {
-                // Takes a value argument.
-                i += 2;
+            "-C" | "--git-dir" | "--work-tree" => {
+                // Context-changing options: do not rewrite.
+                return None;
             }
-            "--git-dir" | "--work-tree" => {
-                // May be --git-dir=/path OR --git-dir /path
+            s if s.starts_with("--git-dir=") || s.starts_with("--work-tree=") => {
+                return None;
+            }
+            "-c" => {
+                // `-c key=value`: configuration override, doesn't change cwd
+                // but may affect subcommand behaviour subtly. Skip the pair.
                 i += 2;
             }
             "--no-pager" | "--no-optional-locks" | "--bare" | "--literal-pathspecs" => {
-                i += 1;
-            }
-            s if s.starts_with("--git-dir=") || s.starts_with("--work-tree=") => {
                 i += 1;
             }
             _ => break,
@@ -577,11 +654,13 @@ fn rewrite_git(parts: &[String]) -> Option<String> {
     // Only rewrite read-only git subcommands
     match subcmd {
         "status" | "log" | "diff" | "branch" | "show" => {
-            let args = parts[i + 1..].join(" ");
-            if args.is_empty() {
+            // Pass remaining args through shell-quoted so refs/paths with
+            // metacharacters (e.g. `git log -- 'foo bar'`) don't get mangled.
+            let quoted: Vec<String> = parts[i + 1..].iter().map(|s| shell_quote(s)).collect();
+            if quoted.is_empty() {
                 Some(format!("ig git {}", subcmd))
             } else {
-                Some(format!("ig git {} {}", subcmd, args))
+                Some(format!("ig git {} {}", subcmd, quoted.join(" ")))
             }
         }
         _ => None, // Don't rewrite destructive/write commands
@@ -907,21 +986,24 @@ mod tests {
 
     #[test]
     fn test_rewrite_grep_recursive() {
+        // Output is now shell-safe (issue #3): identifiers that match the
+        // safe-char allowlist are emitted bare, anything else is single-quoted.
         assert!(matches!(
             classify_command("grep -rn useState src/"),
-            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig \"useState\" src/"
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig useState src/"
         ));
         assert!(matches!(
             classify_command("grep -ri pattern ."),
-            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig -i \"pattern\""
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig -i pattern"
         ));
         assert!(matches!(
             classify_command("grep -rln useActionState components/auth"),
-            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig -l \"useActionState\" components/auth"
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig -l useActionState components/auth"
         ));
+        // Pattern with parens → single-quoted.
         assert!(matches!(
             classify_command("/usr/bin/grep -rlnF \"formAction(objectToFormData\" components/auth"),
-            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig -F -l \"formAction(objectToFormData\" components/auth"
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig -F -l 'formAction(objectToFormData' components/auth"
         ));
     }
 
@@ -937,11 +1019,11 @@ mod tests {
     fn test_rewrite_rg() {
         assert!(matches!(
             classify_command("rg useState src/"),
-            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig \"useState\" src/"
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig useState src/"
         ));
         assert!(matches!(
             classify_command("rg -i pattern"),
-            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig -i \"pattern\""
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig -i pattern"
         ));
     }
 
@@ -950,45 +1032,51 @@ mod tests {
         // Bug fix: -t flag value must be forwarded as --type to ig
         assert!(matches!(
             classify_command("rg -t ts pattern"),
-            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig --type ts \"pattern\""
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig --type ts pattern"
         ));
         assert!(matches!(
             classify_command("rg -t rs useState src/"),
-            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig --type rs \"useState\" src/"
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig --type rs useState src/"
         ));
         assert!(matches!(
             classify_command("rg -i -t ts pattern"),
-            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig -i --type ts \"pattern\""
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig -i --type ts pattern"
         ));
     }
 
     #[test]
     fn test_rewrite_tree() {
+        // Issue #4: tree no longer routes through `.ig/tree.txt` (gone post-XDG).
         assert!(matches!(
             classify_command("tree"),
-            RewriteResult::Rewrite(s) if s == "cat .ig/tree.txt 2>/dev/null || ig ls"
+            RewriteResult::Rewrite(s) if s == "ig ls"
         ));
-        // Bug fix: tree with flags must also be rewritten
         assert!(matches!(
             classify_command("tree -L 3 -I node_modules"),
-            RewriteResult::Rewrite(s) if s == "cat .ig/tree.txt 2>/dev/null || ig ls"
+            RewriteResult::Rewrite(s) if s == "ig ls"
         ));
         assert!(matches!(
             classify_command("tree -L 2"),
-            RewriteResult::Rewrite(s) if s == "cat .ig/tree.txt 2>/dev/null || ig ls"
+            RewriteResult::Rewrite(s) if s == "ig ls"
         ));
     }
 
     #[test]
     fn test_rewrite_find() {
+        // `*` in glob → single-quoted (issue #3).
         assert!(matches!(
             classify_command(r#"find . -name "*.ts""#),
-            RewriteResult::Rewrite(s) if s == r#"ig files --glob "*.ts""#
+            RewriteResult::Rewrite(s) if s == r#"ig files --glob '*.ts'"#
         ));
         // Bug fix: -type f must be allowed (ig only indexes files anyway)
         assert!(matches!(
             classify_command(r#"find . -type f -name "*.rs""#),
-            RewriteResult::Rewrite(s) if s == r#"ig files --glob "*.rs""#
+            RewriteResult::Rewrite(s) if s == r#"ig files --glob '*.rs'"#
+        ));
+        // Issue #4: search root other than `.` must be preserved.
+        assert!(matches!(
+            classify_command(r#"find some/subdir -name "*.rs""#),
+            RewriteResult::Rewrite(s) if s == r#"ig files some/subdir --glob '*.rs'"#
         ));
         // -type d (directory) should not be rewritten
         assert!(matches!(
@@ -1045,7 +1133,7 @@ mod tests {
         // `head -20` stays since it's a stdin-based filter.
         assert!(matches!(
             classify_command("rg useState src | head -20"),
-            RewriteResult::Rewrite(s) if s == r#"IG_COMPACT=1 ig "useState" src | head -20"#
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig useState src | head -20"
         ));
     }
 
@@ -1053,7 +1141,7 @@ mod tests {
     fn test_rewrite_grep_with_pipe() {
         assert!(matches!(
             classify_command("grep -rn foo src | wc -l"),
-            RewriteResult::Rewrite(s) if s == r#"IG_COMPACT=1 ig "foo" src | wc -l"#
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig foo src | wc -l"
         ));
     }
 
@@ -1062,7 +1150,7 @@ mod tests {
         // `ENV=1 rg pat` → env preserved, bin rewritten
         assert!(matches!(
             classify_command("RUST_LOG=debug rg useState src"),
-            RewriteResult::Rewrite(s) if s == r#"RUST_LOG=debug IG_COMPACT=1 ig "useState" src"#
+            RewriteResult::Rewrite(s) if s == "RUST_LOG=debug IG_COMPACT=1 ig useState src"
         ));
     }
 
@@ -1070,7 +1158,7 @@ mod tests {
     fn test_rewrite_multiple_env_prefix() {
         assert!(matches!(
             classify_command("A=1 B=2 rg pat src"),
-            RewriteResult::Rewrite(s) if s == r#"A=1 B=2 IG_COMPACT=1 ig "pat" src"#
+            RewriteResult::Rewrite(s) if s == "A=1 B=2 IG_COMPACT=1 ig pat src"
         ));
     }
 
@@ -1079,11 +1167,11 @@ mod tests {
         // `/usr/bin/grep -r pat src` → bin normalized before matching
         assert!(matches!(
             classify_command("/usr/bin/grep -rn useState src/"),
-            RewriteResult::Rewrite(s) if s == r#"IG_COMPACT=1 ig "useState" src/"#
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig useState src/"
         ));
         assert!(matches!(
             classify_command("/opt/homebrew/bin/rg pat src"),
-            RewriteResult::Rewrite(s) if s == r#"IG_COMPACT=1 ig "pat" src"#
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig pat src"
         ));
     }
 
@@ -1092,7 +1180,7 @@ mod tests {
         // `;` sequences each segment independently
         assert!(matches!(
             classify_command("rg foo src ; ls -la src"),
-            RewriteResult::Rewrite(s) if s == r#"IG_COMPACT=1 ig "foo" src; ig ls src"#
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig foo src; ig ls src"
         ));
     }
 
@@ -1130,23 +1218,37 @@ mod tests {
 
     #[test]
     fn test_rewrite_git_global_opts() {
+        // Issue #4: context-changing global opts (`-C`, `--git-dir`, `--work-tree`)
+        // must NOT be silently dropped — that would make the rewrite operate on
+        // the caller's cwd instead of the target repo. We passthrough instead.
         assert!(matches!(
             classify_command("git -C /tmp/repo status"),
-            RewriteResult::Rewrite(s) if s == "ig git status"
+            RewriteResult::Passthrough
         ));
         assert!(matches!(
             classify_command("git -C /tmp/repo log --oneline"),
-            RewriteResult::Rewrite(s) if s == "ig git log --oneline"
+            RewriteResult::Passthrough
         ));
+        assert!(matches!(
+            classify_command("git --git-dir=/tmp/.git status"),
+            RewriteResult::Passthrough
+        ));
+        assert!(matches!(
+            classify_command("git --work-tree=/tmp/repo status"),
+            RewriteResult::Passthrough
+        ));
+        // Non-context-changing global opts still get stripped and the
+        // subcommand is rewritten.
         assert!(matches!(
             classify_command("git --no-pager diff"),
             RewriteResult::Rewrite(s) if s == "ig git diff"
         ));
+        // `-c key=value` (configuration override) is also non-cwd-changing.
         assert!(matches!(
-            classify_command("git --git-dir=/tmp/.git status"),
+            classify_command("git -c color.ui=always status"),
             RewriteResult::Rewrite(s) if s == "ig git status"
         ));
-        // Global opts before a destructive subcommand stay passthrough
+        // Destructive subcommands stay passthrough regardless.
         assert!(matches!(
             classify_command("git -C /tmp/repo commit -m test"),
             RewriteResult::Passthrough
@@ -1306,7 +1408,7 @@ mod tests {
     fn test_rewrite_grep_e_flag() {
         assert!(matches!(
             classify_command("grep -r -e pattern src/"),
-            RewriteResult::Rewrite(s) if s == r#"IG_COMPACT=1 ig "pattern" src/"#
+            RewriteResult::Rewrite(s) if s == "IG_COMPACT=1 ig pattern src/"
         ));
     }
 

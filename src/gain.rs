@@ -268,8 +268,12 @@ fn show_history_refs(entries: &[&tracking::HistoryEntry]) {
 
     for entry in entries.iter().rev().take(50) {
         let time_str = format_timestamp(entry.timestamp);
+        // Truncate on a UTF-8 boundary so commands containing multi-byte
+        // chars (filenames with accents, emojis in pipe args) don't panic
+        // (issue #6).
         let cmd = if entry.command.len() > 33 {
-            format!("{}...", &entry.command[..30])
+            let cut = entry.command.floor_char_boundary(30);
+            format!("{}...", &entry.command[..cut])
         } else {
             entry.command.clone()
         };
