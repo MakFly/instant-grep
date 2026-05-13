@@ -15,6 +15,7 @@ mod filter;
 mod gain;
 mod git;
 mod hooks;
+mod ide_tracker;
 mod index;
 mod ls;
 mod output;
@@ -258,9 +259,16 @@ fn main() -> Result<()> {
                     eprintln!("no active projects");
                 } else {
                     for project in projects {
+                        let source = project.source.as_deref().unwrap_or("search");
+                        // Compact, parseable line: tab-separated columns so
+                        // downstream `awk` / `cut` keeps working alongside the
+                        // older `path  last_seen=Ns` format.
                         println!(
-                            "{}  last_seen={}s",
-                            project.root, project.seconds_since_seen
+                            "{}\tlast_seen={}s\tsource={}\thot={}",
+                            project.root,
+                            project.seconds_since_seen,
+                            source,
+                            project.hot_count,
                         );
                     }
                 }

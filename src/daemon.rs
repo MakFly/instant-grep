@@ -28,7 +28,7 @@ use std::num::NonZeroUsize;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -146,6 +146,18 @@ pub struct ProjectStatus {
     /// when `session_active == true`. Reset to 0 on `SessionEnd`.
     #[serde(default)]
     pub session_pending: usize,
+    /// What surfaced this project to the daemon's LRU. `None` = an explicit
+    /// `ig` invocation (search / warm). `Some("ide-claude")` = proactive
+    /// signal from `ide_tracker`. Older daemons omit this field entirely;
+    /// `#[serde(default)]` keeps `ig projects list` decode-compatible across
+    /// daemon-client version skew.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// Size of the most-recent hot-file set for this project (≤
+    /// `HOT_FILES_CAP` in `ide_tracker`). `0` when no IDE signal has been
+    /// received yet.
+    #[serde(default)]
+    pub hot_count: usize,
 }
 
 #[derive(Serialize)]
@@ -423,6 +435,16 @@ struct ActiveProject {
     _ig_watcher: Mutex<Option<RecommendedWatcher>>,
 }
 
+/// Joined onto `ProjectStatus` via `list_projects()` so the `active_projects`
+/// map stays a pure tenant table. Set by `record_ide_signal`.
+#[derive(Clone)]
+struct IdeMetadata {
+    source: crate::ide_tracker::IdeSource,
+    hot_count: usize,
+    #[allow(dead_code)]
+    last_signal_at: Instant,
+}
+
 struct GlobalState {
     tenants: Mutex<LruCache<PathBuf, Arc<TenantState>>>,
     active_projects: Mutex<HashMap<PathBuf, Arc<ActiveProject>>>,
@@ -431,6 +453,12 @@ struct GlobalState {
     memory_limits: MemoryLimits,
     shutdown_requested: AtomicBool,
     last_pressure_log: Mutex<Option<Instant>>,
+    /// Per-root metadata pushed by `ide_tracker`. Joined into ProjectStatus
+    /// by `list_projects`. Stays in sync with `active_projects` because
+    /// `record_ide_signal` warms the project before inserting.
+    ide_metadata: Mutex<HashMap<PathBuf, IdeMetadata>>,
+    /// Monotonic counter, surfaced by `ig daemon status` for observability.
+    ide_signal_count: AtomicU64,
 }
 
 impl GlobalState {
@@ -444,7 +472,54 @@ impl GlobalState {
             memory_limits: MemoryLimits::from_config(),
             shutdown_requested: AtomicBool::new(false),
             last_pressure_log: Mutex::new(None),
+            ide_metadata: Mutex::new(HashMap::new()),
+            ide_signal_count: AtomicU64::new(0),
         }
+    }
+
+    /// Consume one [`crate::ide_tracker::IdeSignal`] from the tracker thread.
+    /// Warms the project (idempotent) and records the IDE metadata so
+    /// `list_projects()` can surface `source`/`hot_count`.
+    ///
+    /// Called from the dedicated consumer thread; never holds locks across
+    /// `warm_project` to avoid stalling other RPCs.
+    fn record_ide_signal(self: &Arc<Self>, sig: crate::ide_tracker::IdeSignal) {
+        let root = sig.root.clone();
+        let source_str = sig.source.as_str();
+        let hot = sig.hot_files.len();
+        if let Err(e) = self.warm_project(&root) {
+            // Memory governor or bad path — log once and move on. The next
+            // poll will retry naturally.
+            eprintln!(
+                "ide-tracker: warm {} failed (source={}): {}",
+                root.display(),
+                source_str,
+                e
+            );
+            return;
+        }
+        let canonical = match root.canonicalize() {
+            Ok(c) => c,
+            Err(_) => root.clone(),
+        };
+        self.ide_metadata
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                canonical.clone(),
+                IdeMetadata {
+                    source: sig.source,
+                    hot_count: hot,
+                    last_signal_at: Instant::now(),
+                },
+            );
+        self.ide_signal_count.fetch_add(1, Ordering::Relaxed);
+        eprintln!(
+            "ide-tracker: signal recorded for {} (source={}, hot={})",
+            canonical.display(),
+            source_str,
+            hot
+        );
     }
 
     fn memory_pressure(&self) -> MemoryPressure {
@@ -676,12 +751,24 @@ impl GlobalState {
     }
 
     fn list_projects(&self) -> Vec<ProjectStatus> {
+        let ide_meta = self
+            .ide_metadata
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         let mut projects: Vec<_> = self
             .active_projects
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .map(|p| p.status())
+            .iter()
+            .map(|(root, p)| {
+                let mut st = p.status();
+                if let Some(md) = ide_meta.get(root) {
+                    st.source = Some(md.source.as_str().to_string());
+                    st.hot_count = md.hot_count;
+                }
+                st
+            })
             .collect();
         projects.sort_by(|a, b| a.root.cmp(&b.root));
         projects
@@ -922,6 +1009,10 @@ impl ActiveProject {
                 .as_secs(),
             session_active: self.session_active.load(Ordering::SeqCst),
             session_pending: self.session_pending.load(Ordering::SeqCst),
+            // Source/hot_count are joined in by GlobalState::list_projects so
+            // the IdeMetadata map stays the single source of truth.
+            source: None,
+            hot_count: 0,
         }
     }
 }
@@ -1316,6 +1407,30 @@ pub fn start_daemon(_legacy_path: &Path) -> Result<()> {
                 state.enforce_periodic_memory_budget();
             }
         });
+    }
+
+    // ── IDE tracker: proactively warm projects the user is touching with
+    //    Claude Code (and later Cursor / VS Code, v2). Off by default if
+    //    IG_IDE_TRACKER_ENABLED=0. The consumer thread drains the channel
+    //    and calls record_ide_signal, which warms + records IdeMetadata.
+    if crate::ide_tracker::tracker_enabled() {
+        let interval = crate::ide_tracker::default_poll_interval();
+        let rx = crate::ide_tracker::spawn_tracker(interval);
+        let state = Arc::clone(&state);
+        std::thread::Builder::new()
+            .name("ig-ide-consumer".into())
+            .spawn(move || {
+                while let Ok(sig) = rx.recv() {
+                    state.record_ide_signal(sig);
+                }
+            })
+            .expect("spawn ig-ide-consumer thread");
+        eprintln!(
+            "IDE tracker enabled: polling ~/.claude/projects/ every {}s",
+            interval.as_secs().max(1)
+        );
+    } else {
+        eprintln!("IDE tracker disabled via IG_IDE_TRACKER_ENABLED");
     }
 
     for stream in listener.incoming() {
