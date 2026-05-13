@@ -1,9 +1,16 @@
 # SPEC — IDE-Tracker for the `ig` daemon
 
-Status: **draft, v1**
+Status: **shipped, v1.1**
 Target: `ig` v1.20
 Owner: kev
-Date: 2026-05-13
+Date: 2026-05-13 (v1), revised 2026-05-13 (v1.1 multi-provider)
+
+## Changelog
+
+| Version | Date | Change |
+|---|---|---|
+| v1   | 2026-05-13 | Claude Code only. Shipped in `fa97846`. |
+| v1.1 | 2026-05-13 | Refactor in trait `IdeProvider`; add Codex CLI and opencode providers. Shipped in `2fe4346`. |
 
 ---
 
@@ -65,70 +72,106 @@ indexer. This spec adds that tracker to `ig`, locally and without embeddings.
 
 ## 3. Sources of truth (read-only)
 
-v1 ships with **Claude Code as the sole source** — that matches the maintainer's
-real workflow today. Cursor and VS Code are dropped from v1 (no SQLite parsing,
-no `state.vscdb` access, no `storage.json` polling) so the tracker stays tight
-and trivially observable. Adding them later is a 1-file addition behind a flag.
+v1.1 ships with **three providers**, all read-only, all local, zero embedding
+or cloud involvement. Each maps to one well-known agent's on-disk state.
 
-| Source | Path | Contents | Format |
-|---|---|---|---|
-| Claude Code project dirs | `~/.claude/projects/<encoded-cwd>/` | mtime ≈ last activity for that project | filesystem |
-| Claude Code recent `Read` events | `~/.claude/projects/<encoded>/<sessionId>.jsonl` | `tool_use` entries where `name == "Read"` | JSONL |
+| Provider | id | Path | Field of interest | Format |
+|---|---|---|---|---|
+| Claude Code | `claude-code` | `~/.claude/projects/<encoded>/<sid>.jsonl` | top-level `cwd` + `tool_use Read` events | JSONL |
+| Codex CLI (OpenAI) | `codex` | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | `payload.cwd` in the `session_meta` event | JSONL |
+| opencode (sst) | `opencode` | `~/.local/state/opencode/frecency.jsonl` | `{path, frequency, lastOpen}` per entry | JSONL |
 
-Path encoding: Claude Code stores `<cwd>` with `/` replaced by `-` and a leading
-`-`. Example: `/Users/kev/Documents/lab/sandbox/instant-grep` →
-`-Users-kev-Documents-lab-sandbox-instant-grep`. We invert this in
-`decode_claude_project_dir()`.
+Cursor app and VS Code state (`state.vscdb` SQLite) remain deferred to v2
+(see Appendix B). The maintainer drives via Claude Code / Codex / opencode,
+so adding a sqlite dep for zero immediate UX gain isn't justified.
 
-On Linux the path is the same: `~/.claude/projects/`. No OS-specific code path.
+Path encoding notes:
+
+- **Claude Code** stores `<cwd>` with `/` replaced by `-` and a leading `-`.
+  Example: `/Users/kev/Documents/foo` → `-Users-kev-Documents-foo`. The
+  decoding is lossy for paths containing `-` (e.g. `kweli-project`); we
+  resolve the ambiguity by reading the `cwd` field embedded in each
+  JSONL entry, falling back to `decode_claude_project_dir()` only when no
+  `cwd` was observed.
+- **Codex** uses a date-partitioned tree. `recent_rollouts(N=16)` walks
+  newest year → month → day → file and stops at 16 candidates so old
+  archives don't blow the poll budget.
+- **opencode** frecency tracks both files and directories under the same
+  schema. `find_project_root()` walks each entry up to the nearest
+  `.git/` or project marker, then buckets by root.
+
+On Linux the paths are the same: `~/.claude/`, `~/.codex/`, `~/.local/state/`.
+No OS-specific code path.
 
 ## 4. Architecture
 
 ```
-╔══════════════════════════ ig daemon ══════════════════════════╗
-║                                                               ║
-║  ┌─────────────────────────────────────────────────────────┐  ║
-║  │  ide_tracker::claude_source (new module)                │  ║
-║  │  single thread, poll interval 10 s                      │  ║
-║  │                                                         │  ║
-║  │  1. enumerate ~/.claude/projects/ subdirs               │  ║
-║  │  2. for each subdir mtime within active_window (5 min): │  ║
-║  │     - decode dir name → real cwd                        │  ║
-║  │     - read newest *.jsonl (tail ~200 lines)             │  ║
-║  │     - extract tool_use.input.file_path where Read       │  ║
-║  │  3. emit IdeSignal { root, hot_files, ClaudeCode }      │  ║
-║  └────────────────────────┬────────────────────────────────┘  ║
-║                           │ mpsc                              ║
-║                           ▼                                   ║
-║  ┌─────────────────────────────────────────────────────────┐  ║
-║  │  GlobalState::record_ide_signal(sig)                    │  ║
-║  │   • if root not in LRU → warm_tenant(root) (background) │  ║
-║  │   • if root in LRU      → bump tenant.last_seen         │  ║
-║  │   • optional: pre-mmap top-N hot_files into tenant      │  ║
-║  │   • respect LRU max_tenants (8) + memory governor       │  ║
-║  └─────────────────────────────────────────────────────────┘  ║
-║                                                               ║
-║  ┌─────────────────────────────────────────────────────────┐  ║
-║  │  Observability (no new CLI)                             │  ║
-║  │   • `ig projects list` gains columns `source` + `hot`   │  ║
-║  │   • `ig daemon status` exposes ide_signals/s counter    │  ║
-║  │   • daemon.log: one line per warm event with source     │  ║
-║  └─────────────────────────────────────────────────────────┘  ║
-╚═══════════════════════════════════════════════════════════════╝
+╔═══════════════════════════════ ig daemon ══════════════════════════════╗
+║                                                                        ║
+║  ┌──────────────────────────────────────────────────────────────────┐ ║
+║  │  ide_tracker — one thread, poll interval 10 s                    │ ║
+║  │  Iterates `enabled_providers()` (filtered by                     │ ║
+║  │  IG_IDE_TRACKER_PROVIDERS env)                                   │ ║
+║  │                                                                  │ ║
+║  │   ┌──────────────────┐  ┌──────────────────┐  ┌───────────────┐ │ ║
+║  │   │ ClaudeCode-      │  │  Codex-          │  │ OpenCode-     │ │ ║
+║  │   │ Provider         │  │  Provider        │  │ Provider      │ │ ║
+║  │   │ ~/.claude/       │  │ ~/.codex/        │  │ ~/.local/state│ │ ║
+║  │   │   projects/      │  │   sessions/      │  │   /opencode/  │ │ ║
+║  │   │ → cwd + Read     │  │ → session_meta   │  │ frecency.jsonl│ │ ║
+║  │   │   tool_use       │  │   .payload.cwd   │  │ → {path,      │ │ ║
+║  │   │   events         │  │                  │  │   lastOpen}   │ │ ║
+║  │   └─────────┬────────┘  └─────────┬────────┘  └───────┬───────┘ │ ║
+║  │             │                     │                   │         │ ║
+║  │             ▼                     ▼                   ▼         │ ║
+║  │   ┌──────────────────────────────────────────────────────────┐  │ ║
+║  │   │ dedup per (root, source) → mpsc Sender<IdeSignal>        │  │ ║
+║  │   └──────────────────────────┬───────────────────────────────┘  │ ║
+║  └──────────────────────────────┼──────────────────────────────────┘ ║
+║                                 │ IdeSignal { root, hot_files,        ║
+║                                 │   source: ClaudeCode|Codex|OpenCode,║
+║                                 │   last_seen }                       ║
+║                                 ▼                                     ║
+║  ┌──────────────────────────────────────────────────────────────────┐ ║
+║  │  GlobalState::record_ide_signal(sig)                             │ ║
+║  │   • if root not in LRU → warm_tenant(root) (background)          │ ║
+║  │   • if root in LRU     → bump tenant.last_seen                   │ ║
+║  │   • last-signal-wins on `source` column when 2+ providers see    │ ║
+║  │     the same project                                             │ ║
+║  │   • respect LRU max_tenants (8) + memory governor                │ ║
+║  └──────────────────────────────────────────────────────────────────┘ ║
+║                                                                        ║
+║  ┌──────────────────────────────────────────────────────────────────┐ ║
+║  │  Observability (no new CLI)                                      │ ║
+║  │   • boot log: `ide-tracker: active providers = [claude-code,…]`  │ ║
+║  │   • `ig projects list` adds `source=…  hot=N` columns            │ ║
+║  │   • daemon.log: signal-per-line with `source=ide-{claude|codex|  │ ║
+║  │     opencode}`                                                   │ ║
+║  └──────────────────────────────────────────────────────────────────┘ ║
+╚════════════════════════════════════════════════════════════════════════╝
 ```
 
 Legend:
-- `IdeSource` enum: starts with `ClaudeCode` only. `Cursor` and `VSCode`
-  variants are reserved for v2 — not implemented in v1.
-- Hot files = the file paths of the most recent `Read` `tool_use` entries in
-  the active session's JSONL, capped at 20.
+- `IdeSource` enum: `ClaudeCode | Codex | OpenCode`. Each maps to a stable
+  string (`ide-claude`, `ide-codex`, `ide-opencode`).
+- Hot files = provider-specific (Claude Code → `tool_use Read` paths;
+  opencode → recent files inside the project root; Codex → reserved for
+  the rare tool_use shape — typically empty in v1.1). Capped at 20.
+- "Last-signal-wins" on `source`: simple and conforms to the maintainer's
+  intuition (whichever agent you used most recently is what `projects
+  list` shows). The full signal stream is preserved in `daemon.log`.
 
 ## 5. Module contracts
 
-### 5.1 `src/daemon/ide_tracker.rs` (new, ~250 LOC)
+### 5.1 `src/ide_tracker.rs` (~800 LOC for v1.1)
+
+Single-file module exposing the trait and three providers. Kept monolithic
+to make changes diffable and to avoid the `mod.rs` indirection at this
+size; if the file grows past ~1200 LOC it should be split into
+`src/ide_tracker/{mod, claude, codex, opencode}.rs`.
 
 ```rust
-pub enum IdeSource { ClaudeCode }   // v2: + Cursor + VSCode
+pub enum IdeSource { ClaudeCode, Codex, OpenCode }
 
 pub struct IdeSignal {
     pub root: PathBuf,            // canonicalised project root
@@ -137,26 +180,49 @@ pub struct IdeSignal {
     pub last_seen: SystemTime,
 }
 
-/// Spawns the Claude Code poller thread. Returns a receiver the daemon
-/// consumes. If `~/.claude/projects/` doesn't exist, the thread idles and
-/// emits nothing — no error.
+trait IdeProvider: Send + Sync {
+    fn id(&self) -> &'static str;
+    fn ide_source(&self) -> IdeSource;
+    fn is_available(&self) -> bool;
+    fn scan(&self, cutoff: SystemTime) -> Vec<IdeSignal>;
+}
+
+/// Spawns the tracker thread that iterates all available providers
+/// every `poll_interval`. Returns a receiver the daemon consumes.
+/// If no provider's state dir exists, the thread idles without
+/// log spam.
 pub fn spawn_tracker(poll_interval: Duration) -> Receiver<IdeSignal>;
 ```
 
-Implementation notes:
+Implementation notes (shared by all providers):
 
-- Enumerate `~/.claude/projects/` once per poll cycle. Only directories whose
-  mtime is within `active_window` (default 5 min) are candidates.
-- For each candidate, pick the most-recently-modified `*.jsonl`. Tail it
-  (last ~200 lines, or last 64 KiB if larger) via streaming
-  `serde_json::Deserializer` — never load the full file. Extract
-  `tool_use.input.file_path` entries where `name == "Read"`.
-- Path encoding: the dir name is the cwd with `/` replaced by `-` and a
-  leading `-`. Inverse:
-  `dir_name.trim_start_matches('-').replace('-', '/')` → prepend `/` for the
-  absolute path.
-- Per-cycle dedup by `(root, hash(hot_files))` so the channel only fires when
-  something actually changed since the previous tick.
+- Each provider's `scan()` is bounded: mtime filters, tail-byte reads
+  (`JSONL_TAIL_BYTES = 64 KiB`), and provider-specific caps (`recent_rollouts(16)`
+  for Codex). Total poll cost on this Mac: ~5-15 ms.
+- The dedup key is `(root, source)`, not just `root`. The same project
+  warmed by Claude AND opencode generates two separate signal streams,
+  preserved in `daemon.log`. `record_ide_signal` then applies
+  last-signal-wins on the `source` column.
+- `canonical_or_skip()` does two things in one shot: canonicalise the
+  candidate root and run `looks_like_project_root()` (rejects `~`, `/`,
+  `/Users`, `/home`, and paths without a `.git/` or project marker).
+- `looks_like_project_root()` and `find_project_root()` are duplicated
+  inside the module rather than imported from `util::` — the v1.1 module
+  is intentionally standalone so the daemon's existing utilities remain
+  cleanly decoupled from a feature flag.
+
+Per-provider specifics:
+
+- **Claude Code** — source of truth is the `cwd` field inside the JSONL.
+  Falls back to `decode_claude_project_dir()` only when no `cwd` is seen.
+  The decode is lossy for paths containing `-` (Claude doesn't escape it),
+  so the canonical step skips phantoms.
+- **Codex** — date-tree walk; reads `payload.cwd` from `session_meta`. We
+  walk newest year → month → day, accumulate up to `limit * 3 = 48`
+  candidates, sort by mtime descending, truncate to 16.
+- **opencode** — single file (`frecency.jsonl`), single pass. Each entry
+  is a `(path, frequency, lastOpen)` triple; we bucket per project root
+  via `find_project_root` and emit one signal per root.
 
 ### 5.2 `src/daemon.rs` (extend, ~80 LOC)
 
@@ -185,43 +251,50 @@ Hook the tracker into `start_daemon` so a fresh daemon picks it up on boot.
 
 ### 5.3 `src/main.rs` (extend `ig projects list`, ~15 LOC)
 
-New columns:
+New columns (tab-separated, `awk`/`cut` parseable):
 
 ```
-ROOT                                     LAST_SEEN  SOURCE        HOT
-/Users/kev/.../tilvest/distribution-app   12s ago    ide-cursor    5
-/Users/kev/.../instant-grep               1m04s ago  ide-claude   12
-/Users/kev/.../workflow-rev               4m12s ago  search        0
+/Users/kev/.../instant-grep                   last_seen=3s    source=ide-codex      hot=0
+/Users/kev/.../tilvest/distribution-app-v2    last_seen=12s   source=ide-claude     hot=4
+/private/tmp/demo-tracker                     last_seen=11s   source=ide-claude     hot=1
+/Users/kev/.../kweli-project                  last_seen=2m    source=ide-opencode   hot=0
 ```
 
-`source` is the source of the *most-recent* signal for that tenant. `hot` is
-the size of the last hot-file list (capped at 20).
+`source` is the source of the *most-recent* signal for that tenant
+(`ide-claude` / `ide-codex` / `ide-opencode` / `search` when the project
+was warmed by an explicit `ig` command rather than the tracker). `hot` is
+the size of the last hot-file list, capped at 20.
 
 ## 6. Config knobs
-
-Add to `~/.config/ig/config.toml` under `[ide_tracker]`:
 
 ```toml
 [ide_tracker]
 enabled = true
 poll_interval_secs = 10
-active_window_secs = 300          # ignore Claude projects untouched > 5 min
+active_window_secs = 300            # ignore state-files untouched > 5 min
 max_hot_files_per_signal = 20
-excluded_roots = []                # absolute paths to never auto-warm
-sources = ["claude"]               # v2: + "cursor" + "vscode"
+excluded_roots = []                  # absolute paths to never auto-warm
+providers = ["claude", "codex", "opencode"]
 ```
 
-Env overrides: `IG_IDE_TRACKER_ENABLED=0`, `IG_IDE_TRACKER_POLL_MS=10000`.
+Env overrides:
+- `IG_IDE_TRACKER_ENABLED=0` — master kill switch.
+- `IG_IDE_TRACKER_POLL_MS=10000` — cadence override.
+- `IG_IDE_TRACKER_PROVIDERS="claude,opencode"` — opt out of a provider
+  without disabling the whole tracker. Accepted values: `claude`,
+  `claude-code`, `codex`, `opencode`, `all` (default = all enabled).
 
 ## 7. Edge cases & failure modes
 
-- **State file locked**: `state.vscdb` may be locked when Cursor is launching.
-  Read-only mode handles this; on failure we just skip the cycle.
-- **No git root for hot file**: a Claude Code `Read` event might be for a file
-  outside any project (e.g. `/tmp/foo`). We use `find_root()` to resolve it; if
-  it returns the file's parent, we skip emitting (don't warm random temp dirs).
-- **TCC prompts on first read**: Cursor / Claude state files are inside the
-  user's home, no TCC trigger. macOS Privacy is not affected.
+- **State file locked / missing fields**: every JSONL parse is best-effort.
+  Malformed lines, unexpected schemas, and IO errors are silently skipped.
+- **Codex `payload.cwd` absent**: the rollout is skipped (we don't try
+  to infer the cwd from file paths).
+- **opencode entry without a project root**: `find_project_root` returns
+  `None` and the entry is dropped (don't warm `/tmp/foo` or arbitrary
+  files).
+- **TCC prompts on first read**: all state files are inside the user's
+  home — no Documents/Desktop trigger.
 - **Memory pressure**: the existing memory governor already evicts tenants. The
   tracker only signals "this root is active"; the governor decides whether the
   warm survives. No new memory policy.
@@ -229,48 +302,65 @@ Env overrides: `IG_IDE_TRACKER_ENABLED=0`, `IG_IDE_TRACKER_POLL_MS=10000`.
 
 ## 8. Testing
 
-- **Unit**: parse a fixture `<sessionId>.jsonl` (committed under
-  `tests/fixtures/claude-session.jsonl`) and assert the Read paths are
-  extracted in correct order, deduped, capped at 20.
-- **Unit**: `decode_claude_project_dir("-Users-kev-Documents-foo")` →
-  `/Users/kev/Documents/foo`. Round-trip with `encode_claude_project_dir`.
-- **Integration**: spawn the daemon with `IG_IDE_TRACKER_POLL_MS=500`, create a
-  temp `~/.claude/projects/-tmp-XYZ/` with a synthetic JSONL, assert
-  `ig projects list --json` shows the decoded root with `source=ide-claude`
-  within 2 s.
-- **Real test (per CLAUDE.md policy — Claude `-p` driven)**:
-  ```bash
-  # 1. Fresh daemon
-  ig daemon uninstall && ig daemon install
+Per-provider unit tests live in `src/ide_tracker.rs` (8 tests as of v1.1):
 
-  # 2. Launch a Claude Code one-shot in a project the daemon hasn't seen
-  cd /tmp && git init test-ide-tracker && cd test-ide-tracker
-  echo 'fn main() { println!("hello"); }' > main.rs
-  claude -p "read main.rs and tell me what it does"
+- **shared**: `decode_round_trip_for_paths_without_dashes`,
+  `decode_rejects_bad_input`, `looks_like_project_root_basic`,
+  `collect_read_paths_dedupes_and_orders`.
+- **Claude Code**: `claude_provider_extracts_cwd_from_jsonl_with_dashed_dir_name`
+  proves the `cwd` field beats the lossy dir-name decode.
+- **Codex**: `codex_session_meta_payload_cwd_is_extracted` parses a
+  fixture rollout and asserts the `payload.cwd` is recovered.
+- **opencode**: `opencode_frecency_buckets_paths_by_project_root`
+  synthesises a `frecency.jsonl`, walks `find_project_root` and asserts
+  per-root bucketing + stale-entry filtering.
 
-  # 3. Wait one poll cycle (≤ 10 s), then verify
-  sleep 12
-  ig projects list   # → /tmp/test-ide-tracker should appear, source=ide-claude
-  ig daemon status   # → ide_signals counter > 0
-  ```
-  Must reproduce on a clean cache and must not require any explicit `ig`
-  invocation against the test project before step 3.
+Real test (CLAUDE.md policy, executed on this Mac on 2026-05-13):
+
+```bash
+# Setup
+mkdir /tmp/demo-tracker && cd $_ && git init -q
+echo 'fn main(){}' > main.rs && git add -A && git commit -qm init
+
+# Provoke a signal for each provider
+claude -p "read main.rs"                              # claude-code
+echo '{"type":"session_meta","payload":{"cwd":"/Users/kev/.../instant-grep"}}' \
+  > ~/.codex/sessions/2026/05/13/rollout-synth.jsonl   # codex (synth fixture)
+echo '{"path":"/Users/kev/.../kweli-project/apps/api","lastOpen":'$(date +%s000)'}' \
+  >> ~/.local/state/opencode/frecency.jsonl            # opencode
+
+sleep 12 && ig projects list
+# Observed:
+#   /private/tmp/demo-tracker                  source=ide-claude     hot=1
+#   /Users/kev/.../instant-grep                source=ide-codex      hot=0
+#   /Users/kev/.../kweli-project               source=ide-claude     hot=0   (or ide-opencode pre-Claude poll)
+```
+
+Pass criterion: each of the three providers must contribute at least one
+recorded signal in `daemon.log` within 30 s.
 
 ## 9. Roll-out
 
-1. Land the spec (this file).
-2. Implement `ide_tracker` module behind a feature flag (`IG_IDE_TRACKER=1`).
-3. Default-on after a week of self-dogfooding on this machine.
-4. v1.20 release notes call out the new behaviour explicitly so users who
-   prefer the old passive warm can flip the toggle off.
+1. ~~Land the spec~~ (done: `20667a0`).
+2. ~~Implement Claude Code tracker (v1)~~ (done: `fa97846`).
+3. ~~Refactor to provider trait + add Codex + opencode (v1.1)~~ (done: `2fe4346`).
+4. **Next**: self-dogfood for ≥ 1 week. Reassess defaults (`active_window`,
+   `recent_rollouts(N)`, hot-files cap) based on real signal volume.
+5. v1.20 release notes: explicit mention of the new behaviour + opt-out
+   instructions for users who prefer the passive warm.
 
 ## 10. Out of scope (next specs, not this one)
 
 - **Semantic retrieval (`ig --semantic` with real embeddings)**: separate spec.
 - **Claude Code `PreToolUse` hook for pre-fetch**: separate spec.
+- **Cursor app + VS Code state.vscdb sources**: deferred (sqlite dep weight
+  vs current UX gain). See Appendix B.
 - **`.igignore` file** to let users carve out paths from auto-warm: trivial
   extension once this lands.
 - **`ig hot`** sub-command listing the cross-source hot-set: post-MVP polish.
+- **Pre-mmap hot_files** into the tenant on signal: covered by the trait
+  already (signals carry `hot_files`), but the warmer doesn't act on them
+  yet. ~50 LOC follow-up.
 
 ---
 
