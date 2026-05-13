@@ -107,6 +107,20 @@ else
   rm -f "$SHARE_DIR/ig-rust"
 fi
 
+# Stable codesign identifier on macOS — prevents TCC from re-prompting for
+# file-access permissions after every `ig update`. Without this, the ad-hoc
+# identifier embeds the binary hash (e.g. `ig-5555494468fc...`), so each
+# rebuild looks like a brand-new app to the TCC database and BTM service.
+# Bundle ID `dev.makfly.ig` is stable across releases; only the CDHash
+# changes, and TCC keys off the identifier when the team is unset.
+if [ "$OS" = "Darwin" ]; then
+  for bin in "$BIN_DIR/ig" "$SHARE_DIR/ig-rust"; do
+    [ -f "$bin" ] || continue
+    codesign --force --sign - --identifier dev.makfly.ig "$bin" 2>/dev/null \
+      || echo "  ⚠ codesign failed for $bin (TCC may re-prompt on next launch)"
+  done
+fi
+
 # Migration: clean up legacy ig-rust placed next to the shim ──────────────────
 for legacy in "$REAL_HOME/.local/bin/ig-rust" "$REAL_HOME/.cargo/bin/ig-rust" "/usr/local/bin/ig-rust"; do
   if [ -f "$legacy" ]; then
@@ -152,3 +166,13 @@ echo "Ready! Try: ig \"hello\" ."
 # Auto-configure AI CLI agents + shell hook
 echo ""
 "$BIN_DIR/ig" setup || true
+
+# Auto-install the global daemon (launchd/systemd-user) so it survives reboots
+# and auto-restarts after every `ig update`. Opt-out with IG_NO_DAEMON_INSTALL=1.
+if [ "${IG_NO_DAEMON_INSTALL:-0}" != "1" ]; then
+  echo ""
+  echo "Installing global daemon (auto-start on login)..."
+  if ! "$BIN_DIR/ig" daemon install; then
+    echo "  ⚠ daemon install failed. Run 'ig daemon install' manually later."
+  fi
+fi

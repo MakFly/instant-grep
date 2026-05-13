@@ -171,7 +171,7 @@ So before declaring any work done, run **all three layers**:
 1. **Unit tests** — `cargo test --quiet`. 425+ passing, no failures.
 2. **Lint + format** — `cargo clippy --all-targets -- -D warnings && cargo fmt --check`.
 3. **Real tests** — exercise the actual binary against the actual cache:
-   - `cp target/release/ig ~/.local/bin/ig && codesign -fs - ~/.local/bin/ig` (macOS).
+   - `cp target/release/ig ~/.local/bin/ig && codesign -fs - -i dev.makfly.ig ~/.local/bin/ig` (macOS). The `-i dev.makfly.ig` keeps the codesign identifier stable across rebuilds, so TCC (privacy database) and BTM (background-item service) don't re-prompt the user for file-access permissions or notify "Background Items Added" on every binary change. Without `-i`, ad-hoc codesign embeds the binary hash in the identifier and macOS treats each rebuild as a brand-new app.
    - `ig daemon stop && ig daemon start` — verify the daemon comes up cleanly.
    - `ig daemon status` — confirms PID + socket path.
    - On a real project (tilvest, instant-grep, …) : `ig -c "<pattern>"` returns the same count as `rg -c "<pattern>"` (parity check).

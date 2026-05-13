@@ -2042,6 +2042,220 @@ fn purge_legacy_per_project_daemons() {
             removed, killed
         );
     }
+
+    // Kill stray pre-v1.19 `ig-rust daemon foreground` processes left over
+    // from the shim+backend layout. The new layout ships a single `ig`
+    // binary, but a legacy `ig-rust` daemon launched before the migration
+    // can survive across reinstalls and squat memory / a stale socket.
+    purge_legacy_ig_rust_daemons();
+}
+
+/// Kill any leftover `ig-rust daemon …` process (legacy shim+backend layout)
+/// or `target/release/ig daemon …` test orphans whose socket lives outside
+/// the canonical cache dir. Best-effort, silent on failure.
+fn purge_legacy_ig_rust_daemons() {
+    let canonical_sock = socket_path();
+    // `ps -ax -o pid=,command=` is portable across macOS (BSD ps) and Linux
+    // (procps). pgrep's `-a/--full-format` flag is Linux-only and silently
+    // returns bare PIDs on macOS, which used to defeat the cmdline match.
+    let Ok(out) = std::process::Command::new("ps")
+        .args(["-axww", "-o", "pid=,command="])
+        .output()
+    else {
+        return;
+    };
+    if !out.status.success() {
+        return;
+    }
+    let mut killed = 0usize;
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let line = line.trim_start();
+        let mut parts = line.splitn(2, ' ');
+        let Some(pid_str) = parts.next() else { continue };
+        let Some(cmd) = parts.next().map(str::trim_start) else {
+            continue;
+        };
+        if !cmd.contains("daemon foreground") {
+            continue;
+        }
+        let Ok(pid) = pid_str.trim().parse::<i32>() else {
+            continue;
+        };
+        if pid == std::process::id() as i32 {
+            continue;
+        }
+        // Only kill if it's clearly a legacy ig-rust binary, or an `ig`
+        // process whose socket doesn't match the canonical cache path
+        // (i.e. a `target/release/ig daemon` test orphan with TMPDIR set).
+        let is_legacy_rust = cmd.contains("/ig-rust ") || cmd.ends_with("/ig-rust");
+        let is_test_orphan = cmd.contains("target/release/ig")
+            || cmd.contains("target/debug/ig");
+        if !(is_legacy_rust || is_test_orphan) {
+            continue;
+        }
+        // Best-effort: don't touch a process that owns the canonical socket
+        // — that would be the real daemon under a non-standard invocation.
+        if owns_socket(pid, &canonical_sock) {
+            continue;
+        }
+        unsafe {
+            libc::kill(pid, libc::SIGTERM);
+        }
+        killed += 1;
+    }
+    if killed > 0 {
+        eprintln!("Purged {} legacy/orphan ig daemon process(es).", killed);
+    }
+}
+
+fn owns_socket(pid: i32, sock: &Path) -> bool {
+    let Ok(out) = std::process::Command::new("lsof")
+        .args(["-p", &pid.to_string(), "-Fn"])
+        .output()
+    else {
+        return false;
+    };
+    String::from_utf8_lossy(&out.stdout).contains(&*sock.to_string_lossy())
+}
+
+/// Enumerate every running `ig daemon foreground` process, regardless of
+/// whether it lives under `~/.cargo/bin`, `~/.local/bin`, `target/{debug,release}`,
+/// or a legacy `ig-rust` path. Excludes the current process.
+fn find_ig_daemon_processes() -> Vec<i32> {
+    let Ok(out) = std::process::Command::new("ps")
+        .args(["-axww", "-o", "pid=,command="])
+        .output()
+    else {
+        return Vec::new();
+    };
+    let mut pids = Vec::new();
+    let me = std::process::id() as i32;
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let line = line.trim_start();
+        let mut parts = line.splitn(2, ' ');
+        let Some(pid_str) = parts.next() else { continue };
+        let Some(cmd) = parts.next().map(str::trim_start) else {
+            continue;
+        };
+        if !cmd.contains("daemon foreground") {
+            continue;
+        }
+        let looks_like_ig = cmd.contains("/ig ")
+            || cmd.ends_with("/ig")
+            || cmd.contains("/ig-rust")
+            || cmd.contains("target/release/ig")
+            || cmd.contains("target/debug/ig");
+        if !looks_like_ig {
+            continue;
+        }
+        if let Ok(pid) = pid_str.trim().parse::<i32>()
+            && pid != me
+        {
+            pids.push(pid);
+        }
+    }
+    pids
+}
+
+/// Post-install/update sanity check. Verifies the daemon ended up in a
+/// healthy state and cleans up any stray processes left behind. Returns
+/// `Ok(())` only when:
+///  * exactly one `ig daemon foreground` process is running,
+///  * the canonical socket exists and answers a `projects_list` ping,
+///  * the pidfile (if present) matches the running daemon.
+///
+/// Attempts automatic remediation (kill orphans) before giving up.
+pub fn verify_daemon_health() -> Result<()> {
+    // 1. Wait briefly for the freshly-bootstrapped daemon to come up.
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !is_daemon_available() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    if !is_daemon_available() {
+        anyhow::bail!("daemon socket not available within 3s of install");
+    }
+
+    // 2. Functional ping — make sure the daemon actually answers, not just
+    //    that the socket file exists.
+    let resp = list_projects_daemon().context("daemon ping (projects_list)")?;
+    if let Some(err) = resp.error {
+        anyhow::bail!("daemon ping returned error: {}", err);
+    }
+
+    // 3. Stray-process check + auto-cleanup.
+    let canonical_sock = socket_path();
+    let pids = find_ig_daemon_processes();
+    if pids.len() > 1 {
+        let mut killed = 0usize;
+        for pid in &pids {
+            if !owns_socket(*pid, &canonical_sock) {
+                unsafe {
+                    libc::kill(*pid, libc::SIGTERM);
+                }
+                killed += 1;
+            }
+        }
+        if killed > 0 {
+            eprintln!("Health check: cleaned up {} stray ig daemon process(es).", killed);
+            std::thread::sleep(Duration::from_millis(300));
+        }
+        let pids_after = find_ig_daemon_processes();
+        if pids_after.len() > 1 {
+            anyhow::bail!(
+                "{} ig daemon processes remain after auto-cleanup (PIDs: {:?})",
+                pids_after.len(),
+                pids_after
+            );
+        }
+    } else if pids.is_empty() {
+        anyhow::bail!("daemon socket responds but no ig daemon process found");
+    }
+
+    // 4. Pidfile coherence (warn-only — pidfile drift isn't fatal).
+    if let Ok(content) = std::fs::read_to_string(pid_path())
+        && let Ok(file_pid) = content.trim().parse::<i32>()
+    {
+        let pids_final = find_ig_daemon_processes();
+        if !pids_final.contains(&file_pid) {
+            eprintln!(
+                "warn: pidfile points to PID {} but running daemon is {:?}",
+                file_pid, pids_final
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// Cheap pre-check used by `install_launchd` to decide whether a reinstall
+/// is actually needed. Skipping the reload keeps macOS from spamming the
+/// "Background items added" Notification Center entry on every `ig update`.
+#[cfg(target_os = "macos")]
+fn launchd_already_healthy(plist_path: &Path, current_exe: &Path) -> bool {
+    if !plist_path.exists() {
+        return false;
+    }
+    // Plist must reference the exe we'd otherwise install. Comparing as
+    // string is good enough: install_launchd writes the same Display fmt.
+    let Ok(body) = std::fs::read_to_string(plist_path) else {
+        return false;
+    };
+    let exe_str = current_exe.display().to_string();
+    if !body.contains(&exe_str) {
+        return false;
+    }
+    // launchctl must report the service as loaded.
+    let Ok(out) = std::process::Command::new("launchctl")
+        .args(["list", "com.ig.daemon.global"])
+        .output()
+    else {
+        return false;
+    };
+    if !out.status.success() {
+        return false;
+    }
+    // And the daemon process / socket must respond.
+    is_daemon_available()
 }
 
 // ─── Service install (systemd-user / launchd) ───────────────────────────────
@@ -2088,22 +2302,67 @@ pub fn install_launchd(_legacy_path: &Path) -> Result<()> {
         exe = exe.display(),
         log = log.display(),
     );
+    // Idempotent fast-path: if the plist already points to this exe AND the
+    // service is loaded AND the daemon socket answers, we don't touch
+    // anything. This avoids triggering macOS's "Background items added"
+    // Notification Center entry on every `ig update`.
+    if launchd_already_healthy(&plist_path, &exe) {
+        eprintln!("Daemon already installed and healthy — nothing to do.");
+        return Ok(());
+    }
+
     std::fs::write(&plist_path, body).context("write plist")?;
 
-    let status = std::process::Command::new("launchctl")
-        .args(["load", &plist_path.to_string_lossy()])
-        .status()
-        .context("launchctl load")?;
-    if status.success() {
-        eprintln!("Installed: {}", plist_path.display());
-        eprintln!("Daemon will auto-start on login.");
-    } else {
-        eprintln!(
-            "launchctl load failed (exit {})",
-            status.code().unwrap_or(-1)
-        );
+    // Idempotent reload using modern launchctl (bootout/bootstrap). The legacy
+    // `load`/`unload` verbs are deprecated on macOS Catalina+ and fail with
+    // I/O errors when the agent was loaded into a different domain or when
+    // launchd has already started the job. Bootstrapping into `gui/<uid>` is
+    // the documented replacement and is supported since OS X Yosemite (2014).
+    let uid = unsafe { libc::getuid() };
+    let domain = format!("gui/{}", uid);
+    let service_target = format!("{}/{}", domain, label);
+
+    // Tear down any previous instance of the agent and clean stale state so
+    // the freshly-bootstrapped process starts from a known-good baseline.
+    let _ = std::process::Command::new("launchctl")
+        .args(["bootout", &service_target])
+        .status();
+    let _ = stop_daemon(Path::new("/"));
+    let daemon_dir = crate::cache::daemon_dir();
+    for stale in ["daemon.pid", "daemon.sock", "daemon.lock"] {
+        let _ = std::fs::remove_file(daemon_dir.join(stale));
     }
-    Ok(())
+
+    // launchd needs a brief moment to fully tear down the previous job before
+    // accepting a fresh bootstrap on the same label; otherwise it returns
+    // "Input/output error" (EIO). Retry with a short backoff.
+    let mut last_code = -1;
+    for attempt in 0..5 {
+        if attempt > 0 {
+            std::thread::sleep(Duration::from_millis(300 * attempt as u64));
+            // Repeated bootout in case the previous one was racy/silent.
+            let _ = std::process::Command::new("launchctl")
+                .args(["bootout", &service_target])
+                .status();
+        }
+        let status = std::process::Command::new("launchctl")
+            .args(["bootstrap", &domain, &plist_path.to_string_lossy()])
+            .status()
+            .context("launchctl bootstrap")?;
+        if status.success() {
+            eprintln!("Installed: {}", plist_path.display());
+            eprintln!("Daemon will auto-start on login.");
+            // Final sanity check — guarantees the user doesn't end up with
+            // multiple ig-daemon processes or a non-responsive socket.
+            match verify_daemon_health() {
+                Ok(()) => eprintln!("Health check: ✓"),
+                Err(e) => return Err(e.context("post-install health check")),
+            }
+            return Ok(());
+        }
+        last_code = status.code().unwrap_or(-1);
+    }
+    anyhow::bail!("launchctl bootstrap failed after retries (exit {})", last_code);
 }
 
 #[cfg(target_os = "macos")]
@@ -2114,8 +2373,10 @@ pub fn uninstall_launchd(_legacy_path: &Path) -> Result<()> {
         .join("Library/LaunchAgents")
         .join(format!("{}.plist", label));
     if plist_path.exists() {
+        let uid = unsafe { libc::getuid() };
+        let service_target = format!("gui/{}/{}", uid, label);
         let _ = std::process::Command::new("launchctl")
-            .args(["unload", &plist_path.to_string_lossy()])
+            .args(["bootout", &service_target])
             .status();
         std::fs::remove_file(&plist_path).context("remove plist")?;
         eprintln!("Uninstalled: {}", plist_path.display());
@@ -2169,6 +2430,16 @@ pub fn install_launchd(_legacy_path: &Path) -> Result<()> {
             status.code().unwrap_or(-1)
         );
     }
+
+    // Idempotent reload: restart so a freshly-installed binary replaces any
+    // already-running instance launched from a stale exe path.
+    let _ = std::process::Command::new("systemctl")
+        .args(["--user", "restart", "ig-daemon.service"])
+        .status();
+
+    // Final sanity check — same contract as the macOS path.
+    verify_daemon_health().context("post-install health check")?;
+    eprintln!("Health check: ✓");
     Ok(())
 }
 

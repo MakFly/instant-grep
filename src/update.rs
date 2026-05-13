@@ -172,6 +172,31 @@ pub fn run_update() -> Result<()> {
     Ok(())
 }
 
+/// Return true if a launchd plist (macOS) or systemd-user unit (Linux) has
+/// already been installed for ig-daemon. Used by `post_update_rewarm` to
+/// decide whether to reload the service manager vs. just inline-restart.
+fn service_unit_installed() -> bool {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return false,
+    };
+    #[cfg(target_os = "macos")]
+    {
+        home.join("Library/LaunchAgents/com.ig.daemon.global.plist")
+            .exists()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let cfg = dirs::config_dir().unwrap_or_else(|| home.join(".config"));
+        cfg.join("systemd/user/ig-daemon.service").exists()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = home;
+        false
+    }
+}
+
 fn post_update_rewarm() -> Result<()> {
     eprintln!("  Refreshing ig ecosystem...");
     // Quiet mode: only surface the agent rule files that actually drifted
@@ -182,12 +207,33 @@ fn post_update_rewarm() -> Result<()> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let root = crate::util::find_root(&cwd);
 
-    if crate::daemon::is_daemon_available() {
+    let service_installed = service_unit_installed();
+    if service_installed {
+        // launchd/systemd-user agent already installed: reload it so the
+        // (auto-restarting) service picks up the new exe path. install_launchd
+        // is idempotent — it unloads first, stops the running daemon, then
+        // loads/starts again.
+        eprint!("  Reloading daemon service... ");
+        io::stderr().flush().ok();
+        match crate::daemon::install_launchd(&root) {
+            Ok(_) => eprintln!("✓"),
+            Err(e) => eprintln!("skipped ({})", e),
+        }
+    } else if crate::daemon::is_daemon_available() {
+        // No service unit, but a daemon is running (manual `ig daemon start`):
+        // restart it inline so the new binary takes over.
         eprint!("  Restarting daemon... ");
         io::stderr().flush().ok();
         crate::daemon::stop_daemon(&root)?;
         crate::daemon::start_daemon_background_silent(&root)?;
-        eprintln!("✓");
+        match crate::daemon::verify_daemon_health() {
+            Ok(()) => eprintln!("✓"),
+            Err(e) => eprintln!("⚠ {}", e),
+        }
+    } else {
+        eprintln!(
+            "  Daemon not running. Run `ig daemon install` once to enable auto-start."
+        );
     }
 
     eprint!("  Rewarming current project... ");
@@ -546,6 +592,20 @@ fn atomic_install(bytes: &[u8], dest: &std::path::Path) -> Result<()> {
     // persist() does an atomic rename; falls back to copy on cross-device
     if let Err(e) = tmp.persist(dest) {
         fs::copy(e.file.path(), dest).context("failed to copy binary into place")?;
+    }
+
+    // macOS: re-sign with a stable identifier so TCC and BTM stop treating
+    // every `ig update` as a brand-new app. Without `-i`, codesign embeds
+    // the binary hash into the identifier (`ig-<sha256-prefix>`), which
+    // forces a fresh permission prompt on every rebuild. Best-effort: a
+    // failed sign-attempt isn't fatal — the binary remains usable, the user
+    // will just see TCC prompts again until the next update.
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("codesign")
+            .args(["--force", "--sign", "-", "--identifier", "dev.makfly.ig"])
+            .arg(dest)
+            .status();
     }
 
     Ok(())
