@@ -2,6 +2,38 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.19.12] — 2026-05-13
+
+### Added — IDE tracker, multi-provider (Claude Code / Codex CLI / opencode)
+
+The daemon now learns proactively which projects you're working on by reading the on-disk state of three popular AI-coding agents — no embeddings, no cloud, no IDE extension required. Reverse-engineering [`cursor-retrieval`](https://github.com/getcursor/cursor) confirmed Anysphere's stack relies on a sibling Rust binary (`crepectl`) with a near-identical n-gram pipeline; the differentiator was their tracker, not their indexer. This release closes the gap.
+
+- **Three providers** parsed locally and read-only:
+  - `claude-code` → `~/.claude/projects/<encoded>/<sessionId>.jsonl` (top-level `cwd` field + `tool_use Read` events).
+  - `codex` → `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (`payload.cwd` from `session_meta`).
+  - `opencode` → `~/.local/state/opencode/frecency.jsonl` (`{path, lastOpen}` bucketed per project root).
+- Poll cadence: 10 s. Per-cycle dedup keyed on `(root, source)` so the same project warmed by two agents emits two distinct signal streams (visible in `daemon.log`).
+- `ig projects list` gains `source=ide-…  hot=N` columns. Last-signal-wins on the `source` column when multiple providers see the same root.
+- Boot log: `ide-tracker: active providers = [claude-code, codex, opencode]`. Lets you verify at a glance which agents the daemon is watching.
+- Env knobs: `IG_IDE_TRACKER_PROVIDERS="claude,codex,opencode"` (default = all), `IG_IDE_TRACKER_ENABLED=0` (master kill switch), `IG_IDE_TRACKER_POLL_MS=10000` (cadence override).
+- Spec: [`docs/specs/SPEC-ide-tracker.md`](docs/specs/SPEC-ide-tracker.md).
+- Cursor app + VS Code (`state.vscdb`) sources are explicitly deferred to v2 — the sqlite weight isn't justified while the maintainer's daily drivers are Claude/Codex/opencode.
+
+### Fixed — daemon lifecycle bulletproof on macOS
+
+- `launchctl load/unload` is deprecated since Catalina and returns `Input/output error` on Sonoma+. Switched `install_launchd` to the modern `bootstrap`/`bootout` API against `gui/<uid>`, with a short retry-backoff for the EIO case where launchd hasn't fully torn down the previous job yet. Fresh installs that used to silently leave the daemon down now reliably start it.
+- `install_launchd` is now **idempotent and skip-fast**: if the plist already points to the current exe AND the service is loaded AND the daemon socket answers, the call is a no-op. This eliminates the repeated "Background Items Added" Notification Center entries on every `ig update`.
+- New `verify_daemon_health()` runs after every install / update: confirms the socket answers a real `projects_list` ping AND that exactly one `ig daemon foreground` process is running. Strays (test orphans from `target/{debug,release}/ig`, legacy `ig-rust` daemons surviving from the pre-v1.19 shim+backend layout) are SIGTERM'd. Uses `ps -axww -o pid=,command=` for portable cmdline matching (`pgrep -af` was Linux-only and silently returned bare PIDs on macOS).
+- `post_update_rewarm` now actually reloads the daemon: previously it gated its restart on `is_daemon_available()`, so a crashed or never-installed daemon stayed dead across updates. New logic: if a service unit exists, call `install_launchd` (now idempotent) to reload via the service manager; else inline-restart; else print a one-liner pointing at `ig daemon install`.
+- `install.sh` auto-runs `ig daemon install` at the end (opt-out via `IG_NO_DAEMON_INSTALL=1`), so a fresh `curl … | bash` no longer leaves the user with a binary but no daemon.
+
+### Fixed — stable codesign identifier on macOS (stops TCC re-prompts)
+
+Ad-hoc codesign with no `-i` embeds the binary hash into the Bundle ID (`ig-5555494468fc…`), so every rebuild looked like a brand-new app to the TCC database and BTM service. macOS would re-prompt for file-access permissions on every `ig update`.
+
+- `install.sh` and `update.rs::atomic_install` now re-sign with `--identifier dev.makfly.ig` after every install. The Bundle ID stays constant across releases — TCC keys off the identifier when the team is unset, which lets you grant Full Disk Access (or accept the per-folder prompts) **once** and keep it forever.
+- Note that the CDHash still changes per build; this is the expected price of ad-hoc signing. The identifier-stable approach gets you ~99% of the way to Developer-ID-style trust without the $99/year Apple Developer Program subscription.
+
 ## [1.19.11] — 2026-05-13
 
 ### Fixed — `session-start.sh` shebang broke on Linux
