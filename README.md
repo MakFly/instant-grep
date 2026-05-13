@@ -156,16 +156,16 @@ curl -fsSL https://raw.githubusercontent.com/MakFly/instant-grep/main/install.sh
 
 ### Download binaries
 
-Since **v1.13.0**, `ig` ships as two artefacts per platform — a tiny C shim (in your `PATH`) and a hidden Rust backend. Grab both from [Releases](https://github.com/MakFly/instant-grep/releases/latest):
+Since **v1.20.0**, `ig` ships as a single self-contained Rust binary per platform (the pre-v1.20 C shim + backend split has been collapsed — `install.sh` and `ig update` both remove any stale `ig-rust` left over from older installs). Grab the one for your arch from [Releases](https://github.com/MakFly/instant-grep/releases/latest):
 
-| Platform                | Shim (→ `~/.local/bin/ig`)  | Backend (→ `~/.local/share/ig/bin/ig-rust`) |
-| ----------------------- | --------------------------- | ------------------------------------------- |
-| Linux x86_64            | `ig-linux-x86_64`           | `ig-linux-x86_64-rust`                      |
-| Linux ARM64             | `ig-linux-aarch64`          | `ig-linux-aarch64-rust`                     |
-| macOS x86_64            | `ig-macos-x86_64`           | `ig-macos-x86_64-rust`                      |
-| macOS ARM (M1/M2/M3/M4) | `ig-macos-aarch64`          | `ig-macos-aarch64-rust`                     |
+| Platform                | Binary (→ `~/.local/bin/ig`) |
+| ----------------------- | ----------------------------- |
+| Linux x86_64            | `ig-linux-x86_64`             |
+| Linux ARM64             | `ig-linux-aarch64`            |
+| macOS x86_64            | `ig-macos-x86_64`             |
+| macOS ARM (M1/M2/M3/M4) | `ig-macos-aarch64`            |
 
-The shim resolves the backend through `$IG_BACKEND` → `~/.local/share/ig/bin/ig-rust` → `/usr/local/share/ig/bin/ig-rust` → first `ig-rust` on `PATH`. Use `install.sh` to do this layout automatically (recommended).
+Use `install.sh` to download, codesign (stable identifier `dev.makfly.ig` on macOS), and install the daemon automatically (recommended).
 
 ### Build from source
 
@@ -769,23 +769,23 @@ The optimal strategy: `ig symbols | grep KEYWORD` for definitions, `ig -l "KEYWO
 
 ## How it works
 
-### Distribution: C shim + hidden Rust backend (v1.13.0)
+### Distribution: single-binary Rust (v1.20.0+)
 
 ```
 ┌────────────────────────┐
-│ ~/.local/bin/ig        │   35 KB C shim, in $PATH
-│ (C shim, in PATH)      │
+│ ~/.local/bin/ig        │   ~5.6 MB self-contained Rust binary, in $PATH
+│ (one binary, the only  │   codesigned with stable identifier dev.makfly.ig
+│  thing the user sees)  │   on macOS so TCC doesn't re-prompt on every update.
 └───────────┬────────────┘
-            │ hot path: argv → daemon socket (no execve)
-            │ cold path: execve($IG_BACKEND or fallback)
+            │ hot path: argv → daemon socket (always — no fork/exec)
+            │ cold path: in-process subcommand dispatch
             ▼
-┌──────────────────────────────────────┐
-│ ~/.local/share/ig/bin/ig-rust        │   5.1 MB Rust backend, hors $PATH
-│ (Rust backend)                       │
-└──────────────────────────────────────┘
+        (no separate backend)
 ```
 
-A single `ig` name in your `PATH`. The shim handles the hot subcommands (`search`, `grep`, `files`, `count`) entirely in C — argv parse, root resolve, daemon socket round-trip — for sub-2 ms cold start. Cold-path subcommands (`index`, `setup`, `update`, …) `execve` the backend. Backend resolution: `$IG_BACKEND` → user share → system share → first `ig-rust` on `PATH`.
+Pre-v1.20 ig shipped a tiny C shim that `execve`'d a hidden Rust backend at `~/.local/share/ig/bin/ig-rust`. The shim saved a few milliseconds of cold start but cost an extra `fork()` per invocation, ~150 LOC of C glue, a second build toolchain in CI, and a class of "shim can't find backend" bugs. v1.20 collapses that into a single Rust binary: the daemon socket round-trip dominates on warm calls anyway, and the cold-start delta is irrelevant once the kernel has page-cached the binary.
+
+`install.sh` and `ig update` both detect and clean up any leftover `ig-rust` from a pre-v1.20 install (see `clean_legacy_backend()` in `src/update.rs`).
 
 ### The pipeline
 
@@ -989,7 +989,7 @@ No. The default binary contains zero network code on the search path. The option
 
 ### Linux, macOS, Windows?
 
-Linux (x86_64 + ARM64) and macOS (x86_64 + Apple Silicon) are first-class — both ship a C shim + Rust backend with `install.sh` doing the placement automatically. **Windows is not supported** today (the daemon uses Unix domain sockets and `notify` filesystem watching paths that aren't portable). WSL2 works fine.
+Linux (x86_64 + ARM64) and macOS (x86_64 + Apple Silicon) are first-class — each ships a single self-contained Rust binary, codesigned ad-hoc with a stable identifier on macOS. `install.sh` downloads, codesigns and installs the daemon automatically. **Windows is not supported** today (the daemon uses Unix domain sockets and `notify` filesystem watching paths that aren't portable). WSL2 works fine.
 
 ### How does this compare to `the_silver_searcher` (`ag`) or `ack`?
 

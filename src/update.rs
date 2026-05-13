@@ -43,126 +43,48 @@ pub fn run_update() -> Result<()> {
 
     eprintln!("v{} → v{}", CURRENT_VERSION, latest);
 
-    let (shim_artifact, rust_artifact) = detect_artifact()?;
+    // v1.20+ single-binary layout: one artifact per arch, installed in-place
+    // over the user's existing `ig`. `current_exe()` is the install target.
+    let artifact = detect_artifact()?;
+    let target = std::env::current_exe()
+        .context("cannot determine binary path")?
+        .canonicalize()
+        .context("cannot canonicalize current binary path")?;
 
-    // Determine install layout (handles new layout, legacy in-PATH, and migration)
-    let (rust_path, shim_path, legacy_rust) = resolve_install_targets()?;
-
-    // Early permission check on both target dirs
-    if let Some(dir) = rust_path.parent() {
-        fs::create_dir_all(dir)
-            .with_context(|| format!("cannot create backend directory {}", dir.display()))?;
-        check_writable(dir)?;
-    }
-    if let Some(dir) = shim_path.parent() {
-        fs::create_dir_all(dir)
-            .with_context(|| format!("cannot create shim directory {}", dir.display()))?;
+    if let Some(dir) = target.parent() {
         check_writable(dir)?;
     }
 
-    // Try downloading ig-rust to detect if this is a new-style release
-    let rust_url = format!(
+    let url = format!(
         "https://github.com/MakFly/instant-grep/releases/download/{}/{}",
-        tag, rust_artifact
-    );
-    let shim_url = format!(
-        "https://github.com/MakFly/instant-grep/releases/download/{}/{}",
-        tag, shim_artifact
+        tag, artifact
     );
 
-    eprint!("  Downloading {}...", rust_artifact);
+    eprint!("  Downloading {}...", artifact);
     io::stderr().flush().ok();
-
-    let rust_response = ureq::get(&rust_url)
-        .header("User-Agent", &format!("ig/{}", CURRENT_VERSION))
-        .call();
-
-    let use_dual = match &rust_response {
-        Ok(_) => true,
-        Err(ureq::Error::StatusCode(404)) => false,
-        Err(e) => {
-            return Err(anyhow::anyhow!(
-                "download failed for {}: {}",
-                rust_artifact,
-                e
-            ));
-        }
-    };
-
-    if !use_dual {
-        // Fallback: legacy release without -rust artifact — update current binary only.
-        // Write to the *original* current_exe() location (no migration), since the legacy
-        // artifact IS a Rust binary in old releases.
-        eprintln!();
-        eprintln!(
-            "  Warning: release {} has no `{}` artifact; \
-             falling back to single-binary update.",
-            tag, rust_artifact
-        );
-        let shim_bytes = download_artifact(&shim_url, &shim_artifact)?;
-        let legacy_target = std::env::current_exe()
-            .context("cannot determine binary path")?
-            .canonicalize()
-            .context("cannot canonicalize current binary path")?;
-        atomic_install(&shim_bytes, &legacy_target)?;
-        eprintln!("✓ Updated: {} (legacy single-binary)", tag);
-        eprintln!("  Path: {}", legacy_target.display());
-        eprintln!();
-        post_update_rewarm()?;
-        update_cache(latest);
-        return Ok(());
-    }
-
-    // Read rust bytes from already-open response
-    let rust_bytes = rust_response
-        .unwrap()
-        .body_mut()
-        .read_to_vec()
-        .context("failed to read ig-rust response body")?;
-    let size_mb = rust_bytes.len() as f64 / 1_048_576.0;
+    let bytes = download_artifact(&url, &artifact)?;
+    let size_mb = bytes.len() as f64 / 1_048_576.0;
     eprintln!(
         "\r  Downloading {}... [{}] {:.1} MB ✓",
-        rust_artifact,
+        artifact,
         "█".repeat(20),
         size_mb
     );
 
-    // Download shim
-    let shim_bytes = download_artifact(&shim_url, &shim_artifact)?;
+    verify_checksums(tag, &[(&artifact, &bytes)]);
 
-    // Best-effort checksum verification
-    verify_checksums(
-        tag,
-        &[(&shim_artifact, &shim_bytes), (&rust_artifact, &rust_bytes)],
-    );
-
-    // Atomic install of both binaries
     eprint!("  Installing... ");
     io::stderr().flush().ok();
-
-    atomic_install(&rust_bytes, &rust_path).context("failed to install ig-rust")?;
-    atomic_install(&shim_bytes, &shim_path).context("failed to install ig shim")?;
-
+    atomic_install(&bytes, &target).context("failed to install ig")?;
     eprintln!("✓");
 
-    // Migration: remove legacy ig-rust placed next to the shim
-    if let Some(legacy) = legacy_rust.as_ref()
-        && legacy != &rust_path
-        && legacy.exists()
-    {
-        match fs::remove_file(legacy) {
-            Ok(_) => eprintln!("  → Migrated backend, removed legacy: {}", legacy.display()),
-            Err(e) => eprintln!(
-                "  ⚠ Could not remove legacy backend at {}: {}",
-                legacy.display(),
-                e
-            ),
-        }
-    }
+    // Migration from the pre-v1.20 shim+backend layout. If the new binary
+    // landed at the C-shim path (~/.local/bin/ig) the backend at
+    // ~/.local/share/ig/bin/ig-rust is now dead weight. Remove it + its
+    // empty share dirs. Best-effort, silent on failure.
+    clean_legacy_backend();
 
-    eprintln!("\n  ✓ Updated: {} (ig + ig-rust)", tag);
-    eprintln!("  ig      : {}", shim_path.display());
-    eprintln!("  ig-rust : {}  (hidden)", rust_path.display());
+    eprintln!("\n  ✓ Updated: {} → {}", tag, target.display());
 
     eprintln!();
     post_update_rewarm()?;
@@ -170,6 +92,50 @@ pub fn run_update() -> Result<()> {
     update_cache(latest);
 
     Ok(())
+}
+
+/// Sweep pre-v1.20 `ig-rust` backend artifacts. The new binary is
+/// self-contained at the shim path, so any `ig-rust` sibling is stale
+/// and would be misleading to anyone debugging their PATH.
+fn clean_legacy_backend() {
+    let home = std::env::var("HOME").ok().map(PathBuf::from);
+    let mut candidates: Vec<PathBuf> = vec![
+        PathBuf::from("/usr/local/share/ig/bin/ig-rust"),
+        PathBuf::from("/usr/local/bin/ig-rust"),
+        PathBuf::from("/opt/homebrew/share/ig/bin/ig-rust"),
+    ];
+    if let Some(h) = home.as_ref() {
+        candidates.extend([
+            h.join(".local/share/ig/bin/ig-rust"),
+            h.join(".local/bin/ig-rust"),
+            h.join(".cargo/bin/ig-rust"),
+        ]);
+    }
+    for p in candidates {
+        if p.exists() {
+            match fs::remove_file(&p) {
+                Ok(_) => eprintln!("  → Removed legacy backend: {}", p.display()),
+                Err(e) => eprintln!("  ⚠ Could not remove {}: {}", p.display(), e),
+            }
+        }
+    }
+    // Tidy empty share dirs left behind.
+    let share_dirs: Vec<PathBuf> = {
+        let mut v = vec![
+            PathBuf::from("/usr/local/share/ig/bin"),
+            PathBuf::from("/usr/local/share/ig"),
+            PathBuf::from("/opt/homebrew/share/ig/bin"),
+            PathBuf::from("/opt/homebrew/share/ig"),
+        ];
+        if let Some(h) = home.as_ref() {
+            v.push(h.join(".local/share/ig/bin"));
+            v.push(h.join(".local/share/ig"));
+        }
+        v
+    };
+    for d in share_dirs {
+        let _ = fs::remove_dir(&d);
+    }
 }
 
 /// Return true if a launchd plist (macOS) or systemd-user unit (Linux) has
@@ -485,57 +451,6 @@ fn dir_size(path: &Path) -> u64 {
 ///
 /// If the current binary lives next to a shim (legacy ~/.local/bin layout), it
 /// will be migrated to the share directory and the old file flagged for removal.
-fn resolve_install_targets() -> Result<(PathBuf, PathBuf, Option<PathBuf>)> {
-    let current = std::env::current_exe().context("cannot determine binary path")?;
-    let current = current.canonicalize().unwrap_or(current);
-
-    let home = std::env::var("HOME").ok().map(PathBuf::from);
-
-    // Already in the canonical hidden location?
-    let already_hidden = current
-        .parent()
-        .and_then(|p| p.to_str())
-        .map(|s| s.ends_with("/share/ig/bin"))
-        .unwrap_or(false);
-
-    let (rust_target, legacy_remove) = if already_hidden {
-        (current.clone(), None)
-    } else if let Some(h) = home.as_ref() {
-        let new = h.join(".local/share/ig/bin/ig-rust");
-        if new == current {
-            (current.clone(), None)
-        } else {
-            (new, Some(current.clone()))
-        }
-    } else {
-        (current.clone(), None)
-    };
-
-    // Resolve shim: prefer existing `ig` in PATH that isn't the rust binary
-    let shim_target = locate_shim_in_path(&current)
-        .or_else(|| home.as_ref().map(|h| h.join(".local/bin/ig")))
-        .or_else(|| current.parent().map(|p| p.join("ig")))
-        .context("cannot determine shim install path")?;
-
-    Ok((rust_target, shim_target, legacy_remove))
-}
-
-fn locate_shim_in_path(exclude: &Path) -> Option<PathBuf> {
-    let path_var = std::env::var("PATH").ok()?;
-    for dir in std::env::split_paths(&path_var) {
-        let candidate = dir.join("ig");
-        if candidate.is_file() {
-            let canon = candidate
-                .canonicalize()
-                .unwrap_or_else(|_| candidate.clone());
-            if canon != exclude {
-                return Some(candidate);
-            }
-        }
-    }
-    None
-}
-
 fn check_writable(dir: &std::path::Path) -> Result<()> {
     let probe = dir.join(".ig_write_probe");
     match fs::File::create(&probe) {
@@ -653,7 +568,7 @@ fn verify_checksums(tag: &str, artifacts: &[(&str, &[u8])]) {
 }
 
 /// Returns `(shim_artifact, rust_artifact)` for the current platform.
-pub fn detect_artifact() -> Result<(String, String)> {
+pub fn detect_artifact() -> Result<String> {
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
 
@@ -664,7 +579,7 @@ pub fn detect_artifact() -> Result<(String, String)> {
         ("linux", "aarch64") => "ig-linux-aarch64",
         _ => anyhow::bail!("unsupported platform: {}-{}", os, arch),
     };
-    Ok((base.to_string(), format!("{}-rust", base)))
+    Ok(base.to_string())
 }
 
 fn update_cache(latest: &str) {
@@ -797,43 +712,34 @@ mod tests {
         }
     }
 
-    /// detect_artifact() must return a (shim, rust) tuple where rust = shim + "-rust"
+    /// detect_artifact() must return a single string starting with `ig-` for
+    /// the current platform.
     #[test]
-    fn detect_artifact_returns_pair() {
-        let (shim, rust) = detect_artifact().unwrap();
+    fn detect_artifact_returns_single_string() {
+        let artifact = detect_artifact().unwrap();
         assert!(
-            shim.starts_with("ig-"),
-            "shim='{}' should start with ig-",
-            shim
+            artifact.starts_with("ig-"),
+            "artifact='{}' should start with ig-",
+            artifact
         );
+        // No more "-rust" suffix in v1.20+ — single-binary layout.
         assert!(
-            rust.ends_with("-rust"),
-            "rust='{}' should end with -rust",
-            rust
+            !artifact.ends_with("-rust"),
+            "artifact='{}' should NOT end with -rust",
+            artifact
         );
-        assert_eq!(rust, format!("{}-rust", shim));
     }
 
-    /// Verify each of the 4 supported platforms produces the expected artifact names.
+    /// Verify each of the 4 supported platforms produces the expected artifact name.
     #[test]
     fn detect_artifact_all_platforms() {
         let cases = [
-            (
-                "macos",
-                "aarch64",
-                "ig-macos-aarch64",
-                "ig-macos-aarch64-rust",
-            ),
-            ("macos", "x86_64", "ig-macos-x86_64", "ig-macos-x86_64-rust"),
-            ("linux", "x86_64", "ig-linux-x86_64", "ig-linux-x86_64-rust"),
-            (
-                "linux",
-                "aarch64",
-                "ig-linux-aarch64",
-                "ig-linux-aarch64-rust",
-            ),
+            ("macos", "aarch64", "ig-macos-aarch64"),
+            ("macos", "x86_64", "ig-macos-x86_64"),
+            ("linux", "x86_64", "ig-linux-x86_64"),
+            ("linux", "aarch64", "ig-linux-aarch64"),
         ];
-        for (os, arch, expected_shim, expected_rust) in cases {
+        for (os, arch, expected) in cases {
             let base = match (os, arch) {
                 ("macos", "aarch64") => "ig-macos-aarch64",
                 ("macos", "x86_64") => "ig-macos-x86_64",
@@ -841,12 +747,7 @@ mod tests {
                 ("linux", "aarch64") => "ig-linux-aarch64",
                 _ => panic!("unexpected combo"),
             };
-            assert_eq!(base, expected_shim, "os={os} arch={arch}");
-            assert_eq!(
-                format!("{}-rust", base),
-                expected_rust,
-                "os={os} arch={arch}"
-            );
+            assert_eq!(base, expected, "os={os} arch={arch}");
         }
     }
 }

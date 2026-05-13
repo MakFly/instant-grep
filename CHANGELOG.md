@@ -2,6 +2,31 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.20.0] — 2026-05-13
+
+### Changed (breaking, packaging only) — collapsed to a single Rust binary
+
+Pre-v1.20 instant-grep shipped two artefacts per arch: a ~35 KB C shim at `~/.local/bin/ig` that `execve`'d a hidden Rust backend at `~/.local/share/ig/bin/ig-rust`. The shim's purpose was a sub-2 ms cold start on hot subcommands; that savings has been irrelevant ever since the global daemon socket round-trip (1-5 ms) became the steady-state hot path, and the dual-binary layout cost a second build toolchain in CI, ~320 LOC of glue across `install.sh` / `update.rs` / `daemon.rs`, and a recurring class of "shim can't find backend" bugs.
+
+v1.20 ships **one Rust binary** per platform — `ig-linux-x86_64`, `ig-linux-aarch64`, `ig-macos-x86_64`, `ig-macos-aarch64`. No more `*-rust` artifacts. The single binary lives at `~/.local/bin/ig` (or wherever the existing `ig` was found on upgrade).
+
+User-facing impact: **none.** `ig` and `ig <subcommand>` work exactly as before. Speed is unchanged on warm paths (the daemon round-trip dominates) and within ~1 ms on cold paths (the `fork()`+`execve()` overhead of the old C shim is gone, mostly offsetting Rust's slightly longer cold start).
+
+Migration is automatic for existing users: both `install.sh` and `ig update` detect a stale `ig-rust` at any of `~/.local/share/ig/bin/`, `~/.local/bin/`, `~/.cargo/bin/`, `/usr/local/share/ig/bin/`, `/usr/local/bin/`, `/opt/homebrew/share/ig/bin/` and remove it (plus the now-empty share dirs). No action needed beyond the next update.
+
+### Removed
+- `shim/` directory: `ig.c` (445 LOC) + `parse.h` + the 6 `test_*.c` regression files. ~150 LOC of `release.yml` C-cross-compilation glue.
+- `*-rust` artefacts from GitHub Releases. Pre-v1.20 releases keep theirs.
+- `resolve_install_targets()` + `locate_shim_in_path()` in `src/update.rs`: ~50 LOC. Replaced by a single `current_exe()` + `atomic_install()`.
+
+### Added
+- `clean_legacy_backend()` in `src/update.rs`: idempotent sweep of all known legacy `ig-rust` paths on every update.
+
+### Internal
+- `detect_artifact()` now returns `String` instead of `(String, String)`.
+- `install.sh` reduced from ~190 LOC to ~145 LOC.
+- `release.yml` matrix simplified: no more `cc` / `aarch64-linux-gnu-gcc` install steps, no more shim build step.
+
 ## [1.19.13] — 2026-05-13
 
 ### Fixed — CI green on Rust 1.95.0

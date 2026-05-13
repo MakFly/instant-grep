@@ -40,17 +40,11 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install C cross compiler (Linux aarch64 shim)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-
       - name: Install cross (Linux aarch64)
         if: matrix.cross
         run: cargo install cross --locked
 
-      - name: Build Rust backend
+      - name: Build Rust binary
         run: |
           if [ "${{ matrix.cross }}" = "true" ]; then
             cross build --release --target ${{ matrix.target }}
@@ -58,42 +52,26 @@ jobs:
             cargo build --release --target ${{ matrix.target }}
           fi
 
-      - name: Prepare shim + backend artifacts
+      - name: Stage artifact
         run: |
           mkdir -p release
-          cp "target/${{ matrix.target }}/release/ig" "release/${{ matrix.artifact }}-rust"
-          chmod +x "release/${{ matrix.artifact }}-rust"
-
-          case "${{ matrix.target }}" in
-            x86_64-unknown-linux-gnu)
-              cc -O2 -Wall -Wextra -std=c11 -o "release/${{ matrix.artifact }}" shim/ig.c
-              ;;
-            aarch64-unknown-linux-gnu)
-              aarch64-linux-gnu-gcc -O2 -Wall -Wextra -std=c11 -o "release/${{ matrix.artifact }}" shim/ig.c
-              ;;
-            x86_64-apple-darwin)
-              cc -arch x86_64 -O2 -Wall -Wextra -std=c11 -o "release/${{ matrix.artifact }}" shim/ig.c
-              ;;
-            aarch64-apple-darwin)
-              cc -arch arm64 -O2 -Wall -Wextra -std=c11 -o "release/${{ matrix.artifact }}" shim/ig.c
-              ;;
-          esac
+          cp "target/${{ matrix.target }}/release/ig" "release/${{ matrix.artifact }}"
           chmod +x "release/${{ matrix.artifact }}"
 
-      - name: Sign macOS binaries (ad-hoc)
+      - name: Sign macOS binary (ad-hoc with stable identifier)
         if: runner.os == 'macOS'
         run: |
-          codesign --sign - --force --options runtime \
-            "release/${{ matrix.artifact }}" \
-            "release/${{ matrix.artifact }}-rust"
+          codesign --sign - --force \
+            --identifier dev.makfly.ig \
+            --options runtime \
+            "release/${{ matrix.artifact }}"
           codesign --verify --verbose "release/${{ matrix.artifact }}"
-          codesign --verify --verbose "release/${{ matrix.artifact }}-rust"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: release/*
+          path: release/${{ matrix.artifact }}
 
   release:
     name: Create Release
@@ -124,11 +102,7 @@ jobs:
           generate_release_notes: true
           files: |
             release/ig-linux-x86_64
-            release/ig-linux-x86_64-rust
             release/ig-linux-aarch64
-            release/ig-linux-aarch64-rust
             release/ig-macos-x86_64
-            release/ig-macos-x86_64-rust
             release/ig-macos-aarch64
-            release/ig-macos-aarch64-rust
             release/checksums.txt

@@ -2,13 +2,15 @@
 set -euo pipefail
 
 # instant-grep installer
-# Layout (option B — single user-facing binary):
-#   ~/.local/bin/ig                        ← C shim, in PATH (the only thing the user sees)
-#   ~/.local/share/ig/bin/ig-rust          ← Rust backend, hidden (invoked by the shim)
+# Layout (v1.20+, single-binary):
+#   ~/.local/bin/ig       ← the only binary
 #
 # Sudo install:
 #   /usr/local/bin/ig
-#   /usr/local/share/ig/bin/ig-rust
+#
+# Pre-v1.20 installs used a C shim at ~/.local/bin/ig that invoked
+# ~/.local/share/ig/bin/ig-rust. This script migrates those automatically
+# by removing the stale backend dir + any stray ig-rust binaries.
 #
 # Usage: curl -fsSL https://raw.githubusercontent.com/MakFly/instant-grep/main/install.sh | bash
 
@@ -25,14 +27,13 @@ else
   REAL_HOME="$HOME"
 fi
 
-# Determine install dirs ──────────────────────────────────────────────────────
-# IG_INSTALL_DIR overrides the shim location; SHARE_DIR is derived from it.
+# Determine install dir ───────────────────────────────────────────────────────
 if [ -n "${IG_INSTALL_DIR:-}" ]; then
   BIN_DIR="$IG_INSTALL_DIR"
 elif [ -n "${SUDO_USER:-}" ] || [ "$(id -u)" = "0" ]; then
   BIN_DIR="/usr/local/bin"
 else
-  # Detect existing shim location for in-place upgrade
+  # Detect existing binary location for in-place upgrade
   EXISTING_IG=$(command -v ig 2>/dev/null || true)
   if [ -n "$EXISTING_IG" ]; then
     EXISTING_IG=$(readlink -f "$EXISTING_IG" 2>/dev/null || realpath "$EXISTING_IG" 2>/dev/null || echo "$EXISTING_IG")
@@ -41,15 +42,6 @@ else
     BIN_DIR="$REAL_HOME/.local/bin"
   fi
 fi
-
-# Derive SHARE_DIR from BIN_DIR
-case "$BIN_DIR" in
-  /usr/local/bin)              SHARE_DIR="/usr/local/share/ig/bin" ;;
-  /opt/homebrew/bin)           SHARE_DIR="/opt/homebrew/share/ig/bin" ;;
-  "$REAL_HOME/.local/bin")     SHARE_DIR="$REAL_HOME/.local/share/ig/bin" ;;
-  "$REAL_HOME/.cargo/bin")     SHARE_DIR="$REAL_HOME/.local/share/ig/bin" ;;
-  *)                           SHARE_DIR="$REAL_HOME/.local/share/ig/bin" ;;
-esac
 
 # Detect platform ─────────────────────────────────────────────────────────────
 OS="$(uname -s)"
@@ -73,8 +65,6 @@ case "$OS" in
   *) echo "Unsupported OS: $OS"; exit 1 ;;
 esac
 
-ARTIFACT_RUST="${ARTIFACT}-rust"
-
 # Get latest release tag ──────────────────────────────────────────────────────
 TAG=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
 if [ -z "$TAG" ]; then
@@ -82,51 +72,55 @@ if [ -z "$TAG" ]; then
   exit 1
 fi
 
-URL_SHIM="https://github.com/$REPO/releases/download/$TAG/$ARTIFACT"
-URL_RUST="https://github.com/$REPO/releases/download/$TAG/$ARTIFACT_RUST"
+URL="https://github.com/$REPO/releases/download/$TAG/$ARTIFACT"
 
 echo "Installing instant-grep $TAG ($ARTIFACT)..."
-echo "  shim    → $BIN_DIR/ig"
-echo "  backend → $SHARE_DIR/ig-rust"
+echo "  → $BIN_DIR/ig"
 
-mkdir -p "$BIN_DIR" "$SHARE_DIR"
+mkdir -p "$BIN_DIR"
 
-# Download shim
-if ! curl -fsSL "$URL_SHIM" -o "$BIN_DIR/ig"; then
+# Download the single binary
+if ! curl -fsSL "$URL" -o "$BIN_DIR/ig"; then
   echo "✗ Failed to download $ARTIFACT" >&2
   exit 1
 fi
 chmod +x "$BIN_DIR/ig"
 
-# Download Rust backend (if release ships it; legacy releases may not)
-if curl -fsSL "$URL_RUST" -o "$SHARE_DIR/ig-rust" 2>/dev/null; then
-  chmod +x "$SHARE_DIR/ig-rust"
-else
-  echo "  ⚠ $ARTIFACT_RUST not in release — backend missing, shim will refuse to run"
-  echo "    This usually means you hit an old release; ask the maintainer to re-release."
-  rm -f "$SHARE_DIR/ig-rust"
-fi
-
 # Stable codesign identifier on macOS — prevents TCC from re-prompting for
-# file-access permissions after every `ig update`. Without this, the ad-hoc
-# identifier embeds the binary hash (e.g. `ig-5555494468fc...`), so each
-# rebuild looks like a brand-new app to the TCC database and BTM service.
-# Bundle ID `dev.makfly.ig` is stable across releases; only the CDHash
-# changes, and TCC keys off the identifier when the team is unset.
+# file-access permissions after every `ig update`. Without `-i`, the ad-hoc
+# identifier embeds the binary hash, so each rebuild looks like a brand-new
+# app. Bundle ID `dev.makfly.ig` is stable across releases.
 if [ "$OS" = "Darwin" ]; then
-  for bin in "$BIN_DIR/ig" "$SHARE_DIR/ig-rust"; do
-    [ -f "$bin" ] || continue
-    codesign --force --sign - --identifier dev.makfly.ig "$bin" 2>/dev/null \
-      || echo "  ⚠ codesign failed for $bin (TCC may re-prompt on next launch)"
-  done
+  codesign --force --sign - --identifier dev.makfly.ig "$BIN_DIR/ig" 2>/dev/null \
+    || echo "  ⚠ codesign failed (TCC may re-prompt on next launch)"
 fi
 
-# Migration: clean up legacy ig-rust placed next to the shim ──────────────────
-for legacy in "$REAL_HOME/.local/bin/ig-rust" "$REAL_HOME/.cargo/bin/ig-rust" "/usr/local/bin/ig-rust"; do
-  if [ -f "$legacy" ]; then
-    echo "  → Removing legacy backend: $legacy"
-    rm -f "$legacy" 2>/dev/null || true
+# Migration from pre-v1.20 shim+backend layout ────────────────────────────────
+# Remove the legacy ig-rust backend wherever it might have been installed,
+# and the now-empty share dir. This keeps the user's PATH clean and stops
+# `ig` from accidentally invoking a stale backend (its absence is benign —
+# v1.20+ binary is self-contained).
+for legacy_rust in \
+  "$REAL_HOME/.local/share/ig/bin/ig-rust" \
+  "$REAL_HOME/.local/bin/ig-rust" \
+  "$REAL_HOME/.cargo/bin/ig-rust" \
+  "/usr/local/share/ig/bin/ig-rust" \
+  "/usr/local/bin/ig-rust" \
+  "/opt/homebrew/share/ig/bin/ig-rust"; do
+  if [ -f "$legacy_rust" ]; then
+    echo "  → Removing legacy backend: $legacy_rust"
+    rm -f "$legacy_rust" 2>/dev/null || true
   fi
+done
+# Tidy now-empty share dirs (best-effort)
+for legacy_share in \
+  "$REAL_HOME/.local/share/ig/bin" \
+  "$REAL_HOME/.local/share/ig" \
+  "/usr/local/share/ig/bin" \
+  "/usr/local/share/ig" \
+  "/opt/homebrew/share/ig/bin" \
+  "/opt/homebrew/share/ig"; do
+  [ -d "$legacy_share" ] && rmdir "$legacy_share" 2>/dev/null || true
 done
 
 # Migration: clean up stale ig binaries elsewhere in the user's PATH ──────────
@@ -136,7 +130,7 @@ for dir in "$REAL_HOME/.local/bin" "$REAL_HOME/.cargo/bin"; do
     other_canon=$(readlink -f "$other" 2>/dev/null || realpath "$other" 2>/dev/null || echo "$other")
     bin_canon=$(readlink -f "$BIN_DIR/ig" 2>/dev/null || realpath "$BIN_DIR/ig" 2>/dev/null || echo "$BIN_DIR/ig")
     if [ "$other_canon" != "$bin_canon" ]; then
-      echo "  → Removed stale shim: $other"
+      echo "  → Removed stale ig: $other"
       rm -f "$other"
     fi
   fi
@@ -145,9 +139,6 @@ done
 # Verify ──────────────────────────────────────────────────────────────────────
 if "$BIN_DIR/ig" --version >/dev/null 2>&1; then
   echo "✓ Installed: $("$BIN_DIR/ig" --version)"
-elif [ -x "$SHARE_DIR/ig-rust" ] && "$SHARE_DIR/ig-rust" --version >/dev/null 2>&1; then
-  echo "✓ Installed (backend only): $("$SHARE_DIR/ig-rust" --version)"
-  echo "  Note: shim could not invoke backend; check \$IG_BACKEND or paths."
 else
   echo "✗ Installation failed" >&2
   exit 1
