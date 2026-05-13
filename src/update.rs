@@ -231,9 +231,7 @@ fn post_update_rewarm() -> Result<()> {
             Err(e) => eprintln!("⚠ {}", e),
         }
     } else {
-        eprintln!(
-            "  Daemon not running. Run `ig daemon install` once to enable auto-start."
-        );
+        eprintln!("  Daemon not running. Run `ig daemon install` once to enable auto-start.");
     }
 
     eprint!("  Rewarming current project... ");

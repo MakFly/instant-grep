@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo test:*)",
+      "Bash(cp ~/.claude/settings.json ~/.claude/settings.json.bak)",
+      "Bash(jq 'del\\(.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE\\)' ~/.claude/settings.json.bak)",
+      "Read(//Users/kev/.claude/**)",
+      "Bash(rm -rf ui/.git)",
+      "Bash(/usr/bin/git status *)"
+    ]
+  }
+}

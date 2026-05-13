@@ -265,10 +265,7 @@ fn main() -> Result<()> {
                         // older `path  last_seen=Ns` format.
                         println!(
                             "{}\tlast_seen={}s\tsource={}\thot={}",
-                            project.root,
-                            project.seconds_since_seen,
-                            source,
-                            project.hot_count,
+                            project.root, project.seconds_since_seen, source, project.hot_count,
                         );
                     }
                 }

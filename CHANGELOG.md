@@ -2,6 +2,20 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.19.13] — 2026-05-13
+
+### Fixed — CI green on Rust 1.95.0
+
+- `clippy::unnecessary_sort_by` (new in 1.95) tripped on
+  `src/ide_tracker.rs:450` (`out.sort_by(|a, b| b.1.cmp(&a.1))`). Switched
+  to `sort_by_key(|e| std::cmp::Reverse(e.1))`.
+- `cargo fmt` reformatting on 1.95.0 nightly toolchain (split `let-else`
+  one-liners that older rustfmt accepted, joined a short `||` chain).
+  Pure formatting, no behavioural change.
+- v1.19.12 binaries on GitHub Releases remain functional — only the
+  CI workflow on `main` was red. v1.19.13 simply gives `main` a green
+  pipeline again.
+
 ## [1.19.12] — 2026-05-13
 
 ### Added — IDE tracker, multi-provider (Claude Code / Codex CLI / opencode)

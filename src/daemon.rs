@@ -2186,7 +2186,9 @@ fn purge_legacy_ig_rust_daemons() {
     for line in String::from_utf8_lossy(&out.stdout).lines() {
         let line = line.trim_start();
         let mut parts = line.splitn(2, ' ');
-        let Some(pid_str) = parts.next() else { continue };
+        let Some(pid_str) = parts.next() else {
+            continue;
+        };
         let Some(cmd) = parts.next().map(str::trim_start) else {
             continue;
         };
@@ -2203,8 +2205,7 @@ fn purge_legacy_ig_rust_daemons() {
         // process whose socket doesn't match the canonical cache path
         // (i.e. a `target/release/ig daemon` test orphan with TMPDIR set).
         let is_legacy_rust = cmd.contains("/ig-rust ") || cmd.ends_with("/ig-rust");
-        let is_test_orphan = cmd.contains("target/release/ig")
-            || cmd.contains("target/debug/ig");
+        let is_test_orphan = cmd.contains("target/release/ig") || cmd.contains("target/debug/ig");
         if !(is_legacy_rust || is_test_orphan) {
             continue;
         }
@@ -2248,7 +2249,9 @@ fn find_ig_daemon_processes() -> Vec<i32> {
     for line in String::from_utf8_lossy(&out.stdout).lines() {
         let line = line.trim_start();
         let mut parts = line.splitn(2, ' ');
-        let Some(pid_str) = parts.next() else { continue };
+        let Some(pid_str) = parts.next() else {
+            continue;
+        };
         let Some(cmd) = parts.next().map(str::trim_start) else {
             continue;
         };
@@ -2311,7 +2314,10 @@ pub fn verify_daemon_health() -> Result<()> {
             }
         }
         if killed > 0 {
-            eprintln!("Health check: cleaned up {} stray ig daemon process(es).", killed);
+            eprintln!(
+                "Health check: cleaned up {} stray ig daemon process(es).",
+                killed
+            );
             std::thread::sleep(Duration::from_millis(300));
         }
         let pids_after = find_ig_daemon_processes();
@@ -2477,7 +2483,10 @@ pub fn install_launchd(_legacy_path: &Path) -> Result<()> {
         }
         last_code = status.code().unwrap_or(-1);
     }
-    anyhow::bail!("launchctl bootstrap failed after retries (exit {})", last_code);
+    anyhow::bail!(
+        "launchctl bootstrap failed after retries (exit {})",
+        last_code
+    );
 }
 
 #[cfg(target_os = "macos")]

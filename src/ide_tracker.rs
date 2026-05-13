@@ -447,7 +447,7 @@ impl CodexProvider {
                 }
             }
         }
-        out.sort_by(|a, b| b.1.cmp(&a.1));
+        out.sort_by_key(|e| std::cmp::Reverse(e.1));
         out.truncate(limit);
         out
     }
@@ -583,10 +583,7 @@ impl IdeProvider for OpenCodeProvider {
             let Some(p_str) = val.get("path").and_then(|v| v.as_str()) else {
                 continue;
             };
-            let last_open_ms = val
-                .get("lastOpen")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
+            let last_open_ms = val.get("lastOpen").and_then(|v| v.as_u64()).unwrap_or(0);
             if last_open_ms < cutoff_ms {
                 continue;
             }
@@ -844,7 +841,10 @@ mod tests {
         let mut found: Option<String> = None;
         iter_jsonl_tail(&rollout, |v| {
             if v.get("type").and_then(|x| x.as_str()) == Some("session_meta")
-                && let Some(c) = v.get("payload").and_then(|p| p.get("cwd")).and_then(|x| x.as_str())
+                && let Some(c) = v
+                    .get("payload")
+                    .and_then(|p| p.get("cwd"))
+                    .and_then(|x| x.as_str())
             {
                 found = Some(c.to_string());
             }
@@ -928,11 +928,19 @@ mod tests {
 
         let root_a_canon = root_a.canonicalize().unwrap();
         let root_b_canon = root_b.canonicalize().unwrap();
-        assert!(buckets.contains_key(&root_a_canon), "proj-a should be tracked");
-        assert!(buckets.contains_key(&root_b_canon), "proj-b should be tracked");
+        assert!(
+            buckets.contains_key(&root_a_canon),
+            "proj-a should be tracked"
+        );
+        assert!(
+            buckets.contains_key(&root_b_canon),
+            "proj-b should be tracked"
+        );
         // /tmp/somewhere-else is stale → skipped
         assert!(
-            !buckets.keys().any(|k| k.to_string_lossy().contains("somewhere-else")),
+            !buckets
+                .keys()
+                .any(|k| k.to_string_lossy().contains("somewhere-else")),
             "stale entry must be filtered out"
         );
     }
