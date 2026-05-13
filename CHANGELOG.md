@@ -2,6 +2,14 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.19.11] — 2026-05-13
+
+### Fixed — `session-start.sh` shebang broke on Linux
+
+- `hooks/session-start.sh` shipped with `#!/opt/homebrew/bin/bash`, a macOS-Homebrew-ARM-only path. On Linux (and Mac Intel, where Homebrew lives at `/usr/local/bin/bash`), the kernel couldn't resolve the interpreter and the hook failed at every Claude Code session start with `/bin/sh: 1: …/session-start.sh: not found` — misleading, since the script itself existed and was executable.
+- Switched to `#!/usr/bin/env bash`, matching the other hooks (`ig-guard.sh`, `subagent-context.sh`). Portable across macOS (system bash 3.2 or any Homebrew prefix) and Linux. Script body already uses only bash 3.2-compatible features (`[[`, `${var:-}`, `&>`, no assoc arrays).
+- Run `ig setup` to refresh the installed hook in `~/.claude/hooks/`.
+
 ## [1.19.10] — 2026-05-12
 
 ### Added — `ig version` subcommand
