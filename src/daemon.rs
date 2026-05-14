@@ -1348,6 +1348,22 @@ pub fn start_daemon(_legacy_path: &Path) -> Result<()> {
     let _ = crate::cache::ensure_layout();
     crate::cache::rotate_daemon_log_if_needed();
 
+    // Fast path: a healthy current-generation daemon is already serving.
+    // `is_daemon_available()` only counts a process whose exe basename is
+    // `ig` — a wedged legacy `ig-rust` does *not* satisfy it, so we fall
+    // through to the purge below instead of bailing here.
+    if is_daemon_available() {
+        eprintln!("Daemon (global) already running");
+        return Ok(());
+    }
+
+    // Clear out legacy / wedged daemons *before* reaching for the start
+    // lock. A pre-v1.20 `ig-rust daemon` — or one wedged in "shutting
+    // down" after a hard-RSS hit — holds an flock on daemon.lock for its
+    // whole life. Acquiring the lock first would bail with a misleading
+    // "already running" and never run the purge: a permanent deadlock.
+    purge_legacy_per_project_daemons();
+
     let Some(start_lock) = acquire_daemon_start_lock()? else {
         eprintln!("Daemon (global) already running");
         return Ok(());
@@ -1357,8 +1373,6 @@ pub fn start_daemon(_legacy_path: &Path) -> Result<()> {
         eprintln!("Daemon (global) already running");
         return Ok(());
     }
-
-    purge_legacy_per_project_daemons();
 
     let max_tenants = crate::config::daemon_max_active_projects();
 
@@ -2166,8 +2180,17 @@ fn purge_legacy_per_project_daemons() {
 }
 
 /// Kill any leftover `ig-rust daemon …` process (legacy shim+backend layout)
-/// or `target/release/ig daemon …` test orphans whose socket lives outside
-/// the canonical cache dir. Best-effort, silent on failure.
+/// or `target/release/ig daemon …` test orphan, then drop the stale daemon
+/// socket/pid it left behind. Best-effort, silent on failure.
+///
+/// A legacy `ig-rust` daemon is **never** the authoritative daemon post-v1.20
+/// — even when it still owns the canonical `daemon.sock` (the cache layout is
+/// shared across versions, so it always does). Replacing it is the whole
+/// point of the migration, so the `owns_socket()` guard must *not* protect
+/// it; that guard previously made a wedged `ig-rust` immortal and deadlocked
+/// every subsequent `ig daemon start`. The guard is kept only for ambiguous
+/// `target/{debug,release}/ig` test orphans: one owning the canonical socket
+/// is effectively serving as the daemon and shouldn't be reaped blindly.
 fn purge_legacy_ig_rust_daemons() {
     let canonical_sock = socket_path();
     // `ps -ax -o pid=,command=` is portable across macOS (BSD ps) and Linux
@@ -2182,7 +2205,7 @@ fn purge_legacy_ig_rust_daemons() {
     if !out.status.success() {
         return;
     }
-    let mut killed = 0usize;
+    let mut to_kill: Vec<i32> = Vec::new();
     for line in String::from_utf8_lossy(&out.stdout).lines() {
         let line = line.trim_start();
         let mut parts = line.splitn(2, ' ');
@@ -2201,27 +2224,67 @@ fn purge_legacy_ig_rust_daemons() {
         if pid == std::process::id() as i32 {
             continue;
         }
-        // Only kill if it's clearly a legacy ig-rust binary, or an `ig`
-        // process whose socket doesn't match the canonical cache path
-        // (i.e. a `target/release/ig daemon` test orphan with TMPDIR set).
+        // Only touch a clearly legacy ig-rust binary, or a `target/{debug,
+        // release}/ig daemon` test orphan.
         let is_legacy_rust = cmd.contains("/ig-rust ") || cmd.ends_with("/ig-rust");
         let is_test_orphan = cmd.contains("target/release/ig") || cmd.contains("target/debug/ig");
         if !(is_legacy_rust || is_test_orphan) {
             continue;
         }
-        // Best-effort: don't touch a process that owns the canonical socket
-        // — that would be the real daemon under a non-standard invocation.
-        if owns_socket(pid, &canonical_sock) {
+        // Protect a test orphan that owns the canonical socket — it is
+        // effectively serving as the daemon. A legacy `ig-rust` gets no
+        // such protection: owning the socket is exactly why we must reap it.
+        if !is_legacy_rust && is_test_orphan && owns_socket(pid, &canonical_sock) {
             continue;
         }
+        to_kill.push(pid);
+    }
+
+    if to_kill.is_empty() {
+        return;
+    }
+
+    // SIGTERM first, then escalate to SIGKILL for anything still alive. A
+    // memory-wedged legacy daemon (stuck reporting "shutting down" but never
+    // exiting) ignores SIGTERM and would otherwise keep the start lock — and
+    // the socket — forever.
+    for &pid in &to_kill {
         unsafe {
             libc::kill(pid, libc::SIGTERM);
         }
-        killed += 1;
     }
-    if killed > 0 {
-        eprintln!("Purged {} legacy/orphan ig daemon process(es).", killed);
+    let mut alive: Vec<i32> = to_kill.clone();
+    let term_deadline = Instant::now() + Duration::from_secs(3);
+    while !alive.is_empty() && Instant::now() < term_deadline {
+        std::thread::sleep(Duration::from_millis(50));
+        alive.retain(|&pid| unsafe { libc::kill(pid, 0) } == 0);
     }
+    for &pid in &alive {
+        unsafe {
+            libc::kill(pid, libc::SIGKILL);
+        }
+    }
+    // Give SIGKILL a brief window so the flock on daemon.lock is released
+    // before the caller tries to acquire the start lock.
+    let kill_deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < kill_deadline
+        && alive.iter().any(|&pid| unsafe { libc::kill(pid, 0) } == 0)
+    {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    // The killed daemon's socket/pid files are now stale. Drop them unless an
+    // authoritative `ig` daemon is somehow still alive (it never should be at
+    // this point, but never clobber a live daemon's state).
+    if !is_daemon_alive() {
+        let _ = std::fs::remove_file(socket_path());
+        let _ = std::fs::remove_file(pid_path());
+    }
+
+    eprintln!(
+        "Purged {} legacy/orphan ig daemon process(es).",
+        to_kill.len()
+    );
 }
 
 fn owns_socket(pid: i32, sock: &Path) -> bool {

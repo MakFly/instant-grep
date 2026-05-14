@@ -2,6 +2,46 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.20.1] — 2026-05-14
+
+### Fixed — daemon deadlock on pre-v1.20 → v1.20 upgrades
+
+A machine still on the pre-v1.20 shim+backend layout could end up with the
+global daemon **permanently dead** after `install.sh` / `ig update`, with
+`ig daemon status` reporting "not running" and the systemd unit exiting
+`0` (so `Restart=on-failure` never kicked in). Root cause was a three-bug
+cascade, reproduced on a real Ubuntu host:
+
+1. **`purge_legacy_ig_rust_daemons()` refused to reap a legacy `ig-rust`
+   daemon that owned the canonical socket.** The `owns_socket()` guard
+   assumed "owns `daemon.sock` ⇒ it's the real daemon". False: pre-v1.20
+   and v1.20+ share the same cache layout, so a legacy `ig-rust` *always*
+   owns the canonical socket. The guard made a wedged `ig-rust` immortal.
+   It is now applied only to ambiguous `target/{debug,release}/ig` test
+   orphans; a legacy `ig-rust` is always reaped, since replacing it is the
+   whole point of the migration.
+2. **`start_daemon()` acquired the start lock before purging.** A legacy
+   `ig-rust` holds an `flock` on `daemon.lock` for its entire life, so
+   `acquire_daemon_start_lock()` returned `None`, `start_daemon()` bailed
+   with a misleading "already running", and `purge_legacy_per_project_daemons()`
+   — three lines further down — never ran. The purge now runs *before*
+   the lock is acquired, behind a fast-path `is_daemon_available()` check.
+3. **The reaper only sent `SIGTERM`.** A daemon wedged after a hard-RSS
+   hit ("shutting down" on every query but never exiting) ignores
+   `SIGTERM`. The reaper now escalates to `SIGKILL` after a 3 s grace
+   window, waits for the process to actually exit (releasing the `flock`),
+   and clears the stale `daemon.sock` / `daemon.pid` it left behind.
+
+### Fixed — `ig update` no longer deletes the binary it just installed
+
+In the pre-v1.20 shim layout, `ig update` runs from inside
+`~/.local/share/ig/bin/ig-rust`, so `current_exe()` — the install target —
+*is* a legacy `ig-rust` path. `clean_legacy_backend()` then deleted that
+exact file immediately after `atomic_install()` wrote to it, leaving the
+surviving C shim pointing at nothing. The sweep now receives the install
+target and excludes it (`legacy_backend_candidates()`), with regression
+tests.
+
 ## [1.20.0] — 2026-05-13
 
 ### Changed (breaking, packaging only) — collapsed to a single Rust binary

@@ -81,8 +81,10 @@ pub fn run_update() -> Result<()> {
     // Migration from the pre-v1.20 shim+backend layout. If the new binary
     // landed at the C-shim path (~/.local/bin/ig) the backend at
     // ~/.local/share/ig/bin/ig-rust is now dead weight. Remove it + its
-    // empty share dirs. Best-effort, silent on failure.
-    clean_legacy_backend();
+    // empty share dirs. Best-effort, silent on failure. `target` is passed
+    // through so the sweep never deletes the binary we just installed (in
+    // the legacy shim layout the install target *is* an ig-rust path).
+    clean_legacy_backend(&target);
 
     eprintln!("\n  ✓ Updated: {} → {}", tag, target.display());
 
@@ -94,10 +96,13 @@ pub fn run_update() -> Result<()> {
     Ok(())
 }
 
-/// Sweep pre-v1.20 `ig-rust` backend artifacts. The new binary is
-/// self-contained at the shim path, so any `ig-rust` sibling is stale
-/// and would be misleading to anyone debugging their PATH.
-fn clean_legacy_backend() {
+/// Pre-v1.20 `ig-rust` backend paths that become dead weight once the single
+/// binary is installed. `installed` — the path `ig update` just wrote to — is
+/// **excluded** from the list: in the legacy shim layout `current_exe()`
+/// resolves to `~/.local/share/ig/bin/ig-rust`, so the install target *is* a
+/// legacy path. Deleting it would nuke the binary we just installed and leave
+/// the surviving C shim pointing at nothing.
+fn legacy_backend_candidates(installed: &Path) -> Vec<PathBuf> {
     let home = std::env::var("HOME").ok().map(PathBuf::from);
     let mut candidates: Vec<PathBuf> = vec![
         PathBuf::from("/usr/local/share/ig/bin/ig-rust"),
@@ -111,7 +116,23 @@ fn clean_legacy_backend() {
             h.join(".cargo/bin/ig-rust"),
         ]);
     }
-    for p in candidates {
+    let installed_canon = installed
+        .canonicalize()
+        .unwrap_or_else(|_| installed.to_path_buf());
+    candidates
+        .into_iter()
+        .filter(|p| {
+            let canon = p.canonicalize().unwrap_or_else(|_| p.clone());
+            canon != installed_canon
+        })
+        .collect()
+}
+
+/// Sweep pre-v1.20 `ig-rust` backend artifacts. The new binary is
+/// self-contained at the shim path, so any `ig-rust` sibling is stale
+/// and would be misleading to anyone debugging their PATH.
+fn clean_legacy_backend(installed: &Path) {
+    for p in legacy_backend_candidates(installed) {
         if p.exists() {
             match fs::remove_file(&p) {
                 Ok(_) => eprintln!("  → Removed legacy backend: {}", p.display()),
@@ -119,7 +140,10 @@ fn clean_legacy_backend() {
             }
         }
     }
-    // Tidy empty share dirs left behind.
+    // Tidy empty share dirs left behind. `remove_dir` only removes empty
+    // directories, so a share dir still holding the install target (legacy
+    // shim layout) is left untouched.
+    let home = std::env::var("HOME").ok().map(PathBuf::from);
     let share_dirs: Vec<PathBuf> = {
         let mut v = vec![
             PathBuf::from("/usr/local/share/ig/bin"),
@@ -701,6 +725,33 @@ mod tests {
         assert!(!is_newer("not-a-version"));
         assert!(!is_newer(""));
         assert!(!is_newer("1.0"));
+    }
+
+    /// The binary `ig update` just installed must never appear in the legacy
+    /// sweep — in the pre-v1.20 shim layout the install target *is* an
+    /// `ig-rust` path, and deleting it would strand the surviving C shim.
+    #[test]
+    fn legacy_backend_candidates_excludes_install_target() {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+        let target = PathBuf::from(&home).join(".local/share/ig/bin/ig-rust");
+        let candidates = legacy_backend_candidates(&target);
+        assert!(
+            !candidates.contains(&target),
+            "install target {} must be excluded from the legacy sweep",
+            target.display()
+        );
+        // Other legacy paths are still swept.
+        assert!(candidates.contains(&PathBuf::from("/usr/local/bin/ig-rust")));
+    }
+
+    /// When the install target is unrelated to any legacy `ig-rust` path,
+    /// every candidate is kept.
+    #[test]
+    fn legacy_backend_candidates_keeps_all_when_target_unrelated() {
+        let target = PathBuf::from("/opt/ig/bin/ig");
+        let candidates = legacy_backend_candidates(&target);
+        assert!(candidates.contains(&PathBuf::from("/usr/local/bin/ig-rust")));
+        assert!(candidates.contains(&PathBuf::from("/usr/local/share/ig/bin/ig-rust")));
     }
 
     #[test]
