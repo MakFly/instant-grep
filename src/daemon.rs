@@ -160,6 +160,17 @@ pub struct ProjectStatus {
     pub hot_count: usize,
 }
 
+fn inactive_project_status(root: &Path) -> ProjectStatus {
+    ProjectStatus {
+        root: root.to_string_lossy().to_string(),
+        seconds_since_seen: 0,
+        session_active: false,
+        session_pending: 0,
+        source: None,
+        hot_count: 0,
+    }
+}
+
 #[derive(Serialize)]
 struct MatchResult {
     file: String,
@@ -564,6 +575,45 @@ impl GlobalState {
         }
     }
 
+    fn enforce_session_activation_budget(&self, action: &str) -> Result<()> {
+        match self.memory_pressure() {
+            MemoryPressure::Normal | MemoryPressure::Unknown => Ok(()),
+            MemoryPressure::Soft(rss) => {
+                self.reclaim_memory(action, rss);
+                match self.memory_pressure() {
+                    MemoryPressure::Hard(rss) => {
+                        self.request_memory_shutdown(action, rss);
+                        anyhow::bail!(
+                            "daemon memory hard limit reached during {} (rss={} MB, hard={} MB); daemon is shutting down",
+                            action,
+                            bytes_to_mb(rss),
+                            bytes_to_mb(self.memory_limits.hard_bytes)
+                        )
+                    }
+                    MemoryPressure::Soft(rss) => {
+                        eprintln!(
+                            "memory governor: allowing {} under soft pressure (rss={} MB, soft={} MB); session lock prioritized",
+                            action,
+                            bytes_to_mb(rss),
+                            bytes_to_mb(self.memory_limits.soft_bytes)
+                        );
+                        Ok(())
+                    }
+                    MemoryPressure::Normal | MemoryPressure::Unknown => Ok(()),
+                }
+            }
+            MemoryPressure::Hard(rss) => {
+                self.request_memory_shutdown(action, rss);
+                anyhow::bail!(
+                    "daemon memory hard limit reached during {} (rss={} MB, hard={} MB); daemon is shutting down",
+                    action,
+                    bytes_to_mb(rss),
+                    bytes_to_mb(self.memory_limits.hard_bytes)
+                )
+            }
+        }
+    }
+
     fn can_run_background_rebuild(&self, action: &str) -> bool {
         match self.enforce_growth_budget(action) {
             Ok(()) => true,
@@ -586,7 +636,7 @@ impl GlobalState {
         let mut evicted_tenants = 0usize;
         {
             let mut tenants = self.tenants.lock().unwrap_or_else(|e| e.into_inner());
-            while tenants.len() > 1 {
+            while !tenants.is_empty() {
                 if tenants.pop_lru().is_some() {
                     evicted_tenants += 1;
                 } else {
@@ -741,6 +791,61 @@ impl GlobalState {
         Ok(status)
     }
 
+    fn activate_project_for_session(
+        self: &Arc<Self>,
+        root: &Path,
+    ) -> Result<Arc<ActiveProject>> {
+        let canonical = root
+            .canonicalize()
+            .with_context(|| format!("canonicalize {}", root.display()))?;
+        guard_suspicious_root(&canonical)?;
+
+        if let Some(project) = self
+            .active_projects
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&canonical)
+            .cloned()
+        {
+            *project.last_seen.lock().unwrap_or_else(|e| e.into_inner()) =
+                Instant::now();
+            self.touch_index(&canonical);
+            return Ok(project);
+        }
+
+        // Session begin is a protective lock, not a search warmup. Under soft
+        // RSS pressure we still want the watcher online so agent edits are
+        // buffered instead of falling back to untracked rebuild behavior.
+        self.enforce_session_activation_budget("session begin")?;
+        let project = Arc::new(ActiveProject::start(&canonical, Arc::clone(self))?);
+
+        let mut projects = self
+            .active_projects
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(existing) = projects.get(&canonical).cloned() {
+            *existing.last_seen.lock().unwrap_or_else(|e| e.into_inner()) =
+                Instant::now();
+            return Ok(existing);
+        }
+        if projects.len() >= self.active_projects_max
+            && let Some(oldest) = projects
+                .iter()
+                .filter(|(_, p)| !p.session_active.load(Ordering::SeqCst))
+                .max_by_key(|(_, p)| {
+                    p.last_seen
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .elapsed()
+                })
+                .map(|(root, _)| root.clone())
+        {
+            projects.remove(&oldest);
+        }
+        projects.insert(canonical, Arc::clone(&project));
+        Ok(project)
+    }
+
     fn catch_up_index(&self, root: &Path) -> Result<()> {
         writer::build_index(root, true, DEFAULT_MAX_FILE_SIZE)?;
         Ok(())
@@ -774,25 +879,28 @@ impl GlobalState {
         projects
     }
 
-    /// Toggle session mode for `root`. Auto-warms the project if it was not
-    /// active, so callers don't need to `ig warm` first. Returns the resulting
-    /// `ProjectStatus`.
+    /// Toggle session mode for `root`. Session begin creates the lightweight
+    /// watcher path without requiring a full search warmup; session end is a
+    /// no-op if no matching active project exists.
     fn session_signal(self: &Arc<Self>, root: &Path, begin: bool) -> Result<ProjectStatus> {
         let canonical = root
             .canonicalize()
             .with_context(|| format!("canonicalize {}", root.display()))?;
         guard_suspicious_root(&canonical)?;
-        // Ensure the project is warmed (so a worker thread exists to receive
-        // the session event). `warm_project` is idempotent for already-active
-        // projects and refreshes `last_seen`.
-        self.warm_project(&canonical)?;
-        let project = self
-            .active_projects
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&canonical)
-            .cloned()
-            .context("project not active after warm")?;
+        let project = if begin {
+            self.activate_project_for_session(&canonical)?
+        } else {
+            let Some(project) = self
+                .active_projects
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&canonical)
+                .cloned()
+            else {
+                return Ok(inactive_project_status(&canonical));
+            };
+            project
+        };
         project.signal_session(begin);
         Ok(project.status())
     }
@@ -809,14 +917,18 @@ impl GlobalState {
             .canonicalize()
             .with_context(|| format!("canonicalize {}", root.display()))?;
         guard_suspicious_root(&canonical)?;
-        self.warm_project(&canonical)?;
-        let project = self
+        let Some(project) = self
             .active_projects
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .get(&canonical)
             .cloned()
-            .context("project not active after warm")?;
+        else {
+            return Ok((
+                inactive_project_status(&canonical),
+                SessionEndOutcome::NotFinal,
+            ));
+        };
         let (_active, outcome) = project.signal_session_end_blocking(timeout);
         Ok((project.status(), outcome))
     }
@@ -851,6 +963,9 @@ impl GlobalState {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .retain(|_, project| {
+                if project.session_active.load(Ordering::SeqCst) {
+                    return true;
+                }
                 project
                     .last_seen
                     .lock()
@@ -3074,6 +3189,48 @@ mod tests {
         let t2 = state.tenant_for(&root).unwrap();
         // Same tenant returned (LRU hit).
         assert!(Arc::ptr_eq(&t1, &t2));
+        drop(dir);
+    }
+
+    #[test]
+    fn test_reclaim_memory_evicts_last_tenant() {
+        let (dir, root) = setup_test_project();
+        let state = GlobalState::new(8);
+        let _tenant = state.tenant_for(&root).unwrap();
+        assert_eq!(
+            state.tenants.lock().unwrap_or_else(|e| e.into_inner()).len(),
+            1
+        );
+
+        state.reclaim_memory("test", 900 * 1024 * 1024);
+
+        assert_eq!(
+            state.tenants.lock().unwrap_or_else(|e| e.into_inner()).len(),
+            0
+        );
+        drop(dir);
+    }
+
+    #[test]
+    fn test_prune_idle_keeps_active_session_project() {
+        let (dir, root) = setup_test_project();
+        let mut state = GlobalState::new(8);
+        state.idle_timeout = Duration::from_millis(0);
+        let state = Arc::new(state);
+        let project = state.activate_project_for_session(&root).unwrap();
+        project.signal_session(true);
+        *project.last_seen.lock().unwrap_or_else(|e| e.into_inner()) =
+            Instant::now() - Duration::from_secs(1);
+
+        state.prune_idle();
+
+        assert!(
+            state
+                .active_projects
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains_key(&root.canonicalize().unwrap())
+        );
         drop(dir);
     }
 

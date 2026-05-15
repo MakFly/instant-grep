@@ -5,6 +5,8 @@
 //! running daemon. Targets:
 //!
 //!   1. issue #1 — `ig hold end` blocks until the seal/index is updated.
+//!      Regression: `ig hold begin` still succeeds when daemon RSS is above
+//!      the soft limit but below the hard limit.
 //!   2. issue #2 — daemon and in-process `--type` resolve the same aliases.
 //!   3. issue #3 — `ig rewrite` emits shell-safe single-quoted patterns
 //!      for inputs containing metacharacters (`$()`, backticks, `;`, `"`).
@@ -172,6 +174,47 @@ fn e2e_hold_end_blocks_until_index_visible() {
          stdout={:?} stderr={:?}",
         count_output,
         String::from_utf8_lossy(&search.stderr)
+    );
+
+    stop_daemon(&cache);
+}
+
+#[test]
+fn e2e_hold_begin_survives_soft_rss_pressure() {
+    let _g = DAEMON_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let tmp = TempDir::new().unwrap();
+    let proj = seed_project(tmp.path());
+    let cache = tmp.path().join("cache");
+    fs::create_dir_all(&cache).unwrap();
+
+    build_index(&cache, &proj);
+
+    let beg = ig_cmd(&cache)
+        .env("IG_DAEMON_SOFT_RSS_MB", "1")
+        .env("IG_DAEMON_HARD_RSS_MB", "4096")
+        .arg("hold")
+        .arg("begin")
+        .arg(&proj)
+        .output()
+        .unwrap();
+    assert!(
+        beg.status.success(),
+        "hold begin failed under soft pressure: stdout={} stderr={}",
+        String::from_utf8_lossy(&beg.stdout),
+        String::from_utf8_lossy(&beg.stderr)
+    );
+
+    let end = ig_cmd(&cache)
+        .arg("hold")
+        .arg("end")
+        .arg(&proj)
+        .output()
+        .unwrap();
+    assert!(
+        end.status.success(),
+        "hold end failed after soft-pressure begin: stdout={} stderr={}",
+        String::from_utf8_lossy(&end.stdout),
+        String::from_utf8_lossy(&end.stderr)
     );
 
     stop_daemon(&cache);

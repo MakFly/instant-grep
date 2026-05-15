@@ -2,6 +2,27 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [1.20.2] — 2026-05-15
+
+### Fixed — `ig hold begin` under daemon soft-RSS pressure
+
+`ig hold begin <project>` no longer fails just because the global daemon is
+above its soft RSS limit. Session holds are protective agent edit locks, not
+search warmups, so they now activate the lightweight watcher path under soft
+memory pressure and only abort when the daemon reaches the hard limit.
+
+This fixes the Codex/Claude agent path where a failed hold caused the agent to
+fall back to `rg` after seeing:
+
+```text
+daemon memory soft limit reached during warm project ... background activation paused
+```
+
+The memory reclaimer also evicts the final cached tenant now. Previously, a
+single large reader could keep RSS above the soft limit forever while
+`ig projects list` showed no active projects, causing every new project warm or
+hold to be rejected in a loop.
+
 ## [1.20.1] — 2026-05-14
 
 ### Fixed — daemon deadlock on pre-v1.20 → v1.20 upgrades
