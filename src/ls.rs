@@ -32,8 +32,8 @@ pub fn compact_ls(path: &Path) -> Result<LsResult> {
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().to_string();
 
-        // Skip hidden files
-        if name.starts_with('.') {
+        // Skip entries already covered by DEFAULT_EXCLUDES
+        if crate::walk::DEFAULT_EXCLUDES.contains(&name.as_str()) {
             continue;
         }
 
@@ -138,14 +138,17 @@ mod tests {
     }
 
     #[test]
-    fn test_compact_ls_hides_dotfiles() {
+    fn test_compact_ls_shows_dotfiles_not_in_excludes() {
         let dir = TempDir::new().unwrap();
-        fs::File::create(dir.path().join(".hidden")).unwrap();
+        fs::File::create(dir.path().join(".env")).unwrap();
         fs::File::create(dir.path().join("visible")).unwrap();
+        fs::create_dir(dir.path().join("node_modules")).unwrap();
 
         let result = compact_ls(dir.path()).unwrap();
-        assert_eq!(result.total_files, 1);
-        assert_eq!(result.files[0].0, "visible");
+        assert_eq!(result.total_files, 2);
+        assert!(result.files.iter().any(|(n, _)| n == ".env"));
+        assert!(result.files.iter().any(|(n, _)| n == "visible"));
+        assert_eq!(result.total_dirs, 0); // node_modules excluded
     }
 
     #[test]

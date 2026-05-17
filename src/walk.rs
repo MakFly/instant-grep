@@ -62,7 +62,7 @@ pub fn walk_files(
 ) -> Result<Vec<PathBuf>> {
     let mut builder = WalkBuilder::new(root);
     builder
-        .hidden(true)
+        .hidden(false)
         .git_ignore(true)
         .git_global(true)
         .git_exclude(true);
