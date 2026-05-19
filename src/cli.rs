@@ -88,6 +88,22 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "N")]
     pub top: Option<usize>,
 
+    /// Ultra-compact output mode — one-liner per item, no snippets,
+    /// aggressive truncation. Token-optimised for AI agents that need
+    /// the minimum signal possible.
+    #[arg(short = 'u', long, global = true)]
+    pub ultra_compact: bool,
+
+    /// Verbosity (-v / -vv / -vvv). 0 = quiet (default), 3 = trace.
+    #[arg(short = 'v', long, global = true, action = clap::ArgAction::Count)]
+    pub verbose: u8,
+
+    /// Explain the action ig is about to take (rewrites, filter selection,
+    /// permission verdict, …) without changing behaviour. Wired piecewise
+    /// over subsequent PRs.
+    #[arg(long, global = true)]
+    pub explain: bool,
+
     /// Expand the query with learned co-occurring tokens (PMI).
     /// `ig --semantic error` also finds lines mentioning `catch`, `throw`,
     /// `Exception`, etc. — synonyms learned from THIS repo, no ML model.

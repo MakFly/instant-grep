@@ -18,6 +18,7 @@ mod index;
 mod ls;
 mod output;
 mod pack;
+mod parser;
 mod query;
 mod read;
 mod rewrite;
@@ -46,6 +47,35 @@ use clap::Parser;
 #[cfg(feature = "embed-poc")]
 use cli::EmbedPocOp;
 use cli::{Cli, Commands, TeeOp};
+use parser::FormatMode;
+
+/// Process-wide run options threaded from CLI parsing.
+///
+/// PR #1 wires this through the obvious compact-output callsites
+/// (`print_compact`, `Status`, `Smart`). Subsequent PRs route it
+/// to every other subcommand that benefits from `--ultra-compact`.
+#[derive(Clone, Copy, Debug)]
+pub struct RunOptions {
+    pub ultra_compact: bool,
+    pub verbose: u8,
+    pub explain: bool,
+    pub format_mode: FormatMode,
+}
+
+impl RunOptions {
+    fn from_cli(cli: &Cli) -> Self {
+        Self {
+            ultra_compact: cli.ultra_compact,
+            verbose: cli.verbose,
+            explain: cli.explain,
+            format_mode: if cli.ultra_compact {
+                FormatMode::Ultra
+            } else {
+                FormatMode::Compact
+            },
+        }
+    }
+}
 use index::metadata::{INDEX_VERSION, IndexMetadata};
 use index::overlay::OverlayReader;
 use index::writer;
@@ -57,6 +87,7 @@ use walk::DEFAULT_MAX_FILE_SIZE;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    let run_opts = RunOptions::from_cli(&cli);
 
     // Ensure the v1.19.0+ cache layout exists; migrates any pre-v1.19 hash
     // dirs from the cache root into `projects/` and the daemon files into
@@ -97,6 +128,9 @@ fn main() -> Result<()> {
     let top = cli.top;
     let semantic = cli.semantic;
 
+    // TODO (PR #2+): thread `run_opts` (especially `ultra_compact`) into
+    // every output-producing subcommand below. Currently only `print_compact`,
+    // `Status`, and `Smart` honour it.
     match cli.command {
         // Explicit subcommands
         Some(Commands::Search { pattern, paths }) => {
@@ -121,6 +155,7 @@ fn main() -> Result<()> {
                 max_file_size,
                 top,
                 semantic,
+                run_opts,
             })?;
         }
 
@@ -175,15 +210,25 @@ fn main() -> Result<()> {
             } else {
                 meta.file_count
             };
-            eprintln!(
-                "Index: {} files, {} trigrams, {:.1} MB, built {}",
-                total_file_count,
-                meta.ngram_count,
-                size as f64 / 1_048_576.0,
-                format_age(age_secs),
-            );
-            if let Some(ref commit) = meta.git_commit {
-                eprintln!("Git commit: {}", &commit[..7.min(commit.len())]);
+            if run_opts.ultra_compact {
+                eprintln!(
+                    "{}F {}ng {:.1}MB {}",
+                    total_file_count,
+                    meta.ngram_count,
+                    size as f64 / 1_048_576.0,
+                    format_age(age_secs),
+                );
+            } else {
+                eprintln!(
+                    "Index: {} files, {} trigrams, {:.1} MB, built {}",
+                    total_file_count,
+                    meta.ngram_count,
+                    size as f64 / 1_048_576.0,
+                    format_age(age_secs),
+                );
+                if let Some(ref commit) = meta.git_commit {
+                    eprintln!("Git commit: {}", &commit[..7.min(commit.len())]);
+                }
             }
         }
 
@@ -299,6 +344,7 @@ fn main() -> Result<()> {
                         original_bytes: original_size,
                         output_bytes,
                         project: tracking::current_project(),
+                        ..Default::default()
                     });
                     true
                 } else {
@@ -378,6 +424,7 @@ fn main() -> Result<()> {
                     original_bytes: original_size,
                     output_bytes,
                     project: tracking::current_project(),
+                    ..Default::default()
                 });
             } // if !delta_done
         }
@@ -425,9 +472,11 @@ fn main() -> Result<()> {
 
                 // Compact pipe mode → emit a fast dir aggregate instead of
                 // reading every file (per-file smart on a big tree is 5+ s).
-                let is_compact = std::env::var("IG_COMPACT").ok().as_deref() != Some("0")
-                    && (std::env::var("IG_COMPACT").ok().as_deref() == Some("1")
-                        || !std::io::IsTerminal::is_terminal(&std::io::stdout()));
+                // --ultra-compact also forces this path for minimum tokens.
+                let is_compact = run_opts.ultra_compact
+                    || (std::env::var("IG_COMPACT").ok().as_deref() != Some("0")
+                        && (std::env::var("IG_COMPACT").ok().as_deref() == Some("1")
+                            || !std::io::IsTerminal::is_terminal(&std::io::stdout())));
                 if is_compact && !json {
                     let agg = smart::smart_dir_aggregate(
                         &scan_dir,
@@ -494,6 +543,7 @@ fn main() -> Result<()> {
                 original_bytes: estimated_original,
                 output_bytes,
                 project: tracking::current_project(),
+                ..Default::default()
             });
         }
 
@@ -839,6 +889,7 @@ fn main() -> Result<()> {
                     max_file_size,
                     top,
                     semantic,
+                    run_opts,
                 })?;
             } else {
                 // No pattern, no subcommand — show help
@@ -873,6 +924,7 @@ struct SearchOpts<'a> {
     max_file_size: Option<u64>,
     top: Option<usize>,
     semantic: bool,
+    run_opts: RunOptions,
 }
 
 /// Does `s` look like a plain identifier — no regex metacharacters?
@@ -981,7 +1033,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
             search::rank::rank_top(&mut results, &root, n);
         }
         if opts.compact {
-            print_compact(&results);
+            print_compact(&results, opts.run_opts);
         } else {
             let mut printer = Printer::new(use_color, opts.json);
             if results.is_empty() && !opts.count && !opts.files_with_matches {
@@ -1016,7 +1068,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
             search::rank::rank_top(&mut results, &root, n);
         }
         if opts.compact {
-            print_compact(&results);
+            print_compact(&results, opts.run_opts);
         } else {
             let mut printer = Printer::new(use_color, opts.json);
             if results.is_empty() && !opts.count && !opts.files_with_matches {
@@ -1070,7 +1122,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
     }
 
     if opts.compact {
-        print_compact(&results);
+        print_compact(&results, opts.run_opts);
     } else {
         let mut printer = Printer::new(use_color, opts.json);
         if results.is_empty() && !opts.count && !opts.files_with_matches {
@@ -1092,10 +1144,15 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
 
 /// Compact output for --compact mode: header + truncated matches per file.
 /// Designed for AI agents that need to locate matches, not read every line.
-fn print_compact(results: &[search::matcher::FileMatches]) {
-    const MAX_FILES: usize = 25;
-    const MAX_MATCHES_PER_FILE: usize = 5;
-    const MAX_LINE_LEN: usize = 120;
+///
+/// `run_opts.ultra_compact` shrinks the budget further (8 files / 2 matches /
+/// 80-char lines) for absolute-minimum-token agent output.
+fn print_compact(results: &[search::matcher::FileMatches], run_opts: RunOptions) {
+    let (max_files, max_matches_per_file, max_line_len) = if run_opts.ultra_compact {
+        (8usize, 2usize, 80usize)
+    } else {
+        (25usize, 5usize, 120usize)
+    };
 
     let total_matches: usize = results.iter().map(|f| f.match_count).sum();
     let total_files = results.len();
@@ -1108,9 +1165,9 @@ fn print_compact(results: &[search::matcher::FileMatches]) {
     sorted.sort_by_key(|b| std::cmp::Reverse(b.match_count));
 
     for (i, file_matches) in sorted.iter().enumerate() {
-        if i >= MAX_FILES {
-            let remaining_files = total_files - MAX_FILES;
-            let remaining_matches: usize = sorted[MAX_FILES..].iter().map(|f| f.match_count).sum();
+        if i >= max_files {
+            let remaining_files = total_files - max_files;
+            let remaining_matches: usize = sorted[max_files..].iter().map(|f| f.match_count).sum();
             println!(
                 "... +{} files ({} matches)",
                 remaining_files, remaining_matches
@@ -1143,20 +1200,20 @@ fn print_compact(results: &[search::matcher::FileMatches]) {
             if m.is_context {
                 continue;
             }
-            if shown >= MAX_MATCHES_PER_FILE {
+            if shown >= max_matches_per_file {
                 let remaining = file_matches
                     .match_count
-                    .saturating_sub(MAX_MATCHES_PER_FILE);
+                    .saturating_sub(max_matches_per_file);
                 println!("  +{}", remaining);
                 break;
             }
             let line_text = String::from_utf8_lossy(&m.line);
             let line_text = line_text.trim();
             // floor_char_boundary keeps us on a valid UTF-8 boundary so a line
-            // like "café…" doesn't panic when MAX_LINE_LEN lands inside a
+            // like "café…" doesn't panic when max_line_len lands inside a
             // multi-byte character (issue #6).
-            let truncated = if line_text.len() > MAX_LINE_LEN {
-                let cut = line_text.floor_char_boundary(MAX_LINE_LEN);
+            let truncated = if line_text.len() > max_line_len {
+                let cut = line_text.floor_char_boundary(max_line_len);
                 format!("{}...", &line_text[..cut])
             } else {
                 line_text.to_string()
