@@ -2,6 +2,54 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [2.0.0] — 2026-05-19
+
+### BREAKING — daemon mode removed
+
+The global Unix-socket daemon, the per-project `notify` watcher, the seal-based
+push/pull cache-invalidation protocol, and the agent edit-session lock are all
+gone. Every `ig` command is now a one-shot process again: it opens the on-disk
+index (`~/.cache/ig/projects/<hash>/`), serves the request, and exits.
+
+Removed subcommands:
+
+- `ig daemon` (`start`, `stop`, `status`, `install`, `uninstall`)
+- `ig query`
+- `ig warm`
+- `ig hold` (`begin`, `end`, `status`)
+- `ig projects` (`list`, `forget`)
+- `ig watch`
+
+Removed concepts: the 16-byte `seal` publish marker, the `IndexReader` LRU,
+the daemon RSS governor, the `daemon/` cache subdirectory, the
+`session-start.sh` Claude Code hook, and the `SessionStart` / `SessionEnd`
+hook registrations that called `ig hold begin/end`.
+
+### Migration
+
+Run `ig update` once after upgrading. It:
+
+- removes the daemon binary's leftover `daemon.sock` / `daemon.pid` /
+  rotated `daemon.log` files under `~/.cache/ig/daemon/`;
+- removes any systemd-user unit (`~/.config/systemd/user/ig-daemon.service`)
+  or launchd plist (`~/Library/LaunchAgents/com.ig.daemon.*.plist`) from a
+  previous `ig daemon install`;
+- re-runs `ig setup --quiet` so the managed block in `CLAUDE.md` /
+  `AGENTS.md` / `~/.claude/rules/tools/ig.md` matches the v2.0 surface;
+- drops the `SessionStart` / `SessionEnd` `ig hold begin/end` hooks from
+  `~/.claude/settings.json` (and the `session-start.sh` hook file).
+
+The historical daemon design is preserved under `docs/specs/` with a
+`LEGACY (v1.x)` banner — kept for archaeology, no longer reflective of the
+shipping binary.
+
+### Unchanged
+
+The trigram engine, BM25 `--top N` ranking, `--semantic` PMI expansion, the
+token-compressed CLI (`ig git`, `ig read -s`, `ig ls`, `ig pack`, `ig run`,
+…), filter pipeline, tee store, agent setup for all 12 agents, and `ig gain`
+analytics all behave identically to v1.20.x.
+
 ## [1.20.2] — 2026-05-15
 
 ### Fixed — `ig hold begin` under daemon soft-RSS pressure

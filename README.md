@@ -28,33 +28,28 @@ Drop-in replacement for `grep`, `cat`, `ls`, `find`, `git status/log/diff` — b
 
 - **Trigram-indexed regex** that beats `ripgrep` 2–8× on warm caches with byte-identical match parity.
 - **Token-compressed CLI** (`ig git status/log/diff`, `ig read -s`, `ig ls`, …) shipped as drop-ins for AI agents.
-- **Single global daemon** — one Unix socket serves every project on the machine, ~6 MB idle, sub-ms hot path.
-- **Two-step install**: `curl … install.sh | bash`, then `ig daemon install`. Indexes live in `~/.cache/ig/` (XDG-compliant, no `.ig/` folder to gitignore).
+- **Process-per-invocation** (v2.0.0+) — no daemon, no socket, no background watcher. The on-disk index is mmap'd on every search and auto-rebuilt if stale.
+- **One-line install**: `curl … install.sh | bash`. Indexes live in `~/.cache/ig/` (XDG-compliant, no `.ig/` folder to gitignore).
 
 ## Why instant-grep?
 
 ### vs `ripgrep`
 
-`ripgrep` walks the gitignore tree and opens every candidate file on every query — fast in absolute terms (17–27 ms on a 3 K-file repo), but always proportional to repo size. `ig` builds a sparse trigram index once, then answers in **2.4–8 ms** through a persistent daemon. Median speedup: **2.6×** (measured on a 18 GB monorepo, 5 patterns, hyperfine -N). Match output is **byte-identical** with `rg` — same lines, same counts, same column offsets. The whole point is parity, not approximation.
+`ripgrep` walks the gitignore tree and opens every candidate file on every query — fast in absolute terms (17–27 ms on a 3 K-file repo), but always proportional to repo size. `ig` builds a sparse trigram index once, then answers in **2.4–8 ms** by mmap'ing the index on each invocation. Median speedup: **2.6×** (measured on an 18 GB monorepo, 5 patterns, hyperfine -N). Match output is **byte-identical** with `rg` — same lines, same counts, same column offsets. The whole point is parity, not approximation.
 
 ### vs `rtk` and other agent compressors
 
-`rtk` shells to `ripgrep` on every invocation and post-processes the output. `ig` is the only token compressor that ships its own **persistent index**, which unlocks two things `rtk` cannot replicate without re-implementing one: **`--top N` BM25 ranking** (10/10 byte wins on the 115-case benchmark) and **`--semantic` PMI expansion** (synonyms learned from your own codebase, no ML model). On total bytes + total wall time, `ig` wins both axes simultaneously (896 KB / 1.74 s vs 1.04 MB / 2.88 s).
+`rtk` shells to `ripgrep` on every invocation and post-processes the output. `ig` is the only token compressor that ships its own **persistent on-disk index**, which unlocks two things `rtk` cannot replicate without re-implementing one: **`--top N` BM25 ranking** (10/10 byte wins on the 115-case benchmark) and **`--semantic` PMI expansion** (synonyms learned from your own codebase, no ML model). On total bytes + total wall time, `ig` wins both axes simultaneously (896 KB / 1.74 s vs 1.04 MB / 2.88 s).
 
 ### For AI agents
 
 Every byte of CLI output is a token consumed. On a $200/month Claude Code Max plan, wasted tokens hit your rate limit sooner. `ig` cuts `git status` by 94 %, `cat large-file.ts` by 96 % (signatures mode), `rg dense-pattern src/` by 60–95 % — measured, not estimated. A PreToolUse hook auto-rewrites `grep` / `rg` / `find` / `cat` / `git` calls so the agent never knows the difference. **Zero-config** via `ig setup`: 8 agents configured in one command.
 
 ```
-ig ───── ~/.cache/ig/  (one daemon, one socket, all your projects)
- │             │
- │             ├── daemon/
- │             │     ├── daemon.sock         ← single multi-tenant socket
- │             │     ├── daemon.pid
- │             │     └── daemon.log[.1…5]    ← rotated at 5 MB
+ig ───── ~/.cache/ig/  (process-per-invocation, mmap'd on every search)
  │             │
  │             ├── projects/
- │             │     ├── <hash-of-rootA>/    ← lexicon.bin, postings.bin, seal, …
+ │             │     ├── <hash-of-rootA>/    ← lexicon.bin, postings.bin, metadata, …
  │             │     ├── <hash-of-rootB>/
  │             │     └── ...
  │             │
@@ -65,16 +60,15 @@ ig ───── ~/.cache/ig/  (one daemon, one socket, all your projects)
  │             ├── tee/                      ← centralized tee output
  │             └── manifest.json             ← global registry (cheap cache-ls)
  ├── search / git proxy / ls / read / pack
- └── gc / migrate / cache-ls
+ └── gc / migrate / cache-ls / update
 ```
 
 ## Release highlights
 
+- **v2.0.0 — daemon removed**. The global Unix-socket daemon, the per-project `notify` watcher, the seal-based push/pull cache-invalidation protocol, and the agent edit-session lock (`ig hold begin/end`) are all gone. Every `ig` command is once again a one-shot process that opens the on-disk index, serves the request, and exits. `ig update` cleans up any leftover `daemon.sock` / `daemon.pid` / `daemon.log` / systemd-user / launchd artifacts from the v1.x install on first run. The trigram engine, BM25 ranking, semantic PMI expansion, and token-compressed CLI surface are unchanged.
 - **Indexes live in the XDG cache** (`~/.cache/ig/`) since v1.15.0 — your projects stay clean (no `.ig/` folder to gitignore). `find_root` also recognises `package.json`, `Cargo.toml`, `go.mod`, etc., so non-versioned projects no longer scatter stray indexes.
-- **One global daemon** since v1.16.0 — multi-tenant, single Unix socket, single systemd-user / launchd unit. Replaces the previous one-daemon-per-project design. **~14× less RAM** in real-world use (5–20 MB total instead of 60 MB × N).
-- **Precision search (v1.17.0+)** — vbyte posting codec + masked n-grams (bloom / loc / zone). Sub-byte filtering before any `read(2)`. `INDEX_VERSION 13`.
-- **Push reload via FSEvents (v1.18.0)** — `.ig/seal` 16-byte atomic publish marker + `notify` watcher on `.ig/`. Out-of-band `ig index .` from another shell propagates to the daemon **without waiting for the next query**. Pull (per-query 16-byte read) stays authoritative as the safety net. See [`docs/specs/SPEC-daemon-cache-invalidation.md`](docs/specs/SPEC-daemon-cache-invalidation.md) for the full design.
-- **Navigable cache layout (v1.19.0)** — the cache root is now organized into `daemon/` (sock + pid + rotated logs), `projects/<hash>/`, `by-name/<slug>` symlinks for human inspection, `tee/`, and `manifest.json`. Migration from the pre-v1.19 flat layout is automatic and idempotent on first launch.
+- **Precision search (v1.17.0+)** — vbyte posting codec + masked n-grams (bloom / loc / zone). Sub-byte filtering before any `read(2)`.
+- **Navigable cache layout (v1.19.0)** — the cache root is organized into `projects/<hash>/`, `by-name/<slug>` symlinks for human inspection, `tee/`, and `manifest.json`. Migration from the pre-v1.19 flat layout is automatic and idempotent on first launch.
 - **Self-healing setup (v1.19.1+)** — `ig setup` writes a managed block (`<!-- IG-MANAGED-BLOCK -->`) into agent rule files (`CLAUDE.md`, `AGENTS.md`, `~/.claude/rules/tools/ig.md`). On binary upgrades, `ig update` re-runs `ig setup --quiet` so the block always reflects the current contract; only drifted entries surface, no wall of "already up-to-date".
 
 ---
@@ -84,8 +78,8 @@ ig ───── ~/.cache/ig/  (one daemon, one socket, all your projects)
 ```
 $ ig "async fn.*Result" src/ --stats
 
-src/daemon.rs
-23:    pub async fn handle_connection(stream: UnixStream) -> Result<()> {
+src/index/reader.rs
+23:    pub async fn open_for(root: &Path) -> Result<IndexReader> {
 
 --- stats ---
 Candidates: 4/1284 files (0.3%)
@@ -99,8 +93,7 @@ Index: yes
 |------|--------|
 | **ig vs ripgrep 14.1.1 — wall time** (v1.11.0, 5 patterns on iautos/apps 18 GB) | **2.2× to 7.8× faster** (median 2.6× faster) |
 | **ig vs ripgrep — match parity** | **5/5 patterns identical** (file count + total matches byte-for-byte) |
-| **Daemon auto-route gain** (v1.11.0, 10-query burst) | **-15% wall, -70% user CPU** vs in-process search |
-| **Single-query latency** (warm, daemon, iautos/apps) | **2.4–8.1 ms** depending on pattern |
+| **Single-query latency** (warm, mmap'd index, iautos/apps) | **2.4–8.1 ms** depending on pattern |
 | **ig vs rtk total bytes** (v1.10.0, 115 cases on a 347K-file monorepo) | **896 KB vs 1.04 MB** (ig wins) |
 | **ig vs rtk total time** (same 115 cases) | **1.74 s vs 2.88 s** (ig 40% faster) |
 | **BM25 `--top N` vs rtk** | **10/10 bytes wins**, 7/10 time wins (rtk has no index) |
@@ -119,7 +112,7 @@ Index: yes
 
 ### ig vs ripgrep 14.1.1 (v1.11.0, iautos/apps 18 GB, warm cache, hyperfine -N)
 
-| pattern             | ig (daemon) | rg 14.1.1 | ig faster |
+| pattern             | ig          | rg 14.1.1 | ig faster |
 | ------------------- | ----------: | --------: | --------: |
 | `useEffect`         | 5.9 ms      | 18.3 ms   | **3.1×**  |
 | `createServer`      | 2.4 ms      | 18.8 ms   | **7.8×**  |
@@ -127,7 +120,7 @@ Index: yes
 | `async function`    | 8.1 ms      | 18.2 ms   | **2.2×**  |
 | `export default`    | 6.9 ms      | 18.0 ms   | **2.6×**  |
 
-`rg` spends ~17–27 ms walking the gitignore tree and opening 3 000 candidate files. `ig`'s trigram filter cuts that to ~50–200 candidates *before* any file is touched — `User: 1.5 ms, System: 1.5 ms` average. Match counts identical on every pattern (no false positives, no missed lines).
+`rg` spends ~17–27 ms walking the gitignore tree and opening 3 000 candidate files. `ig`'s trigram filter cuts that to ~50–200 candidates *before* any file is touched — `User: 1.5 ms, System: 1.5 ms` average. Match counts identical on every pattern (no false positives, no missed lines). The numbers above were measured against v1.11.0's daemon hot path; with v2.0.0 the on-disk index is mmap'd per-invocation, adding the page-cache cold-start delta on the first query and matching daemon-hot-path numbers on subsequent queries within the same shell session.
 
 > Every number on this page is measured with `wc -c` / `hyperfine` on real commands, on real projects (1,609-file Laravel app, 3,084-file monorepo, 347K-file iautos SaaS). See the [v1.10.0 benchmark artefacts](documentation/public/bench/v1.10.0/) for the older CSV + per-domain tables.
 
@@ -139,10 +132,10 @@ Index: yes
 
 2. **Token compression** — `ig git status` outputs 25 bytes instead of 422. `ig read --plain` is byte-exact with `cat`, or `-s` gives signatures-only (−95% on large code files). `ig ls` produces compact listings. Compact search mode (`IG_COMPACT=1`) caps matches + truncates long lines for −60 to −95% on `grep`/`rg`. A PreToolUse hook rewrites commands transparently — the AI agent never knows the difference.
 
-|              | ripgrep 14.1.1 | ig (CLI, in-proc) | ig (daemon, auto-route) |
-| ------------ | -------------- | ----------------- | ----------------------- |
-| iautos/apps (3K files, 18 GB) | ~18–27 ms | ~3–7 ms | **~2.4–8 ms** (auto-spawned, transparent) |
-| Approach     | Full scan      | Index + verify    | Persistent hot process  |
+|              | ripgrep 14.1.1 | ig (mmap'd index) |
+| ------------ | -------------- | ----------------- |
+| iautos/apps (3K files, 18 GB) | ~18–27 ms | **~2.4–8 ms** |
+| Approach     | Full scan      | Trigram filter + regex verify on candidates |
 
 ## Installation
 
@@ -165,7 +158,7 @@ Since **v1.20.0**, `ig` ships as a single self-contained Rust binary per platfor
 | macOS x86_64            | `ig-macos-x86_64`             |
 | macOS ARM (M1/M2/M3/M4) | `ig-macos-aarch64`            |
 
-Use `install.sh` to download, codesign (stable identifier `dev.makfly.ig` on macOS), and install the daemon automatically (recommended).
+Use `install.sh` to download, codesign (stable identifier `dev.makfly.ig` on macOS), and install the binary (recommended).
 
 ### Build from source
 
@@ -360,7 +353,7 @@ The synonyms are **learned from your own codebase** — if you have `VehicleWant
 
 Controls:
 - Disable build entirely: `IG_SEMANTIC=0 ig index`
-- Daemon warms skip semantic indexing by default to keep background RSS bounded; set `daemon_semantic_index = true` or `IG_SEMANTIC=1` to opt in.
+- Skip semantic indexing for one build: `IG_SEMANTIC=0 ig index`.
 - Opt-out per query: just don't pass `--semantic`
 - Inspect: the stderr line `(semantic: expanded 'x' → …)` shows exactly what was added — no magic
 
@@ -395,86 +388,40 @@ ig git show HEAD                  # stat + compact diff (-51%)
 ig git branch -a                  # passthrough (already compact)
 ```
 
-### Daemon mode (sub-millisecond, multi-tenant since v1.16.0)
+### Process-per-invocation (v2.0.0+)
 
-A single global daemon serves searches for **every** indexed project on the
-machine. One process, one socket, one systemd / launchd unit. Tenants are
-opened lazily on first query and kept in an LRU cache (default cap 8, set
-`IG_DAEMON_TENANTS_MAX` or `IG_DAEMON_MAX_ACTIVE_PROJECTS` to override).
+Every `ig` command is a one-shot Rust process. There is no global daemon, no
+Unix socket, and no background filesystem watcher. On each query the binary:
 
-```bash
-ig daemon start                   # start the global daemon (foreground or backgrounded)
-ig daemon status                  # PID + socket + RSS / RAM limits
-ig daemon stop                    # SIGTERM the daemon
-ig daemon install                 # systemd-user (Linux) or launchd (macOS), auto-start on login
+1. Resolves the project root (`find_root`) and the corresponding cache dir
+   under `~/.cache/ig/projects/<hash>/`.
+2. mmap's `metadata.bin`, `lexicon.bin`, `postings.bin`.
+3. Walks the source tree (gitignore-aware) to detect mtime drift; if the
+   index is older than any source file or `INDEX_VERSION` was bumped, an
+   inline rebuild runs before the search.
+4. Serves the search and exits.
 
-ig query "pattern" /path/to/proj  # 0.06–1.3 ms response via the global Unix socket
-```
+There is no "warm" step, no "hold/begin/end" lock, no `ig daemon status` and
+no `ig query` subcommand. If you upgraded from v1.x, run `ig update` once and
+the leftover daemon socket / pid / log / systemd-user / launchd artifacts are
+pruned automatically.
 
-**RAM governor**: the daemon has soft/hard RSS caps. Defaults are soft 768 MB,
-hard 1 GB, with a 60 s cooldown after a hard stop so Claude/Codex hooks cannot
-relaunch it in a loop. Under soft pressure the daemon evicts tenant caches and
-inactive watchers, then pauses new background warms/rebuilds until memory drops.
+Tunables that still apply at index build time:
 
 ```toml
 # ~/.config/ig/config.toml
 [limits]
-daemon_soft_rss_mb = 768
-daemon_hard_rss_mb = 1024
-daemon_cooldown_secs = 60
-daemon_max_active_projects = 8
-daemon_project_idle_secs = 300
 index_memory_mb = 64
 index_batch_size = 250
 semantic_index = true
-daemon_semantic_index = false
 ```
 
-Equivalent env overrides: `IG_DAEMON_SOFT_RSS_MB`, `IG_DAEMON_HARD_RSS_MB`,
-`IG_DAEMON_COOLDOWN_SECS`, `IG_INDEX_MEMORY_MB`, `IG_INDEX_BATCH_SIZE`,
-`IG_SEMANTIC`, `IG_DAEMON_TENANTS_MAX`.
+Equivalent env overrides: `IG_INDEX_MEMORY_MB`, `IG_INDEX_BATCH_SIZE`,
+`IG_SEMANTIC`.
 
-**Wire format**: each query carries the project root in its JSON payload
-(`{"root": "/abs/path", "pattern": "...", …}`), so the daemon dispatches
-internally without needing per-project sockets.
-
-**Boot-time cleanup**: when v1.16.0+ starts, it SIGTERMs any leftover
-per-project daemons, removes their `/tmp/ig-*.sock` files, and takes over.
-Idempotent.
-
-#### Watcher and warm projects (since v1.17.0)
-
-```bash
-ig warm                           # warm the current project (idempotent)
-ig projects list                  # active projects + idle seconds
-ig projects forget /path/to/proj  # drop from the active set, free its watcher
-```
-
-Each warmed project gets its own `notify` watcher. When source files change,
-the daemon rebuilds the overlay in the background and reloads its
-`IndexReader`. Shell hooks (`zsh` / `bash` / `fish`) and the session-start
-hook now use `ig warm` instead of `ig daemon start`; the managed shell-hook
-block is self-updating across versions (re-run `ig setup` to rewrite in
-place).
-
-#### Cache invalidation — push + pull (since v1.18.0)
-
-The daemon learns about every rebuild via two complementary channels:
-
-- **Pull (authoritative)** — every query reads `.ig/seal` (a 16-byte file:
-  `[u64 generation, u64 finalized_at_nanos]`) and reloads if it advanced.
-  The seal is atomically renamed as the **final act** of every rebuild, so
-  observing generation N guarantees all artifacts of generation N are
-  already published.
-- **Push (best-effort)** — a second `notify` watcher on `.ig/` fires
-  `reload_tenant_if_open` on `seal` / `seal.tmp` events. An out-of-band
-  `ig index .` from another shell propagates to the daemon in ~10 ms,
-  without waiting for the next query.
-
-Push optimises steady-state; pull closes the loop if FSEvents misses an
-event (which `notify` is known to do under load on macOS, on NFS, or on
-some Docker bind-mount configurations). Full contract and invariants:
-[`docs/specs/SPEC-daemon-cache-invalidation.md`](docs/specs/SPEC-daemon-cache-invalidation.md).
+> **Looking for the v1.x daemon design?** The historical specs are kept under
+> [`docs/specs/`](docs/specs/) and marked `LEGACY (v1.x)` at the top —
+> useful for archaeology but no longer reflective of the shipping binary.
 
 ### Cache management (since v1.15.0)
 
@@ -496,24 +443,18 @@ with `[cache]` in `~/.config/ig/config.toml` or env vars:
 `IG_AUTO_GC`, `IG_CACHE_GC_INTERVAL_SECS`, `IG_CACHE_GC_DAYS`,
 `IG_CACHE_MAX_SIZE_MB`.
 
-**Layout (v1.19.0+)** — the cache root is now grouped by purpose. `ensure_layout()`
+**Layout (v1.19.0+)** — the cache root is grouped by purpose. `ensure_layout()`
 runs at the entry of every command and migrates pre-v1.19 installs (hash dirs at
 the root, `daemon.{sock,pid,log}` mixed in) to the new structure. Idempotent and
-safe under concurrent invocations via a create-only `.layout.lock` file. Browsing
-the cache is now meaningful:
+safe under concurrent invocations via a create-only `.layout.lock` file. v2.0.0
+additionally drops the now-orphaned `daemon/` subdirectory on first `ig update`
+run after upgrade. Browsing the cache is now meaningful:
 
 ```bash
 ls ~/.cache/ig/by-name/           # symlinks: <project-name> → ../projects/<hash>
 cat ~/.cache/ig/manifest.json     # registry: hash, root, size, last_used per entry
-ls ~/.cache/ig/daemon/            # daemon.sock, daemon.pid, daemon.log
+ls ~/.cache/ig/projects/          # per-project artifacts (lexicon, postings, …)
 ```
-
-If you upgrade across the v1.19 boundary, the migration is invisible: any
-pre-v1.19 daemon still running gets `SIGTERM`ed (PID file at the legacy path),
-old hash dirs move into `projects/`, daemon files into `daemon/`, and a v1.19
-daemon takes over on the new socket. Duplicate entries (rare; can happen if
-a stale daemon recreated a hash dir mid-migration) are resolved by `mtime`
-— newest wins.
 
 **Project root detection** (`find_root`) recognises both `.git/` and project
 markers (`package.json`, `Cargo.toml`, `pyproject.toml`, `go.mod`,
@@ -526,8 +467,10 @@ index, no duplicates.
 ```bash
 ig index .                        # build or rebuild
 ig status .                       # show stats
-ig watch .                        # auto-rebuild on file changes
 ```
+
+Stale indexes are also auto-rebuilt inline on the next `ig search` (mtime
+drift or `INDEX_VERSION` bump), so most users never call these directly.
 
 ### Update management
 
@@ -596,7 +539,6 @@ Manual alternatives remain available when you want tighter control:
 ```bash
 ig status /path/to/project        # check whether an index exists/stale
 ig index /path/to/project         # force a full rebuild for one project
-ig watch /path/to/project         # keep one project rebuilt on file changes
 ig cache-ls                       # inspect cached indexes
 ig gc --dry-run                   # preview orphan/stale cache cleanup
 ig gc --max-size 5GB --dry-run    # preview size-cap LRU cleanup
@@ -707,7 +649,7 @@ Since v1.7.0, ig is a **complete standalone solution** for AI agent token optimi
 
 - **`--top N` BM25 ranking** — 10 / 10 bytes wins. Example: `ig --top 10 "export default"` = 743 B; `rtk grep "export default"` = 19 403 B — same query, **−96 %**. rtk has no `tf` / `df` / `avdl` so it cannot rank; it can only flat-compress.
 - **`--semantic` PMI expansion** — 5 / 5 bytes wins. Example: `ig --semantic --top 5 throw` = 3 368 B with synonyms learned from the repo; `rtk grep throw` = 17 717 B of literal matches. Building a cooccurrence matrix would require rtk to ship its own index layer.
-- **Sub-ms daemon** — not in this run, but `ig daemon` serves queries at p50 = 0.7 ms through a Unix socket; rtk shells to ripgrep on every invocation.
+- **Sub-ms mmap'd index** — `ig` answers queries at p50 ≈ 0.7 ms by mmap'ing `lexicon.bin` + `postings.bin`; rtk shells to ripgrep on every invocation, so its floor is whatever `rg`'s file-walk costs.
 
 ### ig v1.4.0 vs ripgrep
 
@@ -717,14 +659,6 @@ Since v1.7.0, ig is a **complete standalone solution** for AI agent token optimi
 | `class\s+\w+` (11K files) | **29ms** | 34ms | ig 1.2x |
 | `deprecated` (11K files) | **21ms** | 31ms | ig 1.5x |
 | `import` (11K files) | **24ms** | 32ms | ig 1.3x |
-
-### Daemon mode (1,001 queries)
-
-| Metric | Value |
-|--------|-------|
-| p50 | **0.71ms** |
-| p95 | 4.51ms |
-| Throughput | **2,695 QPS** (server-side) |
 
 ### Scaling — ig gets faster on larger projects
 
@@ -777,13 +711,12 @@ The optimal strategy: `ig symbols | grep KEYWORD` for definitions, `ig -l "KEYWO
 │ (one binary, the only  │   codesigned with stable identifier dev.makfly.ig
 │  thing the user sees)  │   on macOS so TCC doesn't re-prompt on every update.
 └───────────┬────────────┘
-            │ hot path: argv → daemon socket (always — no fork/exec)
-            │ cold path: in-process subcommand dispatch
+            │ argv → in-process subcommand dispatch
             ▼
-        (no separate backend)
+       mmap the on-disk index, serve, exit
 ```
 
-Pre-v1.20 ig shipped a tiny C shim that `execve`'d a hidden Rust backend at `~/.local/share/ig/bin/ig-rust`. The shim saved a few milliseconds of cold start but cost an extra `fork()` per invocation, ~150 LOC of C glue, a second build toolchain in CI, and a class of "shim can't find backend" bugs. v1.20 collapses that into a single Rust binary: the daemon socket round-trip dominates on warm calls anyway, and the cold-start delta is irrelevant once the kernel has page-cached the binary.
+Pre-v1.20 ig shipped a tiny C shim that `execve`'d a hidden Rust backend at `~/.local/share/ig/bin/ig-rust`. v1.20 collapsed that into a single Rust binary. v2.0 then removed the daemon entirely: a one-shot process mmap's `lexicon.bin` + `postings.bin`, runs the query, and exits — the page cache absorbs almost all of what the daemon was caching in user-space.
 
 `install.sh` and `ig update` both detect and clean up any leftover `ig-rust` from a pre-v1.20 install (see `clean_legacy_backend()` in `src/update.rs`).
 
@@ -922,7 +855,7 @@ Plus one always-available toggle (no feature flag required):
 
 Why this is **not the default**:
 - **Cost guard.** An indexing run on a 3 k-file repo costs ~$0.05; a runaway re-index in a CI loop could rack up real money. PMI/trigram are free.
-- **Network dependency.** Each search is one round-trip to OpenAI (~200–800 ms). The trigram daemon answers in < 1 ms.
+- **Network dependency.** Each search is one round-trip to OpenAI (~200–800 ms). The trigram path mmap's the local index and answers in < 1 ms warm.
 - **API-key handling.** The key lives in `~/.config/ig/config.toml` or `.env` (always gitignored, pre-commit hook blocks `sk-*` strings) — but most users don't have one and shouldn't have to.
 - **Recall is similar at this scale.** On a 3 k-file repo, well-tuned PMI + BM25 (`ig --semantic --top 10`) catches most queries that dense embeddings catch. Embeddings start to dominate at 50 k+ files / multi-language polyglot repos.
 
@@ -956,12 +889,8 @@ ig
 ├── ls.rs           — Compact directory listing
 ├── cache.rs        — XDG cache + gc/migrate (v1.15.0)
 │                     + ensure_layout / projects/ / by-name/ / manifest (v1.19.0)
-│                     + daemon log rotation (5 MB / 5 generations)
-├── daemon.rs       — Single global Unix-socket server, multi-tenant LRU
-│                     + .ig/ watcher for proactive seal reload (v1.16.0+, v1.18.0)
-├── index/seal.rs   — 16-byte atomic publish marker (v1.18.0)
+│                     + legacy daemon/ pruning on first v2.0 run
 ├── index/vbyte.rs  — Varbyte posting codec + masked PostingEntry (v1.17.1)
-├── watch.rs        — File watcher + auto-rebuild
 └── walk.rs         — Gitignore-aware walking
 ```
 
@@ -973,7 +902,7 @@ For search, yes. Regex syntax is 100 % `regex-syntax` (same crate `ripgrep` uses
 
 ### Does `ig` work without an index?
 
-Yes. The first search on a new project triggers a background index build, and the query runs on a parallel scan in the meantime. Subsequent queries hit the index. You never need to call `ig index` manually — the daemon's filesystem watcher keeps it fresh.
+Yes. The first search on a new project builds the index inline before returning results. Subsequent queries mmap the existing index. If the index is older than any source file (or `INDEX_VERSION` was bumped), the next `ig search` rebuilds it transparently — you rarely need to call `ig index` manually.
 
 ### How big is the index?
 
@@ -989,7 +918,7 @@ No. The default binary contains zero network code on the search path. The option
 
 ### Linux, macOS, Windows?
 
-Linux (x86_64 + ARM64) and macOS (x86_64 + Apple Silicon) are first-class — each ships a single self-contained Rust binary, codesigned ad-hoc with a stable identifier on macOS. `install.sh` downloads, codesigns and installs the daemon automatically. **Windows is not supported** today (the daemon uses Unix domain sockets and `notify` filesystem watching paths that aren't portable). WSL2 works fine.
+Linux (x86_64 + ARM64) and macOS (x86_64 + Apple Silicon) are first-class — each ships a single self-contained Rust binary, codesigned ad-hoc with a stable identifier on macOS. `install.sh` downloads, codesigns and installs the binary automatically. **Windows is not yet supported** (some Unix-only path/permission handling on the index-write path); WSL2 works fine.
 
 ### How does this compare to `the_silver_searcher` (`ag`) or `ack`?
 
