@@ -1,0 +1,50 @@
+{"ts": 1700000000, "cmd": "ig smart", "in": 2139, "out": 2353, "saved": 0, "pct": 0.0, "project": "/Users/example/project0"}
+{"ts": 1700000060, "cmd": "ig git status", "in": 15128, "out": 1243, "saved": 0, "pct": 0.0, "project": "/Users/example/project1"}
+{"ts": 1700000120, "cmd": "ig smart", "in": 44848, "out": 4567, "saved": 0, "pct": 0.0, "project": "/Users/example/project2"}
+{"ts": 1700000180, "cmd": "ig smart", "in": 39198, "out": 3556, "saved": 0, "pct": 0.0, "project": "/Users/example/project0"}
+{"ts": 1700000240, "cmd": "ig read foo.rs", "in": 2452, "out": 867, "saved": 0, "pct": 0.0, "project": "/Users/example/project1"}
+{"ts": 1700000300, "cmd": "ig git status", "in": 15747, "out": 4239, "saved": 0, "pct": 0.0, "project": "/Users/example/project2"}
+{"ts": 1700000360, "cmd": "ig run cargo test", "in": 2239, "out": 4697, "saved": 0, "pct": 0.0, "project": "/Users/example/project0"}
+{"ts": 1700000420, "cmd": "ig git status", "in": 47425, "out": 4564, "saved": 0, "pct": 0.0, "project": "/Users/example/project1"}
+{"ts": 1700000480, "cmd": "ig pack", "in": 14946, "out": 3779, "saved": 0, "pct": 0.0, "project": "/Users/example/project2"}
+{"ts": 1700000540, "cmd": "ig run cargo test", "in": 18731, "out": 153, "saved": 0, "pct": 0.0, "project": "/Users/example/project0"}
+{"ts": 1700000600, "cmd": "ig files", "in": 46253, "out": 3562, "saved": 0, "pct": 0.0, "project": "/Users/example/project1"}
+{"ts": 1700000660, "cmd": "ig symbols", "in": 18710, "out": 1373, "saved": 0, "pct": 0.0, "project": "/Users/example/project2"}
+{"ts": 1700000720, "cmd": "ig git status", "in": 22559, "out": 937, "saved": 0, "pct": 0.0, "project": "/Users/example/project0"}
+{"ts": 1700000780, "cmd": "ig smart", "in": 25398, "out": 892, "saved": 0, "pct": 0.0, "project": "/Users/example/project1"}
+{"ts": 1700000840, "cmd": "ig symbols", "in": 23041, "out": 2266, "saved": 0, "pct": 0.0, "project": "/Users/example/project2"}
+{"ts": 1700000900, "cmd": "ig read foo.rs", "in": 48323, "out": 3863, "saved": 0, "pct": 0.0, "project": "/Users/example/project0"}
+{"ts": 1700000960, "cmd": "ig run pytest", "in": 8680, "out": 3200, "saved": 0, "pct": 0.0, "project": "/Users/example/project1"}
+{"ts": 1700001020, "cmd": "ig smart", "in": 36678, "out": 2501, "saved": 0, "pct": 0.0, "project": "/Users/example/project2"}
+{"ts": 1700001080, "cmd": "ig run cargo test", "in": 24200, "out": 4829, "saved": 0, "pct": 0.0, "project": "/Users/example/project0"}
+{"ts": 1700001140, "cmd": "ig git status", "in": 46674, "out": 669, "saved": 0, "pct": 0.0, "project": "/Users/example/project1"}
+{"ts": 1700001200, "cmd": "ig read foo.rs", "in": 43836, "out": 1966, "saved": 0, "pct": 0.0, "project": "/Users/example/project2"}
+{"ts": 1700001260, "cmd": "ig ls src", "in": 5729, "out": 2007, "saved": 0, "pct": 0.0, "project": "/Users/example/project0"}
+{"ts": 1700001320, "cmd": "ig smart", "in": 25411, "out": 2377, "saved": 0, "pct": 0.0, "project": "/Users/example/project1"}
+{"ts": 1700001380, "cmd": "ig context main.rs:42", "in": 42160, "out": 3088, "saved": 0, "pct": 0.0, "project": "/Users/example/project2"}
+{"ts": 1700001440, "cmd": "ig files", "in": 24760, "out": 3010, "saved": 0, "pct": 0.0, "project": "/Users/example/project0"}
+{"ts": 1700001500, "cmd": "ig git status", "in": 44420, "out": 2287, "saved": 0, "pct": 0.0, "project": "/Users/example/project1"}
+{"ts": 1700001560, "cmd": "ig smart", "in": 40420, "out": 1501, "saved": 0, "pct": 0.0, "project": "/Users/example/project2"}
+{"ts": 1700001620, "cmd": "ig run pytest", "in": 48284, "out": 2105, "saved": 0, "pct": 0.0, "project": "/Users/example/project0"}
+{"ts": 1700001680, "cmd": "ig files", "in": 30794, "out": 3208, "saved": 0, "pct": 0.0, "project": "/Users/example/project1"}
+{"ts": 1700001740, "cmd": "ig ls src", "in": 42443, "out": 4662, "saved": 0, "pct": 0.0, "project": "/Users/example/project2"}
+{"ts": 1700001800, "cmd": "ig git status", "in": 45366, "out": 2756, "saved": 0, "pct": 0.0, "project": "/Users/example/project0"}
+{"ts": 1700001860, "cmd": "ig read foo.rs", "in": 15510, "out": 362, "saved": 0, "pct": 0.0, "project": "/Users/example/project1"}
+{"ts": 1700001920, "cmd": "ig symbols", "in": 26790, "out": 2293, "saved": 0, "pct": 0.0, "project": "/Users/example/project2"}
+{"ts": 1700001980, "cmd": "ig smart", "in": 14326, "out": 4746, "saved": 0, "pct": 0.0, "project": "/Users/example/project0"}
+{"ts": 1700002040, "cmd": "ig symbols", "in": 14434, "out": 4189, "saved": 0, "pct": 0.0, "project": "/Users/example/project1"}
+{"ts": 1700002100, "cmd": "ig pack", "in": 42629, "out": 3858, "saved": 0, "pct": 0.0, "project": "/Users/example/project2"}
+{"ts": 1700002160, "cmd": "ig files", "in": 17859, "out": 1243, "saved": 0, "pct": 0.0, "project": "/Users/example/project0"}
+{"ts": 1700002220, "cmd": "ig git status", "in": 49323, "out": 4698, "saved": 0, "pct": 0.0, "project": "/Users/example/project1"}
+{"ts": 1700002280, "cmd": "ig run pytest", "in": 17719, "out": 4888, "saved": 0, "pct": 0.0, "project": "/Users/example/project2"}
+{"ts": 1700002340, "cmd": "ig pack", "in": 38742, "out": 3371, "saved": 0, "pct": 0.0, "project": "/Users/example/project0"}
+{"ts": 1700002400, "cmd": "ig symbols", "in": 14873, "out": 1233, "saved": 0, "pct": 0.0, "project": "/Users/example/project1"}
+{"ts": 1700002460, "cmd": "ig run pytest", "in": 32843, "out": 844, "saved": 0, "pct": 0.0, "project": "/Users/example/project2"}
+{"ts": 1700002520, "cmd": "ig read foo.rs", "in": 7685, "out": 1352, "saved": 0, "pct": 0.0, "project": "/Users/example/project0"}
+{"ts": 1700002580, "cmd": "ig files", "in": 45096, "out": 3558, "saved": 0, "pct": 0.0, "project": "/Users/example/project1"}
+{"ts": 1700002640, "cmd": "ig run cargo test", "in": 4663, "out": 3252, "saved": 0, "pct": 0.0, "project": "/Users/example/project2"}
+{"ts": 1700002700, "cmd": "ig pack", "in": 39552, "out": 3934, "saved": 0, "pct": 0.0, "project": "/Users/example/project0"}
+{"ts": 1700002760, "cmd": "ig run pytest", "in": 16976, "out": 4632, "saved": 0, "pct": 0.0, "project": "/Users/example/project1"}
+{"ts": 1700002820, "cmd": "ig read foo.rs", "in": 45083, "out": 1038, "saved": 0, "pct": 0.0, "project": "/Users/example/project2"}
+{"ts": 1700002880, "cmd": "ig run pytest", "in": 49709, "out": 2285, "saved": 0, "pct": 0.0, "project": "/Users/example/project0"}
+{"ts": 1700002940, "cmd": "ig symbols", "in": 7810, "out": 2504, "saved": 0, "pct": 0.0, "project": "/Users/example/project1"}
