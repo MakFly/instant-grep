@@ -1,13 +1,16 @@
 pub mod build;
+pub mod cloud;
 pub mod deps;
 pub mod diff_cmd;
 pub mod docker;
 pub mod env_cmd;
 pub mod err;
+pub mod git;
 pub mod json_cmd;
 pub mod lint;
 pub mod pkg;
 pub mod run;
+pub mod system;
 pub mod test;
 pub mod test_runner;
 pub mod util;
