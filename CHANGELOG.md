@@ -4,6 +4,52 @@ All notable changes to `instant-grep` are documented here. Format roughly follow
 
 ## [Unreleased]
 
+### Features — PR #4 of RTK-iso plan: native Rust parsers per tool
+
+- `feat(cmds)`: native Rust parsers for **vitest, jest, playwright, pytest,
+  cargo_test, go test, rspec, rake** (test runners). Each spawns the
+  underlying binary with a structured reporter (JSON / NDJSON / text
+  summary), parses to a typed `TestResult`, and renders via
+  `TokenFormatter` in `Compact` or `Ultra` mode (the global
+  `-u/--ultra-compact` flag is honoured).
+- `feat(cmds)`: native Rust parsers for **eslint, biome, tsc, prettier,
+  ruff, mypy, rubocop, golangci-lint** (linters / formatters), producing
+  a typed `LintResult` with per-file diagnostics.
+- `feat(cmds)`: native wrappers for **next build, prisma, cargo build,
+  pnpm, npm, pip** (build / pkg) — surface success / error blocks and
+  suppress spammy progress output.
+- `feat(parser)`: shared `LintResult` / `LintMessage` types in
+  `src/parser/types.rs`; `TokenFormatter::format_lint_result` for compact
+  + ultra rendering.
+- `feat(cmds/run)`: `route_to_dedicated` now recognises the new per-tool
+  subcommands so `ig run pytest …` re-execs as `ig pytest …` via a
+  re-spawned `ig` binary, with an `IG_RUN_ROUTING` env-var sentinel
+  guarding against any rewrite loop (`cargo` → `ig run cargo` → `ig
+  cargo_test` → `cargo`).
+- `feat(parser)`: every per-tool parser falls back to the TOML filter
+  pipeline (`try_toml_filter`) on `ParseResult::Failed`, and to raw
+  passthrough + `(parse fallback: passthrough)` stderr hint when no TOML
+  filter matches.
+- `feat(analytics)`: added `parse_outcome TEXT DEFAULT 'unknown'` column
+  to the SQLite `commands` table (with idempotent ALTER TABLE migration
+  for pre-PR4 DBs). Outcomes recorded: `full` / `partial` / `passthrough`
+  / `error`. `TrackEntry` gains `parse_outcome: Option<String>` field.
+- `feat(cli)`: 21 new subcommands — `Vitest, Jest, Playwright, Pytest,
+  CargoTest, GoTest, Rspec, Rake, Eslint, Biome, Tsc, Prettier, Ruff,
+  Mypy, Rubocop, GolangciLint, Next, Prisma, Pnpm, Npm, Pip` — plus a
+  hidden `__parse <tool>` helper used by the integration test suite.
+- `feat(cmds/util)`: shared `ansi::strip_ansi` (zero-dep, zero-copy on
+  ANSI-free input), `extract_json::{extract_json_object,
+  extract_json_lines}`, `package_manager::detect_pm`,
+  `truncate::truncate_at_char_boundary`, `spawn::capture` (with
+  `(tool '<bin>' not found in PATH)` → exit 127 path), `finish::emit`
+  (tee fallback + tracking row).
+- `test`: golden fixtures + integration tests under
+  `tests/fixtures/<tool>/` (`raw.txt`, `expected.compact.txt`,
+  `expected.ultra.txt`) for vitest, jest, pytest, playwright, go_test,
+  rspec, golangci. Plus `tests/{vitest_dotenv_prefix, test_pytest_xfail,
+  test_go_test_ndjson, recursion_guard, pr4_goldens}.rs`.
+
 ### Features — `ig setup` per-agent (PR #3 of RTK-iso plan)
 
 - `ig setup` is now agent-aware. New flags:
