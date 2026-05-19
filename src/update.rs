@@ -185,10 +185,7 @@ fn cleanup_legacy_daemon() {
             // legacy `unload` if `bootout` isn't available.
             let uid = unsafe { libc::getuid() };
             let _ = std::process::Command::new("launchctl")
-                .args([
-                    "bootout",
-                    &format!("gui/{}/com.ig.daemon.global", uid),
-                ])
+                .args(["bootout", &format!("gui/{}/com.ig.daemon.global", uid)])
                 .output();
             let _ = std::process::Command::new("launchctl")
                 .args(["unload", &plist.to_string_lossy()])

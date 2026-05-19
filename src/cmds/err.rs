@@ -41,6 +41,7 @@ pub fn run(args: &[String]) -> Result<i32> {
         original_bytes: raw.len() as u64,
         output_bytes: output_text.len() as u64,
         project: tracking::current_project(),
+        ..Default::default()
     });
 
     Ok(exit_code)

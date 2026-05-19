@@ -6,14 +6,24 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 use std::time::SystemTime;
 
+use crate::analytics::sqlite::migrate_marker_path;
+use crate::analytics::{TrackingDb, migrate_jsonl_to_sqlite};
+
 /// A single tracked command execution.
+#[derive(Clone, Debug, Default)]
 pub struct TrackEntry {
     pub command: String,
     pub original_bytes: u64,
     pub output_bytes: u64,
     pub project: String,
+    /// Wall-clock execution time. `None` for events where this is not
+    /// meaningful (e.g. pure `log_usage` calls).
+    pub exec_time_ms: Option<u64>,
+    /// Subprocess exit code, when applicable.
+    pub exit_code: Option<i32>,
 }
 
 /// Resolve the current project path for history attribution.
@@ -91,6 +101,66 @@ pub fn log_savings(entry: &TrackEntry) {
     unsafe {
         libc::flock(file.as_raw_fd(), libc::LOCK_UN);
     }
+
+    // Dual-write: ALSO record into the SQLite tracking DB. Errors are
+    // swallowed (with a single stderr line) so SQLite breakage never
+    // crashes the CLI — JSONL remains the source of truth until PR #4.
+    record_to_sqlite(entry);
+}
+
+/// Cached SQLite connection for the process lifetime. We need a Mutex because
+/// `rusqlite::Connection` is `!Sync`.
+static SQLITE_DB: OnceLock<Mutex<Option<TrackingDb>>> = OnceLock::new();
+
+fn record_to_sqlite(entry: &TrackEntry) {
+    // Best-effort migration on the first write (per process).
+    let _ = ensure_migrated();
+
+    let cell = SQLITE_DB.get_or_init(|| Mutex::new(TrackingDb::open().ok()));
+    let Ok(mut guard) = cell.lock() else { return };
+    if guard.is_none() {
+        // Retry open in case the data dir was not yet writable.
+        *guard = TrackingDb::open().ok();
+    }
+    if let Some(db) = guard.as_ref()
+        && let Err(e) = db.record(entry)
+    {
+        eprintln!("(tracking sqlite write failed: {})", e);
+    }
+}
+
+/// Run a one-shot JSONL → SQLite migration on first invocation, gated by
+/// a marker file under the data dir. Idempotent across processes thanks
+/// to dedup on `(timestamp, command, original_bytes, output_bytes)`.
+pub fn ensure_migrated() -> anyhow::Result<()> {
+    static DONE: OnceLock<()> = OnceLock::new();
+    if DONE.get().is_some() {
+        return Ok(());
+    }
+
+    let Some(marker) = migrate_marker_path() else {
+        return Ok(());
+    };
+    if marker.exists() {
+        let _ = DONE.set(());
+        return Ok(());
+    }
+
+    let Some(jsonl) = history_path() else {
+        return Ok(());
+    };
+    let db = match TrackingDb::open() {
+        Ok(d) => d,
+        Err(_) => return Ok(()),
+    };
+    let _ = migrate_jsonl_to_sqlite(&jsonl, &db);
+    // Best-effort: create the marker so we don't re-scan on every call.
+    if let Some(parent) = marker.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::write(&marker, b"ok\n");
+    let _ = DONE.set(());
+    Ok(())
 }
 
 /// Log a command for usage analytics when no meaningful savings baseline exists.
@@ -100,6 +170,7 @@ pub fn log_usage(command: impl Into<String>) {
         original_bytes: 0,
         output_bytes: 0,
         project: current_project(),
+        ..Default::default()
     });
 }
 
@@ -194,6 +265,7 @@ mod tests {
             original_bytes: 5000,
             output_bytes: 2000,
             project: "/test".into(),
+            ..Default::default()
         });
 
         let entries = read_history();

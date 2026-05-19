@@ -34,6 +34,7 @@ pub fn run(args: &[String]) -> Result<i32> {
         original_bytes: content.len() as u64,
         output_bytes: output.len() as u64,
         project: crate::tracking::current_project(),
+        ..Default::default()
     });
 
     Ok(0)

@@ -353,5 +353,6 @@ fn track(command: &str, original_bytes: u64, output_bytes: u64) {
         original_bytes,
         output_bytes,
         project: tracking::current_project(),
+        ..Default::default()
     });
 }

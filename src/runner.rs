@@ -44,6 +44,7 @@ pub fn run_filtered(args: &[&str], filter: Option<&CompiledFilter>) -> Result<i3
         original_bytes: raw.len() as u64,
         output_bytes: filtered.len() as u64,
         project: tracking::current_project(),
+        ..Default::default()
     });
 
     Ok(exit_code)
