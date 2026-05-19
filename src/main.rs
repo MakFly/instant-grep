@@ -5,7 +5,6 @@ mod cli;
 mod cmds;
 mod config;
 mod context;
-mod daemon;
 mod delta;
 mod discover;
 #[cfg(feature = "embed-poc")]
@@ -38,7 +37,6 @@ mod update;
 mod util;
 mod verify;
 mod walk;
-mod watch;
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -48,7 +46,7 @@ use clap::Parser;
 
 #[cfg(feature = "embed-poc")]
 use cli::EmbedPocOp;
-use cli::{Cli, Commands, ProjectsOp, SessionOp, TeeOp};
+use cli::{Cli, Commands, TeeOp};
 use index::metadata::{INDEX_VERSION, IndexMetadata};
 use index::overlay::OverlayReader;
 use index::writer;
@@ -188,160 +186,7 @@ fn main() -> Result<()> {
             if let Some(ref commit) = meta.git_commit {
                 eprintln!("Git commit: {}", &commit[..7.min(commit.len())]);
             }
-
-            let sock = daemon::socket_path();
-            if sock.exists() {
-                eprintln!("Daemon (global): running ({})", sock.display());
-            } else {
-                eprintln!("Daemon (global): not running");
-            }
         }
-
-        Some(Commands::Watch { path }) => {
-            let root = resolve_root(path.as_deref());
-            watch::watch_and_rebuild(&root, !no_default_excludes)?;
-        }
-
-        Some(Commands::Daemon { action, path }) => {
-            // The global daemon doesn't bind to a single project, so the path
-            // arg is ignored (kept for backward compat with old CLI/launchd
-            // invocations). It also doesn't require a pre-built index — each
-            // tenant opens its index lazily on first query.
-            let placeholder = path
-                .as_deref()
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|| std::path::PathBuf::from("/"));
-            match action.as_deref() {
-                Some("stop") => daemon::stop_daemon(&placeholder)?,
-                Some("status") => daemon::daemon_status(&placeholder)?,
-                Some("install") => daemon::install_launchd(&placeholder)?,
-                Some("uninstall") => daemon::uninstall_launchd(&placeholder)?,
-                Some("start") => daemon::start_daemon_background(&placeholder)?,
-                None | Some("foreground") => daemon::start_daemon(&placeholder)?,
-                Some(other) => {
-                    eprintln!("Unknown daemon action: {}", other);
-                    eprintln!("Available: start, stop, status, install, uninstall");
-                    std::process::exit(1);
-                }
-            }
-        }
-
-        Some(Commands::Warm {
-            path,
-            silent,
-            json: warm_json,
-        }) => {
-            let root = resolve_root(path.as_deref());
-            let resp = daemon::warm_daemon(&root)?;
-            if let Some(err) = resp.error {
-                anyhow::bail!("{}", err);
-            }
-            if warm_json {
-                println!("{}", serde_json::to_string(&resp)?);
-            } else if !silent {
-                let root = resp.root.unwrap_or_else(|| root.display().to_string());
-                eprintln!("warmed: {}", root);
-            }
-        }
-
-        Some(Commands::Projects { op }) => match op {
-            ProjectsOp::List {
-                json: projects_json,
-            } => {
-                let resp = daemon::list_projects_daemon()?;
-                if let Some(err) = resp.error {
-                    anyhow::bail!("{}", err);
-                }
-                let projects = resp.projects.unwrap_or_default();
-                if projects_json {
-                    println!("{}", serde_json::to_string(&projects)?);
-                } else if projects.is_empty() {
-                    eprintln!("no active projects");
-                } else {
-                    for project in projects {
-                        let source = project.source.as_deref().unwrap_or("search");
-                        // Compact, parseable line: tab-separated columns so
-                        // downstream `awk` / `cut` keeps working alongside the
-                        // older `path  last_seen=Ns` format.
-                        println!(
-                            "{}\tlast_seen={}s\tsource={}\thot={}",
-                            project.root, project.seconds_since_seen, source, project.hot_count,
-                        );
-                    }
-                }
-            }
-            ProjectsOp::Forget { path } => {
-                let root = resolve_root(path.as_deref());
-                let resp = daemon::forget_project_daemon(&root)?;
-                if let Some(err) = resp.error {
-                    anyhow::bail!("{}", err);
-                }
-                eprintln!(
-                    "{}: {}",
-                    resp.status.unwrap_or_else(|| "ok".to_string()),
-                    resp.root.unwrap_or_else(|| root.display().to_string())
-                );
-            }
-        },
-
-        Some(Commands::Hold { op }) => match op {
-            SessionOp::Begin { path, json: j } => {
-                let root = resolve_root(path.as_deref());
-                let resp = daemon::session_signal_daemon(&root, true)?;
-                if let Some(err) = resp.error {
-                    anyhow::bail!("{}", err);
-                }
-                if j {
-                    println!("{}", serde_json::to_string(&resp)?);
-                } else {
-                    eprintln!(
-                        "session begin: {}",
-                        resp.root.unwrap_or_else(|| root.display().to_string())
-                    );
-                }
-            }
-            SessionOp::End { path, json: j } => {
-                let root = resolve_root(path.as_deref());
-                let resp = daemon::session_signal_daemon(&root, false)?;
-                if let Some(err) = resp.error {
-                    anyhow::bail!("{}", err);
-                }
-                if j {
-                    println!("{}", serde_json::to_string(&resp)?);
-                } else {
-                    let pending = resp
-                        .projects
-                        .as_ref()
-                        .and_then(|v| v.first())
-                        .map(|s| s.session_pending)
-                        .unwrap_or(0);
-                    eprintln!(
-                        "session end: {} (flushed {} paths)",
-                        resp.root.unwrap_or_else(|| root.display().to_string()),
-                        pending
-                    );
-                }
-            }
-            SessionOp::Status { path, json: j } => {
-                let root = resolve_root(path.as_deref());
-                let resp = daemon::session_status_daemon(&root)?;
-                if let Some(err) = resp.error {
-                    anyhow::bail!("{}", err);
-                }
-                if j {
-                    println!("{}", serde_json::to_string(&resp)?);
-                } else {
-                    let status = resp.projects.as_ref().and_then(|v| v.first()).cloned();
-                    match status {
-                        Some(s) => eprintln!(
-                            "{}  session_active={}  pending={}",
-                            s.root, s.session_active, s.session_pending
-                        ),
-                        None => eprintln!("inactive: {}", root.display()),
-                    }
-                }
-            }
-        },
 
         Some(Commands::Files {
             path,
@@ -741,25 +586,17 @@ fn main() -> Result<()> {
         }
 
         Some(Commands::Update {
-            path,
+            path: _,
             indexes,
             all,
-            self_only,
+            self_only: _,
         }) => {
-            let wants_index_update = indexes || all || path.is_some();
-            if self_only || !wants_index_update {
-                update::run_update()?;
+            if indexes || all {
+                eprintln!(
+                    "note: --indexes / --all are no-ops in v2.0+ (use `ig index <path>` per project)."
+                );
             }
-            if !self_only && wants_index_update {
-                let max_size = max_file_size.unwrap_or(DEFAULT_MAX_FILE_SIZE);
-                update::run_index_update(path.as_deref(), all, !no_default_excludes, max_size)?;
-            }
-        }
-
-        Some(Commands::Query { pattern, path }) => {
-            let root = resolve_root(path.as_deref());
-            let response = daemon::query_daemon(&root, &pattern, ignore_case)?;
-            print!("{}", response);
+            update::run_update()?;
         }
 
         Some(Commands::Run { args }) => {
@@ -1060,72 +897,6 @@ fn prepare_pattern(pattern: &str, word_regexp: bool, fixed_strings: bool) -> Str
     p
 }
 
-/// Convert a daemon response into `FileMatches` so the existing Printer
-/// can render results identically to the in-process search path.
-/// Match ranges are recomputed locally with the pattern (cheap), so
-/// highlighting is preserved.
-fn daemon_response_to_file_matches(
-    resp: &daemon::DaemonResponse,
-    pattern: &str,
-    case_insensitive: bool,
-    count_only: bool,
-    files_only: bool,
-) -> Vec<search::matcher::FileMatches> {
-    use search::matcher::{FileMatches, LineMatch};
-    let Some(matches) = resp.results.as_ref() else {
-        return Vec::new();
-    };
-
-    // Compile regex once for highlight range recomputation.
-    let regex = (!files_only && !count_only)
-        .then(|| {
-            regex::bytes::RegexBuilder::new(pattern)
-                .case_insensitive(case_insensitive)
-                .unicode(false)
-                .build()
-                .ok()
-        })
-        .flatten();
-
-    let mut grouped: std::collections::BTreeMap<String, FileMatches> =
-        std::collections::BTreeMap::new();
-
-    for m in matches {
-        let entry = grouped
-            .entry(m.file.clone())
-            .or_insert_with(|| FileMatches {
-                path: m.file.clone(),
-                matches: Vec::new(),
-                match_count: 0,
-            });
-
-        if files_only {
-            entry.match_count = entry.match_count.max(1);
-            continue;
-        }
-        if count_only {
-            entry.match_count = m.count.unwrap_or(0);
-            continue;
-        }
-
-        let text = m.text.clone().unwrap_or_default();
-        let bytes = text.as_bytes().to_vec();
-        let match_ranges = match &regex {
-            Some(re) => re.find_iter(&bytes).map(|mtch| mtch.range()).collect(),
-            None => Vec::new(),
-        };
-        entry.matches.push(LineMatch {
-            line_number: m.line.unwrap_or(0),
-            line: bytes,
-            match_ranges,
-            is_context: false,
-        });
-        entry.match_count += 1;
-    }
-
-    grouped.into_values().collect()
-}
-
 /// Core search logic shared between `ig "pattern"` and `ig search "pattern"`.
 #[allow(clippy::too_many_arguments)]
 fn do_search(opts: &SearchOpts) -> Result<()> {
@@ -1282,62 +1053,6 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
 
         tracking::log_usage(search_command_label(opts));
         return Ok(());
-    }
-
-    // ── Daemon auto-route ─────────────────────────────────────────────
-    // For the agent hot path (`ig "x" path` with no advanced flags) we
-    // try to short-circuit through a running daemon. This skips binary
-    // cold start + index mmap page faults entirely (typical: 30–100 ms
-    // → < 5 ms). Falls back transparently to in-process search if the
-    // daemon is missing or the request is not representable.
-    let daemon_eligible = !opts.json
-        && !opts.stats
-        && opts.top.is_none()
-        && opts.glob.is_none()
-        && path_filters.is_empty()
-        && before == after
-        && std::env::var_os("IG_NO_DAEMON").is_none();
-
-    if daemon_eligible
-        && let Ok(Some(resp)) = daemon::try_query_daemon(
-            &root,
-            pattern,
-            opts.ignore_case,
-            opts.files_with_matches,
-            opts.count,
-            before,
-            opts.file_type,
-        )
-        && resp.error.is_none()
-    {
-        let results = daemon_response_to_file_matches(
-            &resp,
-            pattern,
-            opts.ignore_case,
-            opts.count,
-            opts.files_with_matches,
-        );
-        if opts.compact {
-            print_compact(&results);
-        } else {
-            let mut printer = Printer::new(use_color, opts.json);
-            if results.is_empty() && !opts.count && !opts.files_with_matches {
-                printer.print_no_matches(pattern);
-            }
-            for file_matches in &results {
-                printer.print_file_matches(file_matches, opts.count, opts.files_with_matches);
-            }
-        }
-        tracking::log_usage(search_command_label(opts));
-        return Ok(());
-    }
-
-    // Daemon was not reachable — best-effort auto-spawn for next call.
-    if daemon_eligible
-        && std::env::var_os("IG_NO_AUTO_DAEMON").is_none()
-        && !daemon::is_daemon_available()
-    {
-        let _ = daemon::start_daemon_background_silent(&root);
     }
 
     let (mut results, search_stats) = indexed::search_indexed(

@@ -1,7 +1,6 @@
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::time::Instant;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
@@ -20,6 +19,12 @@ pub fn check_update_background() {
 
 /// Interactive self-update with progress bar.
 pub fn run_update() -> Result<()> {
+    // v2.0+: this build no longer ships a daemon. If an old daemon from a
+    // pre-v2.0 install is still running (manually or via launchd/systemd
+    // user agent), tear it down here so the upgrade leaves no zombie
+    // background process behind. Best-effort, never fatal.
+    cleanup_legacy_daemon();
+
     eprint!("  Checking latest version... ");
     let response: serde_json::Value = ureq::get(GITHUB_API_URL)
         .header("User-Agent", &format!("ig/{}", CURRENT_VERSION))
@@ -162,28 +167,72 @@ fn clean_legacy_backend(installed: &Path) {
     }
 }
 
-/// Return true if a launchd plist (macOS) or systemd-user unit (Linux) has
-/// already been installed for ig-daemon. Used by `post_update_rewarm` to
-/// decide whether to reload the service manager vs. just inline-restart.
-fn service_unit_installed() -> bool {
+/// v2.0 upgrade cleanup: tear down any pre-v2.0 daemon left behind by the
+/// previous installation. Best-effort — every step is silent on failure so
+/// the update path can never abort here.
+fn cleanup_legacy_daemon() {
     let home = match dirs::home_dir() {
         Some(h) => h,
-        None => return false,
+        None => return,
     };
+
+    // 1. macOS launchd plist (bootout + remove).
     #[cfg(target_os = "macos")]
     {
-        home.join("Library/LaunchAgents/com.ig.daemon.global.plist")
-            .exists()
+        let plist = home.join("Library/LaunchAgents/com.ig.daemon.global.plist");
+        if plist.exists() {
+            // Best-effort: get uid for `bootout gui/<uid>` and fall back to
+            // legacy `unload` if `bootout` isn't available.
+            let uid = unsafe { libc::getuid() };
+            let _ = std::process::Command::new("launchctl")
+                .args([
+                    "bootout",
+                    &format!("gui/{}/com.ig.daemon.global", uid),
+                ])
+                .output();
+            let _ = std::process::Command::new("launchctl")
+                .args(["unload", &plist.to_string_lossy()])
+                .output();
+            let _ = fs::remove_file(&plist);
+        }
     }
+
+    // 2. Linux systemd-user unit (disable + remove).
     #[cfg(target_os = "linux")]
     {
         let cfg = dirs::config_dir().unwrap_or_else(|| home.join(".config"));
-        cfg.join("systemd/user/ig-daemon.service").exists()
+        let unit = cfg.join("systemd/user/ig-daemon.service");
+        if unit.exists() {
+            let _ = std::process::Command::new("systemctl")
+                .args(["--user", "disable", "--now", "ig-daemon.service"])
+                .output();
+            let _ = fs::remove_file(&unit);
+        }
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    {
-        let _ = home;
-        false
+
+    // 3. Kill any still-running `ig daemon` process from an old binary.
+    //    `pkill -f` matches against the full command line.
+    let _ = std::process::Command::new("pkill")
+        .args(["-TERM", "-f", "ig daemon"])
+        .output();
+
+    // 4. Remove daemon socket / pid / log files under the XDG cache.
+    let cache_root = if cfg!(target_os = "macos") {
+        home.join("Library/Caches/ig")
+    } else if let Ok(xdg) = std::env::var("XDG_CACHE_HOME") {
+        PathBuf::from(xdg).join("ig")
+    } else {
+        home.join(".cache/ig")
+    };
+    let daemon_dir = cache_root.join("daemon");
+    if daemon_dir.is_dir() {
+        for entry in fs::read_dir(&daemon_dir).into_iter().flatten().flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            // Sweep daemon.sock, daemon.pid, daemon.log, daemon.log.1..5, memory.cooldown.json
+            if name.starts_with("daemon.") || name.starts_with("memory.") {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
     }
 }
 
@@ -193,277 +242,7 @@ fn post_update_rewarm() -> Result<()> {
     // since the previous binary version. Most users have a stable agent
     // setup; printing "already up-to-date" for every entry is noise.
     crate::setup::run_setup_with_options(false, true);
-
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let root = crate::util::find_root(&cwd);
-
-    let service_installed = service_unit_installed();
-    if service_installed {
-        // launchd/systemd-user agent already installed: reload it so the
-        // (auto-restarting) service picks up the new exe path. install_launchd
-        // is idempotent — it unloads first, stops the running daemon, then
-        // loads/starts again.
-        eprint!("  Reloading daemon service... ");
-        io::stderr().flush().ok();
-        match crate::daemon::install_launchd(&root) {
-            Ok(_) => eprintln!("✓"),
-            Err(e) => eprintln!("skipped ({})", e),
-        }
-    } else if crate::daemon::is_daemon_available() {
-        // No service unit, but a daemon is running (manual `ig daemon start`):
-        // restart it inline so the new binary takes over.
-        eprint!("  Restarting daemon... ");
-        io::stderr().flush().ok();
-        crate::daemon::stop_daemon(&root)?;
-        crate::daemon::start_daemon_background_silent(&root)?;
-        match crate::daemon::verify_daemon_health() {
-            Ok(()) => eprintln!("✓"),
-            Err(e) => eprintln!("⚠ {}", e),
-        }
-    } else {
-        eprintln!("  Daemon not running. Run `ig daemon install` once to enable auto-start.");
-    }
-
-    eprint!("  Rewarming current project... ");
-    io::stderr().flush().ok();
-    match crate::daemon::warm_daemon(&root) {
-        Ok(resp) if resp.error.is_none() => eprintln!("✓"),
-        Ok(resp) => {
-            eprintln!("skipped");
-            if let Some(err) = resp.error {
-                eprintln!("  Warning: warm failed: {}", err);
-            }
-        }
-        Err(e) => {
-            eprintln!("skipped");
-            eprintln!("  Warning: warm failed: {}", e);
-        }
-    }
-
     Ok(())
-}
-
-/// Refresh indexes for the current project, or every known indexed project
-/// under `path` when `all` is set.
-pub fn run_index_update(
-    path: Option<&str>,
-    all: bool,
-    use_default_excludes: bool,
-    max_file_size: u64,
-) -> Result<()> {
-    let start = path
-        .map(PathBuf::from)
-        .unwrap_or(std::env::current_dir().context("cannot get current directory")?);
-    let start = start.canonicalize().unwrap_or(start);
-
-    let roots = if all {
-        discover_indexed_roots(&start)?
-    } else {
-        vec![crate::util::find_root(&start)]
-    };
-
-    if roots.is_empty() {
-        eprintln!("No indexed projects found under {}", start.display());
-        return Ok(());
-    }
-
-    let total = roots.len();
-    let mut rebuilt = 0usize;
-    let mut failed = 0usize;
-
-    for root in roots {
-        let ig = crate::util::ig_dir(&root);
-        let exists = crate::index::metadata::IndexMetadata::exists(&ig);
-        let stale = exists
-            && crate::index::metadata::IndexMetadata::load_from(&ig)
-                .map(|meta| meta.version != crate::index::metadata::INDEX_VERSION)
-                .unwrap_or(true);
-
-        eprintln!(
-            "{} {}",
-            if exists {
-                if stale {
-                    "Rebuilding stale index:"
-                } else {
-                    "Refreshing index:"
-                }
-            } else {
-                "Building missing index:"
-            },
-            root.display()
-        );
-
-        let start = Instant::now();
-        match crate::index::writer::build_index(&root, use_default_excludes, max_file_size) {
-            Ok(meta) => {
-                rebuilt += 1;
-                let size = dir_size(&crate::util::ig_dir(&root));
-                eprintln!(
-                    "  ✓ {} files, {} trigrams, {:.1}s, {:.1} MB",
-                    meta.file_count,
-                    meta.ngram_count,
-                    start.elapsed().as_secs_f64(),
-                    size as f64 / 1_048_576.0
-                );
-            }
-            Err(err) => {
-                failed += 1;
-                eprintln!("  ✗ {}", err);
-            }
-        }
-    }
-
-    eprintln!(
-        "\nIndex update complete: {} ok, {} failed, {} total.",
-        rebuilt, failed, total
-    );
-
-    if failed > 0 {
-        std::process::exit(1);
-    }
-
-    Ok(())
-}
-
-fn discover_indexed_roots(start: &Path) -> Result<Vec<PathBuf>> {
-    let mut roots = std::collections::BTreeSet::new();
-
-    for entry in walkdir::WalkDir::new(start)
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(|entry| entry.path() == start || should_descend(entry.path()))
-    {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(_) => continue,
-        };
-        if !entry.file_type().is_dir() {
-            continue;
-        }
-        if should_skip_project_path(entry.path(), start) {
-            continue;
-        }
-        if is_project_root(entry.path()) {
-            roots.insert(entry.path().to_path_buf());
-            continue;
-        }
-        if entry.file_name() == ".ig" {
-            let ig = entry.path();
-            if crate::index::metadata::IndexMetadata::exists(ig)
-                && let Some(root) = ig.parent()
-            {
-                roots.insert(root.to_path_buf());
-            }
-        }
-    }
-
-    for entry in crate::cache::list_entries()? {
-        let Some(meta) = entry.meta else {
-            continue;
-        };
-        let root = PathBuf::from(meta.root_path);
-        if root.exists() && root.starts_with(start) && !should_skip_project_path(&root, start) {
-            roots.insert(root);
-        }
-    }
-
-    Ok(roots.into_iter().collect())
-}
-
-const PROJECT_MARKERS: &[&str] = &[
-    ".git",
-    "package.json",
-    "Cargo.toml",
-    "pyproject.toml",
-    "setup.py",
-    "go.mod",
-    "deno.json",
-    "deno.jsonc",
-    "composer.json",
-    "pnpm-workspace.yaml",
-    "bun.lock",
-    "Gemfile",
-    "build.gradle",
-    "build.gradle.kts",
-    "pom.xml",
-    "mix.exs",
-    "Pipfile",
-    "requirements.txt",
-];
-
-fn is_project_root(path: &Path) -> bool {
-    PROJECT_MARKERS
-        .iter()
-        .any(|marker| path.join(marker).exists())
-}
-
-const SKIP_PROJECT_COMPONENTS: &[&str] = &[
-    ".bun",
-    ".cache",
-    ".cargo",
-    ".claude",
-    ".codex",
-    ".config",
-    ".cursor",
-    ".cursor-server",
-    ".deno",
-    ".docker",
-    ".local",
-    ".npm",
-    ".pnpm-store",
-    ".rustup",
-    ".volta",
-    ".vscode",
-    "Library",
-    "node_modules",
-    "target",
-    "dist",
-    "build",
-    ".next",
-    ".nuxt",
-    "__pycache__",
-    ".venv",
-    "venv",
-    "vendor",
-    "coverage",
-    ".turbo",
-    ".output",
-    ".terraform",
-];
-
-fn should_skip_project_path(path: &Path, start: &Path) -> bool {
-    let rel = path.strip_prefix(start).unwrap_or(path);
-    rel.components().any(|component| {
-        let std::path::Component::Normal(name) = component else {
-            return false;
-        };
-        let Some(name) = name.to_str() else {
-            return false;
-        };
-        name.starts_with('.') || SKIP_PROJECT_COMPONENTS.contains(&name)
-    })
-}
-
-fn should_descend(path: &Path) -> bool {
-    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-        return true;
-    };
-    !name.starts_with('.') && !SKIP_PROJECT_COMPONENTS.contains(&name)
-}
-
-fn dir_size(path: &Path) -> u64 {
-    let mut total = 0u64;
-    for entry in walkdir::WalkDir::new(path) {
-        let Ok(entry) = entry else {
-            continue;
-        };
-        if entry.file_type().is_file()
-            && let Ok(meta) = entry.metadata()
-        {
-            total += meta.len();
-        }
-    }
-    total
 }
 
 /// Determine where to install the shim and the Rust backend, and whether a

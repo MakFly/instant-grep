@@ -107,6 +107,7 @@ static DAEMON_TEST_LOCK: Mutex<()> = Mutex::new(());
 // ─── Issue #1 ──────────────────────────────────────────────────────────────
 
 #[test]
+#[ignore = "daemon and hold removed in v2.0"]
 fn e2e_hold_end_blocks_until_index_visible() {
     let _g = DAEMON_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let tmp = TempDir::new().unwrap();
@@ -180,6 +181,7 @@ fn e2e_hold_end_blocks_until_index_visible() {
 }
 
 #[test]
+#[ignore = "daemon and hold removed in v2.0"]
 fn e2e_hold_begin_survives_soft_rss_pressure() {
     let _g = DAEMON_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let tmp = TempDir::new().unwrap();
@@ -223,6 +225,7 @@ fn e2e_hold_begin_survives_soft_rss_pressure() {
 // ─── Issue #2 ──────────────────────────────────────────────────────────────
 
 #[test]
+#[ignore = "daemon removed in v2.0"]
 fn e2e_daemon_and_inprocess_agree_on_type_alias() {
     let _g = DAEMON_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let tmp = TempDir::new().unwrap();

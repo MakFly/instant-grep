@@ -5,7 +5,6 @@ pub mod ngram;
 pub mod overlay;
 pub mod postings;
 pub mod reader;
-pub mod seal;
 pub mod spimi;
 pub mod vbyte;
 pub mod writer;

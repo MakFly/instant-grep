@@ -120,56 +120,6 @@ pub enum Commands {
         path: Option<String>,
     },
 
-    /// Watch for file changes and rebuild index automatically
-    Watch {
-        /// Directory to watch (default: current dir)
-        path: Option<String>,
-    },
-
-    /// Manage the search daemon (start/stop/status/install/uninstall)
-    Daemon {
-        /// Action: start, stop, status, install, uninstall (default: start in foreground)
-        action: Option<String>,
-
-        /// Directory to serve (default: current dir)
-        path: Option<String>,
-    },
-
-    /// Warm a project in the global daemon and keep it indexed in the background
-    Warm {
-        /// Directory to warm (default: current dir)
-        path: Option<String>,
-
-        /// Suppress human-readable output
-        #[arg(long)]
-        silent: bool,
-
-        /// Print the daemon response as JSON
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// List or forget projects watched by the daemon
-    Projects {
-        #[command(subcommand)]
-        op: ProjectsOp,
-    },
-
-    /// Suspend / resume watcher rebuilds during an agent edit burst
-    ///
-    /// `ig hold begin` tells the daemon to accumulate filesystem events
-    /// without rebuilding the index until `ig hold end` is called. This
-    /// avoids the OVERLAY_THRESHOLD cascade that occurs when an AI agent
-    /// (Claude / Codex) edits dozens of files in a few seconds. On `end`,
-    /// every accumulated path is folded into a single overlay rebuild.
-    ///
-    /// Wire it into Claude Code via `SessionStart` / `Stop` hooks.
-    #[command(alias = "session-hold")]
-    Hold {
-        #[command(subcommand)]
-        op: SessionOp,
-    },
-
     /// List project files (respects .gitignore and excludes)
     Files {
         /// Directory to list (default: current dir)
@@ -394,15 +344,6 @@ pub enum Commands {
         self_only: bool,
     },
 
-    /// Send a search query to a running daemon
-    Query {
-        /// Regex pattern to search for
-        pattern: String,
-
-        /// Directory the daemon is serving (default: current dir)
-        path: Option<String>,
-    },
-
     /// Run a command with token-optimized output filtering
     #[command(alias = "proxy")]
     Run {
@@ -624,49 +565,6 @@ pub enum TeeOp {
     Clear,
 }
 
-#[derive(Subcommand)]
-pub enum SessionOp {
-    /// Open an edit session: rebuilds suspended until `end`
-    Begin {
-        /// Project root (default: current dir)
-        path: Option<String>,
-        /// Print the daemon response as JSON
-        #[arg(long)]
-        json: bool,
-    },
-    /// Close the edit session and flush queued paths in one rebuild
-    End {
-        /// Project root (default: current dir)
-        path: Option<String>,
-        /// Print the daemon response as JSON
-        #[arg(long)]
-        json: bool,
-    },
-    /// Show whether a session is currently active for the project
-    Status {
-        /// Project root (default: current dir)
-        path: Option<String>,
-        /// Print the daemon response as JSON
-        #[arg(long)]
-        json: bool,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum ProjectsOp {
-    /// List projects currently active in the daemon
-    List {
-        /// Print machine-readable JSON
-        #[arg(long)]
-        json: bool,
-    },
-    /// Stop watching a project
-    Forget {
-        /// Directory to forget (default: current dir)
-        path: Option<String>,
-    },
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -678,29 +576,6 @@ mod tests {
         match cli.command {
             Some(Commands::Gain { full, .. }) => assert!(full),
             _ => panic!("expected gain command"),
-        }
-    }
-
-    #[test]
-    fn warm_silent_flag_parses() {
-        let cli = Cli::try_parse_from(["ig", "warm", "--silent", "."]).unwrap();
-        match cli.command {
-            Some(Commands::Warm { silent, path, .. }) => {
-                assert!(silent);
-                assert_eq!(path.as_deref(), Some("."));
-            }
-            _ => panic!("expected warm command"),
-        }
-    }
-
-    #[test]
-    fn projects_list_json_parses() {
-        let cli = Cli::try_parse_from(["ig", "projects", "list", "--json"]).unwrap();
-        match cli.command {
-            Some(Commands::Projects {
-                op: ProjectsOp::List { json },
-            }) => assert!(json),
-            _ => panic!("expected projects list command"),
         }
     }
 }
