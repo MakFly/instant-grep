@@ -3,6 +3,21 @@ import DocsLayout from "@/layouts/docs.astro"
 ---
 
 <DocsLayout title="Architecture" description="How instant-grep works under the hood">
+  <!-- LEGACY (v1.x) banner — auto-injected on v2.0.0 daemon removal -->
+  <div class="mb-6 rounded-md border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm">
+    <strong>Legacy (v1.x) content.</strong> This page may reference the
+    Unix-socket daemon, the seal push/pull cache-invalidation protocol, the
+    agent edit-session lock (<code>ig hold begin/end</code>), or the
+    <code>ig warm</code> / <code>ig projects</code> / <code>ig query</code> /
+    <code>ig watch</code> subcommands. All of those were removed in
+    <strong>v2.0.0</strong>; <code>ig</code> is now process-per-invocation and
+    mmap's the on-disk index on every search. See the
+    <a href="https://github.com/MakFly/instant-grep/blob/main/CHANGELOG.md" class="underline">v2.0.0 changelog</a>
+    for the full removal list and the <code>ig update</code> migration. The
+    rest of this page (trigram engine, BM25, semantic PMI, token compression)
+    is still accurate.
+  </div>
+
   <div class="max-w-none">
     <!-- Page header -->
     <div class="mb-10">

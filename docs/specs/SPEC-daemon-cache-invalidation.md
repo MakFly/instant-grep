@@ -1,5 +1,10 @@
 # SPEC — Invalidation du cache daemon (seal + push/pull hybride)
 
+> **LEGACY (v1.x)** — Ce document décrit l'architecture daemon de v1.x et le
+> protocole push/pull basé sur le marqueur 16 octets `seal`. Le daemon a été
+> retiré en v2.0.0 (voir `CHANGELOG.md`) ; aucun de ces composants n'existe
+> dans le binaire actuel. Conservé pour archéologie uniquement.
+
 **Statut :** stable depuis v1.18.0.
 **Versions impactées :** v1.17.2 (atomic publish initial), v1.18.0 (seal + FSEvents push).
 **Code de référence :** `src/index/seal.rs`, `src/daemon.rs::TenantState::reload_if_changed`, `src/index/writer.rs`, `src/index/merge.rs`, `src/index/metadata.rs`, `src/index/overlay.rs`.

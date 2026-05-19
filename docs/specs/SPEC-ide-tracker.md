@@ -1,5 +1,10 @@
 # SPEC — IDE-Tracker for the `ig` daemon
 
+> **LEGACY (v1.x)** — This spec covers an IDE-tracker that was wired into the
+> v1.x daemon's tenant loop. The daemon was removed in v2.0.0
+> (see `CHANGELOG.md`); the tracker no longer ships in the binary. Kept for
+> archaeology only.
+
 Status: **shipped, v1.1**
 Target: `ig` v1.20
 Owner: kev
