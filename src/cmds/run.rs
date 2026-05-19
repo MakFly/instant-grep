@@ -85,10 +85,11 @@ pub(crate) fn pr4_subcommand_for_test(basename: &str, args: &[String]) -> Option
 /// cargo`) cannot infinite-loop.
 const RECURSION_GUARD_ENV: &str = "IG_RUN_ROUTING";
 
-/// Tool basenames that have a dedicated `ig <tool>` parser (PR #4). When
-/// the user does `ig run pytest …`, we re-exec as `ig pytest …` and bypass
-/// the TOML filter pipeline entirely.
+/// Tool basenames that have a dedicated `ig <tool>` parser (PR #4 + #5).
+/// When the user does `ig run pytest …`, we re-exec as `ig pytest …` and
+/// bypass the TOML filter pipeline entirely.
 const PR4_DEDICATED_TOOLS: &[&str] = &[
+    // PR #4 — test / lint / build / pkg
     "vitest",
     "jest",
     "playwright",
@@ -109,6 +110,17 @@ const PR4_DEDICATED_TOOLS: &[&str] = &[
     "pnpm",
     "npm",
     "pip",
+    // PR #5 — git platforms / cloud / system
+    "gh",
+    "glab",
+    "gt",
+    "aws",
+    "kubectl",
+    "psql",
+    "curl",
+    "wget",
+    "wc",
+    "tree",
 ];
 
 /// If the command has a dedicated ig subcommand that compresses better than

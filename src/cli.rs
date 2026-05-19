@@ -675,13 +675,80 @@ pub enum Commands {
         args: Vec<String>,
     },
 
+    // ---- PR #5 — git platforms / cloud / system wrappers ----
+    /// GitHub CLI wrapper with JSON-driven compaction
+    Gh {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// GitLab CLI wrapper with JSON-driven compaction
+    Glab {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Graphite CLI wrapper (stack summary)
+    Gt {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// AWS CLI wrapper (per-service compact rendering)
+    Aws {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// kubectl wrapper for get/logs/describe/apply
+    Kubectl {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// psql wrapper (compact SELECT / DML summary)
+    Psql {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// curl wrapper with body truncation + tee fallback
+    Curl {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// wget wrapper (surfaces summary line only)
+    Wget {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// System log wrapper (log show on macOS, journalctl on Linux)
+    Log {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Summarize a file (word count + first/last lines + markdown outline)
+    Summary {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// tree wrapper (capped depth, gitignore-aware)
+    Tree {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// wc wrapper (tracked passthrough)
+    Wc {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
     /// Hidden — feed stdin through one of the PR #4 parsers (for testing).
     ///
     /// Usage: `cat raw.txt | ig __parse vitest --ultra-compact`.
     #[command(name = "__parse", hide = true)]
     InternalParse {
         /// Tool name (vitest, jest, pytest, cargo_test, go_test, rspec,
-        /// eslint, biome, tsc, prettier, ruff, mypy, rubocop, golangci).
+        /// eslint, biome, tsc, prettier, ruff, mypy, rubocop, golangci,
+        /// gh-pr-list, gh-pr-view, gh-issue-list, gh-run-list,
+        /// aws-sts, aws-ec2, aws-lambda, aws-ddb, aws-iam-roles,
+        /// kubectl-get, kubectl-describe, kubectl-apply, kubectl-tail,
+        /// glab-mr-list, glab-issue-list,
+        /// psql, wget, log-condense, summary-md, gt-condense).
         tool: String,
     },
 }

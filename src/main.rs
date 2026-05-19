@@ -973,6 +973,80 @@ fn main() -> Result<()> {
             }
         }
 
+        // ---- PR #5 wrappers ----
+        Some(Commands::Gh { args }) => {
+            let code = cmds::git::gh::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Glab { args }) => {
+            let code = cmds::git::glab::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Gt { args }) => {
+            let code = cmds::git::gt::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Aws { args }) => {
+            let code = cmds::cloud::aws::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Kubectl { args }) => {
+            let code = cmds::cloud::kubectl::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Psql { args }) => {
+            let code = cmds::cloud::psql::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Curl { args }) => {
+            let code = cmds::cloud::curl::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Wget { args }) => {
+            let code = cmds::cloud::wget::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Log { args }) => {
+            let code = cmds::system::log::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Summary { args }) => {
+            let code = cmds::system::summary::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Tree { args }) => {
+            let code = cmds::system::tree::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Wc { args }) => {
+            let code = cmds::system::wc::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+
         Some(Commands::InternalParse { tool }) => {
             use std::io::Read;
             let mut input = String::new();
@@ -1625,6 +1699,19 @@ fn format_age(secs: u64) -> String {
     }
 }
 
+/// Helper: parse `input` as JSON and apply `render`. On parse error, return a
+/// "(parse failed)" passthrough so the hidden subcommand surfaces the
+/// underlying problem instead of silently swallowing it.
+fn json_render<F>(input: &str, render: F) -> String
+where
+    F: FnOnce(&serde_json::Value) -> String,
+{
+    match serde_json::from_str::<serde_json::Value>(input.trim()) {
+        Ok(v) => render(&v),
+        Err(e) => format!("(parse failed: {})\n{}", e, input),
+    }
+}
+
 /// Hidden `ig __parse <tool>` helper: read stdin, run it through a PR #4
 /// parser, print the formatted output. Used by the integration tests in
 /// `tests/{vitest_dotenv_prefix,test_pytest_xfail,test_go_test_ndjson}.rs`.
@@ -1723,6 +1810,30 @@ fn internal_parse(tool: &str, input: &str, opts: RunOptions) -> Result<()> {
             }
             ParseResult::Failed { passthrough, .. } => format!("(parse failed)\n{}", passthrough),
         },
+        // PR #5 parsers — JSON-driven; input is the raw JSON / text the wrapped tool printed.
+        "gh-pr-list" => json_render(input, |v| cmds::git::gh::render_pr_list(v, mode)),
+        "gh-pr-view" => json_render(input, |v| cmds::git::gh::render_pr_view(v, mode)),
+        "gh-issue-list" => json_render(input, |v| cmds::git::gh::render_issue_list(v, mode)),
+        "gh-issue-view" => json_render(input, |v| cmds::git::gh::render_issue_view(v, mode)),
+        "gh-run-list" => json_render(input, |v| cmds::git::gh::render_run_list(v, mode)),
+        "glab-mr-list" => json_render(input, |v| cmds::git::glab::render_mr_list(v, mode)),
+        "glab-issue-list" => json_render(input, |v| cmds::git::glab::render_issue_list(v, mode)),
+        "aws-sts" => json_render(input, cmds::cloud::aws::render_sts),
+        "aws-ec2" => json_render(input, cmds::cloud::aws::render_ec2),
+        "aws-lambda" => json_render(input, cmds::cloud::aws::render_lambda),
+        "aws-ddb" => json_render(input, cmds::cloud::aws::render_ddb_rows),
+        "aws-iam-roles" => json_render(input, cmds::cloud::aws::render_iam_roles),
+        "aws-iam-users" => json_render(input, cmds::cloud::aws::render_iam_users),
+        "kubectl-get" => json_render(input, cmds::cloud::kubectl::render_get),
+        "kubectl-describe" => cmds::cloud::kubectl::compact_describe(input),
+        "kubectl-apply" => cmds::cloud::kubectl::summarise_apply(input),
+        "kubectl-tail" => cmds::cloud::kubectl::tail_n(input, 200),
+        "psql" => cmds::cloud::psql::compact_psql(input),
+        "wget" => cmds::cloud::wget::compact_wget(input),
+        "log-condense" => cmds::system::log::condense(input),
+        "gt-condense" => cmds::git::gt::condense_stack(input),
+        "summary-md" => cmds::system::summary::summarise(input, std::path::Path::new("stdin.md")),
+        "markdown" => cmds::util::markdown::filter_markdown_body(input),
         other => anyhow::bail!("unknown parser tool: {}", other),
     };
     print!("{}", out);
