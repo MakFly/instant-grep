@@ -7,6 +7,7 @@
 pub mod ansi;
 pub mod extract_json;
 pub mod finish;
+pub mod markdown;
 pub mod package_manager;
 pub mod spawn;
 pub mod truncate;
