@@ -14,7 +14,6 @@ mod filter;
 mod gain;
 mod git;
 mod hooks;
-mod ide_tracker;
 mod index;
 mod ls;
 mod output;

@@ -964,39 +964,6 @@ pub fn read_manifest() -> Option<Manifest> {
     serde_json::from_str(&body).ok()
 }
 
-/// Rotate `daemon.log` if it exceeds 5 MB. Keeps last 5 raw rotations.
-/// Best-effort: errors are swallowed (logging shouldn't take down the daemon).
-pub fn rotate_daemon_log_if_needed() {
-    const MAX_BYTES: u64 = 5 * 1024 * 1024;
-    const KEEP: usize = 5;
-
-    let log = daemon_dir().join("daemon.log");
-    let size = match fs::metadata(&log) {
-        Ok(m) => m.len(),
-        Err(_) => return,
-    };
-    if size < MAX_BYTES {
-        return;
-    }
-
-    // Drop the oldest if we'd otherwise exceed KEEP.
-    let oldest = log.with_file_name(format!("daemon.log.{}", KEEP));
-    let _ = fs::remove_file(&oldest);
-
-    // Shift older rotations: .{KEEP-1} → .{KEEP}, …, .1 → .2.
-    for i in (1..KEEP).rev() {
-        let src = log.with_file_name(format!("daemon.log.{}", i));
-        let dst = log.with_file_name(format!("daemon.log.{}", i + 1));
-        if src.exists() {
-            let _ = fs::rename(&src, &dst);
-        }
-    }
-
-    // Move current log → .1, then truncate the live file.
-    let _ = fs::rename(&log, log.with_file_name("daemon.log.1"));
-    let _ = fs::write(&log, b"");
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
