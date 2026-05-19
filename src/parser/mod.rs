@@ -12,7 +12,7 @@ pub mod types;
 #[allow(unused_imports)]
 pub use formatter::TokenFormatter;
 #[allow(unused_imports)]
-pub use types::{FormatMode, TestFailure, TestResult};
+pub use types::{FormatMode, LintMessage, LintResult, TestFailure, TestResult};
 
 /// Result of parsing a tool's raw output.
 ///

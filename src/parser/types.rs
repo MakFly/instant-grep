@@ -32,3 +32,25 @@ pub struct TestFailure {
     /// Optional source/diff snippet. Always dropped in `FormatMode::Ultra`.
     pub snippet: Option<String>,
 }
+
+/// A typed lint/static-analysis summary produced by any linter parser
+/// (eslint, biome, tsc, ruff, mypy, rubocop, golangci-lint, …).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LintResult {
+    pub errors: u32,
+    pub warnings: u32,
+    pub files: Vec<LintMessage>,
+}
+
+/// One lint diagnostic.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LintMessage {
+    pub path: String,
+    pub line: u32,
+    pub col: u32,
+    pub rule: String,
+    pub message: String,
+    /// `"error"` / `"warning"` / `"info"`. Linters normalise their levels to
+    /// one of these three strings.
+    pub severity: String,
+}

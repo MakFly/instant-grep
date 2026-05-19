@@ -1,6 +1,6 @@
 //! Token-compressed rendering for parsed tool output.
 
-use super::types::{FormatMode, TestFailure, TestResult};
+use super::types::{FormatMode, LintResult, TestFailure, TestResult};
 
 /// Token-compressed formatter for parser outputs.
 #[derive(Clone, Copy, Debug, Default)]
@@ -17,6 +17,59 @@ impl TokenFormatter {
             FormatMode::Compact => format_compact(r),
             FormatMode::Ultra => format_ultra(r),
         }
+    }
+
+    /// Render a `LintResult` according to `mode`.
+    pub fn format_lint_result(&self, r: &LintResult, mode: FormatMode) -> String {
+        match mode {
+            FormatMode::Compact => format_lint_compact(r),
+            FormatMode::Ultra => format_lint_ultra(r),
+        }
+    }
+}
+
+fn format_lint_compact(r: &LintResult) -> String {
+    let mut out = String::new();
+    out.push_str(&format!(
+        "Lint: {} errors, {} warnings\n",
+        r.errors, r.warnings
+    ));
+    if r.files.is_empty() {
+        return out;
+    }
+    out.push('\n');
+    for m in &r.files {
+        out.push_str(&format!(
+            "{}:{}:{} [{}] {} ({})\n",
+            m.path,
+            m.line,
+            m.col,
+            m.severity,
+            m.message.lines().next().unwrap_or("").trim(),
+            m.rule,
+        ));
+    }
+    out
+}
+
+fn format_lint_ultra(r: &LintResult) -> String {
+    // One-line summary plus up to 3 rule names with the most violations.
+    let mut counts: std::collections::HashMap<&str, u32> = std::collections::HashMap::new();
+    for m in &r.files {
+        *counts.entry(m.rule.as_str()).or_insert(0) += 1;
+    }
+    let mut by_count: Vec<(&str, u32)> = counts.into_iter().collect();
+    // Stable order: highest count first, name-asc on ties.
+    by_count.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+    let top: Vec<String> = by_count
+        .into_iter()
+        .take(3)
+        .map(|(n, c)| format!("{}×{}", n, c))
+        .collect();
+    if top.is_empty() {
+        format!("{}E {}W\n", r.errors, r.warnings)
+    } else {
+        format!("{}E {}W ({})\n", r.errors, r.warnings, top.join(", "))
     }
 }
 

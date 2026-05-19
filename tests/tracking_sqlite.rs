@@ -12,6 +12,7 @@ pub mod tracking {
         pub project: String,
         pub exec_time_ms: Option<u64>,
         pub exit_code: Option<i32>,
+        pub parse_outcome: Option<String>,
     }
 }
 

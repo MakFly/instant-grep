@@ -84,13 +84,31 @@ impl TrackingDb {
                 original_bytes INTEGER NOT NULL DEFAULT 0,
                 output_bytes INTEGER NOT NULL DEFAULT 0,
                 exec_time_ms INTEGER NOT NULL DEFAULT 0,
-                exit_code INTEGER
+                exit_code INTEGER,
+                parse_outcome TEXT DEFAULT 'unknown'
             );
             CREATE INDEX IF NOT EXISTS idx_commands_ts ON commands(timestamp);
             CREATE INDEX IF NOT EXISTS idx_commands_project ON commands(project_path);
             "#,
         )
         .context("init schema")?;
+
+        // Migration: add parse_outcome column to pre-PR4 databases that were
+        // created without it. SQLite has no "ADD COLUMN IF NOT EXISTS" — we
+        // probe `pragma_table_info` first.
+        let has_outcome: bool = {
+            let mut stmt = conn
+                .prepare("SELECT 1 FROM pragma_table_info('commands') WHERE name='parse_outcome'")
+                .context("probe parse_outcome col")?;
+            stmt.query_row([], |_| Ok(())).optional()?.is_some()
+        };
+        if !has_outcome {
+            conn.execute(
+                "ALTER TABLE commands ADD COLUMN parse_outcome TEXT DEFAULT 'unknown'",
+                [],
+            )
+            .context("add parse_outcome col")?;
+        }
 
         Ok(Self { conn })
     }
@@ -135,8 +153,8 @@ impl TrackingDb {
         self.conn
             .execute(
                 "INSERT INTO commands (timestamp, command, project_path, \
-                 original_bytes, output_bytes, exec_time_ms, exit_code) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                 original_bytes, output_bytes, exec_time_ms, exit_code, parse_outcome) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     ts as i64,
                     &entry.command,
@@ -145,6 +163,7 @@ impl TrackingDb {
                     entry.output_bytes as i64,
                     entry.exec_time_ms.unwrap_or(0) as i64,
                     entry.exit_code,
+                    entry.parse_outcome.as_deref().unwrap_or("unknown"),
                 ],
             )
             .context("insert command")?;
@@ -252,6 +271,7 @@ mod tests {
             project: "/test".into(),
             exec_time_ms: None,
             exit_code: None,
+            parse_outcome: None,
         }
     }
 

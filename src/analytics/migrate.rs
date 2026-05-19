@@ -64,6 +64,7 @@ pub fn migrate_jsonl_to_sqlite(jsonl_path: &Path, db: &TrackingDb) -> Result<Mig
             project: parsed.project,
             exec_time_ms: None,
             exit_code: None,
+            parse_outcome: None,
         };
 
         // Probe before insert so we can report skipped vs inserted accurately

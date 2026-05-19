@@ -4,6 +4,8 @@
 //! `instant-grep` is a binary crate (no lib target), so the parser
 //! modules are pulled in via `#[path]`.
 
+#![allow(dead_code)]
+
 #[path = "../src/parser/types.rs"]
 mod types;
 

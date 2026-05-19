@@ -24,6 +24,11 @@ pub struct TrackEntry {
     pub exec_time_ms: Option<u64>,
     /// Subprocess exit code, when applicable.
     pub exit_code: Option<i32>,
+    /// PR #4 — outcome of structured parsing for this command.
+    /// One of: `"full"`, `"partial"`, `"passthrough"`, `"error"`, or `"unknown"`
+    /// (default for callers that don't run through a dedicated parser).
+    /// Plumbed into the SQLite `parse_outcome` column; JSONL ignores it.
+    pub parse_outcome: Option<String>,
 }
 
 /// Resolve the current project path for history attribution.
