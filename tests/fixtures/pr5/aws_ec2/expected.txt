@@ -1,0 +1,2 @@
+id	state	type	ip	private-ip	name
+i-0abc	running	t3.micro	54.0.0.1	10.0.0.5	web-1

@@ -1,0 +1,1 @@
+[{"number":12,"title":"Fix typo","state":"OPEN","author":{"login":"alice"},"isDraft":false,"headRefName":"fix","baseRefName":"main"},{"number":13,"title":"Add feature","state":"OPEN","author":{"login":"bob"},"isDraft":true,"headRefName":"feat","baseRefName":"main"}]

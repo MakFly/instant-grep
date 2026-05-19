@@ -1,0 +1,1 @@
+{"items":[{"kind":"Pod","metadata":{"name":"web-1","creationTimestamp":"2026-05-19T10:00:00Z"},"status":{"phase":"Running","containerStatuses":[{"ready":true,"restartCount":0}]}},{"kind":"Pod","metadata":{"name":"db-1","creationTimestamp":"2026-05-19T09:00:00Z"},"status":{"phase":"Pending","containerStatuses":[{"ready":false,"restartCount":2}]}}]}
