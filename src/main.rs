@@ -95,6 +95,22 @@ fn main() -> Result<()> {
     // `stat` once the marker is present.
     let _ = cache::ensure_layout();
 
+    // Rate-limited (1/day) hook drift warning. Skipped for commands that
+    // manipulate the hooks themselves (setup, uninstall, update, hook-audit)
+    // and for the rewrite/version fast paths.
+    let drift_check_eligible = !matches!(
+        &cli.command,
+        Some(Commands::HookAudit { .. })
+            | Some(Commands::Setup { .. })
+            | Some(Commands::Uninstall { .. })
+            | Some(Commands::Version)
+            | Some(Commands::Update { .. })
+            | Some(Commands::Rewrite { .. })
+    );
+    if drift_check_eligible && let Some(warning) = hooks::hook_check::maybe_warn_drift() {
+        eprint!("{}", warning);
+    }
+
     // Check for updates in the background (non-blocking)
     update::check_update_background();
 
@@ -552,7 +568,17 @@ fn main() -> Result<()> {
         }
 
         Some(Commands::Rewrite { command }) => {
-            rewrite::run_rewrite(&command);
+            std::process::exit(rewrite::run_rewrite(&command));
+        }
+
+        Some(Commands::HookAudit {
+            since,
+            json: audit_json,
+        }) => {
+            if let Err(e) = hooks::audit::run_audit(since, audit_json) {
+                eprintln!("ig hook-audit: {}", e);
+                std::process::exit(1);
+            }
         }
 
         Some(Commands::Gain {
