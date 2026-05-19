@@ -4,6 +4,29 @@ All notable changes to `instant-grep` are documented here. Format roughly follow
 
 ## [Unreleased]
 
+### Features — `ig setup` per-agent (PR #3 of RTK-iso plan)
+
+- `ig setup` is now agent-aware. New flags:
+  `--agent <id>` (default `all`; valid: `claude, codex, cursor, copilot,
+  gemini, opencode, windsurf, cline, hermes, kilocode, antigravity`),
+  `--show` (list installed artifacts + sha-256 fingerprint per agent),
+  `--uninstall` (remove only the selected agent's artifacts), `--hook-only`
+  (skip rules files; install hook scripts and settings.json patches only),
+  `--auto-patch` (create missing agent config dirs), `--no-patch` (drift
+  report only; refuse settings.json writes).
+- `ig init` is now accepted as a synonym for `ig setup` (RTK muscle memory).
+- Support for 7 additional AI agents (cursor, opencode, windsurf, cline,
+  hermes, kilocode, antigravity). Each ships under `src/setup/agents/<id>.rs`
+  with the new `AgentInstaller` trait (`detect / install / uninstall / show`).
+- `src/setup.rs` (2.5 KLOC monolith) split into `src/setup/{mod, agents/*}`
+  for per-agent ownership. Existing 28 unit tests preserved verbatim.
+- Hook payloads moved under `hooks/<agent>/` (claude README, codex README,
+  hermes `__init__.py` Python plugin, opencode `ig.ts` TS plugin, kilocode
+  & antigravity READMEs).
+- Settings.json patches preserve unrelated keys — `--uninstall --agent
+  claude` strips only ig-owned hook entries and the `Bash(ig *)` permission,
+  leaving every other key intact.
+
 ### BREAKING — `ig rewrite` exit-code protocol (RTK 0/1/2/3)
 
 `ig rewrite` now returns a structured exit code instead of always exiting
