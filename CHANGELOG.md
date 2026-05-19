@@ -2,6 +2,44 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### BREAKING — `ig rewrite` exit-code protocol (RTK 0/1/2/3)
+
+`ig rewrite` now returns a structured exit code instead of always exiting
+zero. Shell hooks that consume its output (notably `~/.claude/hooks/ig-guard.sh`,
+which `ig setup` re-installs automatically) MUST act on the code:
+
+| code | meaning                                          | hook should            |
+| ---- | ------------------------------------------------ | ---------------------- |
+| `0`  | passthrough — recognised, nothing to do          | run the original cmd   |
+| `1`  | rewrite suggestion (stdout) / ask rule matched   | surface to user        |
+| `2`  | deny verdict — block                             | exit 2 to block        |
+| `3`  | no rule matched AND command unfamiliar (#1155)   | prompt the user        |
+
+Set `IG_HOOK_EXIT_LEGACY=1` to collapse the protocol back to "always exit 0,
+print rewrite to stdout" for one release. The bundled `ig-guard.sh` is
+updated in lockstep — re-run `ig setup` if you carry a custom copy.
+
+### Features
+
+- Permission engine (`src/hooks/permissions.rs`) — built-in deny + ask
+  rule set, compiled once via `OnceLock`. User and project overrides at
+  `~/.config/ig/permissions.toml` and `<project>/.ig/permissions.toml`
+  may add `deny` and `ask` rules. Any `allow` from those sources is
+  silently downgraded to `ask` with a one-shot stderr warning per
+  process — prevents privilege escalation via repo-checked config.
+- Hook integrity verification (`src/hooks/integrity.rs`) — SHA-256 of
+  every installed hook is compared against the canonical source baked
+  into the binary via `include_bytes!`.
+- 1/day drift warning (`src/hooks/hook_check.rs`) — rate-limited via a
+  marker file under `dirs::cache_dir()/ig/hook_check_last.timestamp`.
+  Printed to stderr at the top of every command except `setup`,
+  `uninstall`, `update`, `hook-audit`, `version`, and `rewrite`.
+- `ig hook-audit [--since N] [--json]` — manual integrity + verdict
+  histogram. JSON mode returns `{ "drift": [...],
+  "verdicts_last_n_days": {...} }` for scripting.
+
 ## [2.0.0] — 2026-05-19
 
 ### BREAKING — daemon mode removed
