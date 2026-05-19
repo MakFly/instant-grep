@@ -563,6 +563,127 @@ pub enum Commands {
     /// `ig <word>` is otherwise treated as a search shortcut — without this
     /// subcommand, `ig version` would silently search for the word "version".
     Version,
+
+    // ---- PR #4 — per-tool Rust parsers (test runners) ----
+    /// Run vitest with a compact JSON-parsed summary
+    Vitest {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Run jest with a compact JSON-parsed summary
+    Jest {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Run playwright tests with a compact JSON-parsed summary
+    Playwright {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Run pytest with a compact summary (XFAIL/XPASS surfaced)
+    Pytest {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Run `cargo test --no-fail-fast` with a compact summary
+    CargoTest {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Run `go test -json ./...` with NDJSON-aggregated summary
+    GoTest {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Run rspec with JSON-parsed summary
+    Rspec {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Run rake (routes to rspec when project uses it)
+    Rake {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    // ---- PR #4 — linters / formatters ----
+    /// Run eslint with JSON-parsed compact output
+    Eslint {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Run biome check with JSON-parsed compact output
+    Biome {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Run tsc --noEmit with parsed diagnostic compaction
+    Tsc {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Run prettier --check and surface only files needing format
+    Prettier {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Run ruff check with JSON-parsed compact output
+    Ruff {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Run mypy and parse its text diagnostics
+    Mypy {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Run rubocop with JSON-parsed compact output
+    Rubocop {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Run golangci-lint with JSON-parsed compact output
+    GolangciLint {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    // ---- PR #4 — build / package ----
+    /// Run next (build/dev) and surface route summary or errors
+    Next {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Run prisma generate/migrate and surface success or errors
+    Prisma {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Run pnpm install/add/remove with progress suppressed
+    Pnpm {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Run npm install/run with progress suppressed
+    Npm {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Run pip install and surface only success or error blocks
+    Pip {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Hidden — feed stdin through one of the PR #4 parsers (for testing).
+    ///
+    /// Usage: `cat raw.txt | ig __parse vitest --ultra-compact`.
+    #[command(name = "__parse", hide = true)]
+    InternalParse {
+        /// Tool name (vitest, jest, pytest, cargo_test, go_test, rspec,
+        /// eslint, biome, tsc, prettier, ruff, mypy, rubocop, golangci).
+        tool: String,
+    },
 }
 
 #[cfg(feature = "embed-poc")]

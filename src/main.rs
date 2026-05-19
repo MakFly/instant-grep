@@ -845,6 +845,141 @@ fn main() -> Result<()> {
             println!("ig {}", env!("CARGO_PKG_VERSION"));
         }
 
+        // ---- PR #4 per-tool parsers ----
+        Some(Commands::Vitest { args }) => {
+            let code = cmds::test::vitest::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Jest { args }) => {
+            let code = cmds::test::jest::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Playwright { args }) => {
+            let code = cmds::test::playwright::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Pytest { args }) => {
+            let code = cmds::test::pytest::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::CargoTest { args }) => {
+            let code = cmds::test::cargo_test::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::GoTest { args }) => {
+            let code = cmds::test::go_test::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Rspec { args }) => {
+            let code = cmds::test::rspec::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Rake { args }) => {
+            let code = cmds::test::rake::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Eslint { args }) => {
+            let code = cmds::lint::eslint::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Biome { args }) => {
+            let code = cmds::lint::biome::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Tsc { args }) => {
+            let code = cmds::lint::tsc::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Prettier { args }) => {
+            let code = cmds::lint::prettier::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Ruff { args }) => {
+            let code = cmds::lint::ruff::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Mypy { args }) => {
+            let code = cmds::lint::mypy::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Rubocop { args }) => {
+            let code = cmds::lint::rubocop::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::GolangciLint { args }) => {
+            let code = cmds::lint::golangci::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Next { args }) => {
+            let code = cmds::build::next::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Prisma { args }) => {
+            let code = cmds::build::prisma::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Pnpm { args }) => {
+            let code = cmds::pkg::pnpm::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Npm { args }) => {
+            let code = cmds::pkg::npm::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Some(Commands::Pip { args }) => {
+            let code = cmds::pkg::pip::run(&args, run_opts)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+
+        Some(Commands::InternalParse { tool }) => {
+            use std::io::Read;
+            let mut input = String::new();
+            std::io::stdin().read_to_string(&mut input)?;
+            internal_parse(&tool, &input, run_opts)?;
+        }
+
         Some(Commands::Gc {
             days,
             max_size,
@@ -1488,4 +1623,108 @@ fn format_age(secs: u64) -> String {
     } else {
         format!("{}d ago", secs / 86400)
     }
+}
+
+/// Hidden `ig __parse <tool>` helper: read stdin, run it through a PR #4
+/// parser, print the formatted output. Used by the integration tests in
+/// `tests/{vitest_dotenv_prefix,test_pytest_xfail,test_go_test_ndjson}.rs`.
+fn internal_parse(tool: &str, input: &str, opts: RunOptions) -> Result<()> {
+    use parser::{ParseResult, TokenFormatter};
+    let mode = opts.format_mode;
+    let fmt = TokenFormatter::new();
+    let out = match tool {
+        "vitest" => match cmds::test::vitest::parse(input) {
+            ParseResult::Full(r) | ParseResult::Partial { value: r, .. } => {
+                fmt.format_test_result(&r, mode)
+            }
+            ParseResult::Failed { passthrough, .. } => format!("(parse failed)\n{}", passthrough),
+        },
+        "jest" => match cmds::test::jest::parse(input) {
+            ParseResult::Full(r) | ParseResult::Partial { value: r, .. } => {
+                fmt.format_test_result(&r, mode)
+            }
+            ParseResult::Failed { passthrough, .. } => format!("(parse failed)\n{}", passthrough),
+        },
+        "pytest" => match cmds::test::pytest::parse(input) {
+            ParseResult::Full(r) | ParseResult::Partial { value: r, .. } => {
+                fmt.format_test_result(&r, mode)
+            }
+            ParseResult::Failed { passthrough, .. } => format!("(parse failed)\n{}", passthrough),
+        },
+        "cargo_test" => match cmds::test::cargo_test::parse(input) {
+            ParseResult::Full(r) | ParseResult::Partial { value: r, .. } => {
+                fmt.format_test_result(&r, mode)
+            }
+            ParseResult::Failed { passthrough, .. } => format!("(parse failed)\n{}", passthrough),
+        },
+        "go_test" => match cmds::test::go_test::parse(input) {
+            ParseResult::Full(r) | ParseResult::Partial { value: r, .. } => {
+                fmt.format_test_result(&r, mode)
+            }
+            ParseResult::Failed { passthrough, .. } => format!("(parse failed)\n{}", passthrough),
+        },
+        "rspec" => match cmds::test::rspec::parse(input) {
+            ParseResult::Full(r) | ParseResult::Partial { value: r, .. } => {
+                fmt.format_test_result(&r, mode)
+            }
+            ParseResult::Failed { passthrough, .. } => format!("(parse failed)\n{}", passthrough),
+        },
+        "playwright" => match cmds::test::playwright::parse(input) {
+            ParseResult::Full(r) | ParseResult::Partial { value: r, .. } => {
+                fmt.format_test_result(&r, mode)
+            }
+            ParseResult::Failed { passthrough, .. } => format!("(parse failed)\n{}", passthrough),
+        },
+        "eslint" => match cmds::lint::eslint::parse(input) {
+            ParseResult::Full(r) | ParseResult::Partial { value: r, .. } => {
+                fmt.format_lint_result(&r, mode)
+            }
+            ParseResult::Failed { passthrough, .. } => format!("(parse failed)\n{}", passthrough),
+        },
+        "biome" => match cmds::lint::biome::parse(input) {
+            ParseResult::Full(r) | ParseResult::Partial { value: r, .. } => {
+                fmt.format_lint_result(&r, mode)
+            }
+            ParseResult::Failed { passthrough, .. } => format!("(parse failed)\n{}", passthrough),
+        },
+        "tsc" => match cmds::lint::tsc::parse(input) {
+            ParseResult::Full(r) | ParseResult::Partial { value: r, .. } => {
+                fmt.format_lint_result(&r, mode)
+            }
+            ParseResult::Failed { passthrough, .. } => format!("(parse failed)\n{}", passthrough),
+        },
+        "prettier" => match cmds::lint::prettier::parse(input) {
+            ParseResult::Full(r) | ParseResult::Partial { value: r, .. } => {
+                fmt.format_lint_result(&r, mode)
+            }
+            ParseResult::Failed { passthrough, .. } => format!("(parse failed)\n{}", passthrough),
+        },
+        "ruff" => match cmds::lint::ruff::parse(input) {
+            ParseResult::Full(r) | ParseResult::Partial { value: r, .. } => {
+                fmt.format_lint_result(&r, mode)
+            }
+            ParseResult::Failed { passthrough, .. } => format!("(parse failed)\n{}", passthrough),
+        },
+        "mypy" => match cmds::lint::mypy::parse(input) {
+            ParseResult::Full(r) | ParseResult::Partial { value: r, .. } => {
+                fmt.format_lint_result(&r, mode)
+            }
+            ParseResult::Failed { passthrough, .. } => format!("(parse failed)\n{}", passthrough),
+        },
+        "rubocop" => match cmds::lint::rubocop::parse(input) {
+            ParseResult::Full(r) | ParseResult::Partial { value: r, .. } => {
+                fmt.format_lint_result(&r, mode)
+            }
+            ParseResult::Failed { passthrough, .. } => format!("(parse failed)\n{}", passthrough),
+        },
+        "golangci" | "golangci-lint" => match cmds::lint::golangci::parse(input) {
+            ParseResult::Full(r) | ParseResult::Partial { value: r, .. } => {
+                fmt.format_lint_result(&r, mode)
+            }
+            ParseResult::Failed { passthrough, .. } => format!("(parse failed)\n{}", passthrough),
+        },
+        other => anyhow::bail!("unknown parser tool: {}", other),
+    };
+    print!("{}", out);
+    Ok(())
 }
