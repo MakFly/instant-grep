@@ -37,6 +37,7 @@ tempfile = "3"
 toml = "0.8"
 sha2 = "0.10"
 walkdir = "2"
+rusqlite = { version = "0.31", features = ["bundled"] }
 tiny_http = { version = "0.12", optional = true }
 
 [features]
