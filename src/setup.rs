@@ -14,28 +14,20 @@ const IG_MANAGED_END: &str = "<!-- IG-MANAGED-BLOCK:END -->";
 /// version bumps.
 const IG_SEARCH_TOOLS_SECTION: &str = "\n<!-- IG-MANAGED-BLOCK:BEGIN -->\n\
 ## Search Tools (`ig` — instant-grep)\n\n\
-- **Code search**: prefer `ig` (instant-grep) over `rg` or `grep`. Trigram-indexed, daemon-backed, sub-ms hot path. Match parity with `rg` is verified per release on real codebases.\n\
+- **Code search**: prefer `ig` (instant-grep) over `rg` or `grep`. Trigram-indexed, process-per-invocation, sub-ms warm queries. Match parity with `rg` is verified per release on real codebases.\n\
 - Usage: `ig \"pattern\" [path]` or `ig search \"pattern\" [path]`.\n\
 - **Indexes are NEVER in-project**. They live under the XDG cache: `~/.cache/ig/projects/<hash>/` (or `~/Library/Caches/ig/...` on macOS). Don't add `.ig/` to `.gitignore` — it's not there.\n\
-- **First search on a new project** auto-spawns the global daemon (one process for all projects on the machine, ~6 MB idle) and auto-builds the index in the background. The daemon has soft/hard RSS caps and a cooldown so hooks cannot relaunch it in a memory loop. You don't run `ig index`.\n\
-- **Editing a file**: the daemon's filesystem watcher rebuilds the overlay invisibly (50-200 ms) and reloads via the seal protocol.\n\
-- **Inspecting a project's cache by name**: `ls ~/.cache/ig/by-name/` shows all warmed projects as symlinks. Useful for debugging only — never modify these by hand.\n\n\
+- **First search on a new project** auto-builds the index inline before serving results. Subsequent searches mmap the existing index. You don't run `ig index` manually unless you want a forced rebuild.\n\
+- **Editing files**: re-run the search; if the index is older than the changed files, `ig` rebuilds it. There is no background watcher and no daemon.\n\
+- **Inspecting a project's cache by name**: `ls ~/.cache/ig/by-name/` shows all known projects as symlinks. Useful for debugging only — never modify these by hand.\n\n\
 ### Smart reads (token-compressed for agent context)\n\
 - `ig read <file> -s` — imports + function signatures only.\n\
 - `ig smart [path]` — 2-line summary per file.\n\
 - `ig pack [path]` — generate a full project map under the cache dir.\n\n\
-### Daemon control (rare, normally invisible)\n\
-- `ig daemon status` — PID, socket path, active projects, RSS + memory caps.\n\
-- `ig warm [path]` — add a project to the active set (called automatically by shell hooks on `cd`).\n\
-- `ig hold begin|end|status [path]` — suspend watcher rebuilds during AI-agent edit sessions.\n\
-- `ig projects list` / `ig projects forget <root>` — manage warmed projects.\n\
-- `ig daemon install` — systemd-user (Linux) or launchd (macOS) auto-start. **Do this once per new machine.**\n\n\
-### Agent edit-session lock\n\
-- Claude Code: `ig setup` installs `~/.claude/hooks/session-start.sh` and registers `SessionStart` / `SessionEnd` hooks in `~/.claude/settings.json`.\n\
-- Codex CLI: no native hook system; wrap runs manually with `ig hold begin \"$PWD\"` and `ig hold end \"$PWD\"`.\n\n\
 ### Cache hygiene (rare)\n\
 - `ig gc [--dry-run]` — prune orphan / stale / oversized cache entries.\n\
-- `ig cache-ls` — list per-project cache size + last-used.\n\n\
+- `ig cache-ls` — list per-project cache size + last-used.\n\
+- `ig update` — self-update the binary and clean up any legacy v1.x daemon artifacts (sock/pid/log).\n\n\
 Fall back to `rg` only if `ig --version` errors out. Never use plain `grep` for code search.\n\
 <!-- IG-MANAGED-BLOCK:END -->\n";
 
@@ -50,7 +42,7 @@ fn ig_managed_section() -> String {
 /// referenced by the global CLAUDE.md. Owned entirely by `ig setup`:
 /// rewritten on every invocation so users always have current commands.
 const IG_RULES_TOOLS_IG_MD: &str = "# ig (instant-grep)\n\n\
-Trigram-indexed regex search CLI, daemon-backed. Replaces `rg` and `grep` for code search. Sub-ms warm queries, byte-identical match parity with `rg`.\n\n\
+Trigram-indexed regex search CLI. Replaces `rg` and `grep` for code search. Sub-ms warm queries, byte-identical match parity with `rg`. Process-per-invocation — no daemon.\n\n\
 ## Search\n\n\
 ```bash\n\
 ig \"pattern\" [path]        # content search (recommended shortcut)\n\
@@ -68,7 +60,8 @@ ig --json \"pattern\"        # JSON output\n\
 **Never** in the project tree — no `.ig/` folder to gitignore.\n\n\
 Inspect by human-readable name: `ls ~/.cache/ig/by-name/<project>/`.\n\n\
 ## First time in a project\n\n\
-Just run `ig \"pattern\" [path]`. The daemon auto-spawns and the index auto-builds in background on first search. **Do not run `ig index` manually** unless something is wrong — the daemon's filesystem watcher keeps the index synced via overlay rebuilds.\n\n\
+Just run `ig \"pattern\" [path]`. The index auto-builds inline on first search and subsequent searches mmap it. If the index is stale (source files newer than metadata, or `INDEX_VERSION` bumped), `ig` rebuilds it transparently.\n\n\
+Force a manual rebuild with `ig index .` (rarely needed).\n\n\
 ## Smart reads (token-compressed for agent context)\n\n\
 ```bash\n\
 ig read <file> -s          # imports + signatures only\n\
@@ -78,30 +71,20 @@ ig files [path]            # project file list (compact)\n\
 ig symbols [path]          # symbol definitions (functions/classes)\n\
 ig context <file> <line>   # enclosing block at file:line\n\
 ```\n\n\
-## Daemon (one global process for all projects)\n\n\
-```bash\n\
-ig daemon status           # check health (PID, socket, active projects)\n\
-ig daemon install          # systemd-user (Linux) or launchd (macOS) auto-start\n\
-ig warm [path]             # explicitly add project to active set (idempotent)\n\
-ig hold begin|end|status   # lock watcher rebuilds during agent edit sessions\n\
-ig projects list           # active projects + idle seconds\n\
-```\n\n\
-Socket: `~/.cache/ig/daemon/daemon.sock`. Don't touch.\n\n\
-Memory governor: default soft RSS 768 MB, hard RSS 1024 MB, cooldown 60 s. Tune in `~/.config/ig/config.toml` under `[limits]` or with `IG_DAEMON_SOFT_RSS_MB`, `IG_DAEMON_HARD_RSS_MB`, `IG_INDEX_MEMORY_MB`, `IG_INDEX_BATCH_SIZE`.\n\n\
-Cache GC is automatic by default: hourly, orphan cleanup, 30-day stale cleanup, 5 GB total cache cap. Tune under `[cache]` or with `IG_AUTO_GC`, `IG_CACHE_GC_INTERVAL_SECS`, `IG_CACHE_GC_DAYS`, `IG_CACHE_MAX_SIZE_MB`.\n\n\
 ## Cache hygiene (rare)\n\n\
 ```bash\n\
 ig gc                      # prune orphan / unused entries\n\
 ig gc --days 30 --dry-run  # what would be pruned (no delete)\n\
 ig gc --max-size 5GB --dry-run # preview LRU size-cap pruning\n\
 ig cache-ls                # list cached projects with size + last-used\n\
+ig update                  # self-update + clean up legacy v1.x daemon artifacts\n\
 ```\n\n\
+Cache GC is automatic by default: hourly, orphan cleanup, 30-day stale cleanup, 5 GB total cache cap. Tune under `[cache]` or with `IG_AUTO_GC`, `IG_CACHE_GC_INTERVAL_SECS`, `IG_CACHE_GC_DAYS`, `IG_CACHE_MAX_SIZE_MB`.\n\n\
 ## Subagent snippet\n\n\
-> Use `ig \"pattern\" [path]` via Bash for code search. Trigram-indexed, daemon-backed, sub-ms hot path. Binary at `~/.local/bin/ig`. Index lives in `~/.cache/ig/`, never in the project. Auto-builds on first search; never run `ig index` manually unless instructed. Match parity with `rg` is verified per release.\n\n\
+> Use `ig \"pattern\" [path]` via Bash for code search. Trigram-indexed, sub-ms warm queries. Binary at `~/.local/bin/ig`. Index lives in `~/.cache/ig/`, never in the project. Auto-builds on first search; rebuild forced with `ig index .` only if needed. Match parity with `rg` is verified per release.\n\n\
 ## What NOT to do\n\n\
 - `rg` for code search → use `ig` (rg only as fallback if `ig --version` errors).\n\
 - Add `.ig/` to `.gitignore` — there is no `.ig/` to gitignore.\n\
-- Run `ig index` proactively — daemon does it.\n\
 - Touch files inside `~/.cache/ig/projects/` — read-only territory.\n\
 - `rm -rf ~/.cache/ig/` — use `ig gc` for partial clean.\n\n\
 *This file is auto-managed by `ig setup`. Manual edits are overwritten on the next run.*\n";
@@ -109,7 +92,6 @@ ig cache-ls                # list cached projects with size + last-used\n\
 const IG_PERMISSION: &str = "Bash(ig *)";
 
 const IG_GUARD_HOOK: &str = include_str!("../hooks/ig-guard.sh");
-const IG_SESSION_START_HOOK: &str = include_str!("../hooks/session-start.sh");
 const IG_FORMAT_HOOK: &str = include_str!("../hooks/format.sh");
 const IG_SUBAGENT_CONTEXT_HOOK: &str = include_str!("../hooks/subagent-context.sh");
 const IG_CURSORRULES_SNIPPET: &str = include_str!("../hooks/cursorrules-snippet.txt");
@@ -585,16 +567,20 @@ fn configure_claude_hooks_full(claude_dir: &Path, dry_run: bool) -> Vec<ConfigRe
     ));
     results.push(install_hook_file(
         &hooks_dir,
-        "session-start.sh",
-        IG_SESSION_START_HOOK,
-        dry_run,
-    ));
-    results.push(install_hook_file(
-        &hooks_dir,
         "format.sh",
         IG_FORMAT_HOOK,
         dry_run,
     ));
+
+    // Migrate: remove obsolete session-start.sh (v2.0 dropped the daemon
+    // session-lock; the hook only ran `ig hold begin` which no longer exists).
+    let old_session_hook = hooks_dir.join("session-start.sh");
+    if old_session_hook.exists() && !dry_run {
+        let _ = fs::remove_file(&old_session_hook);
+        results.push(ConfigResult::Configured(
+            "Migrated: removed obsolete session-start.sh".to_string(),
+        ));
+    }
     results.push(install_hook_file(
         &hooks_dir,
         "subagent-context.sh",
@@ -618,14 +604,16 @@ fn configure_claude_hooks_full(claude_dir: &Path, dry_run: bool) -> Vec<ConfigRe
     let mut changes = 0u32;
 
     // Migrate: remove old hook entries from settings.json.
-    // v1.19.5 also moved the session-start lock into session-start.sh so
-    // Claude no longer races a background `ig warm` against a standalone
-    // `ig hold begin` hook.
+    // v2.0 dropped the daemon, so SessionStart/SessionEnd hooks that called
+    // `ig hold begin/end` and `session-start.sh` are obsolete and must be
+    // pruned from any pre-v2 settings.json.
     let old_markers = [
         "ig-rewrite.sh",
         "prefer-ig.sh",
         "find-rewrite.sh",
         "ig hold begin",
+        "ig hold end",
+        "session-start.sh",
     ];
     if let Some(hooks_obj) = parsed.get_mut("hooks").and_then(|h| h.as_object_mut()) {
         for (_key, matchers) in hooks_obj.iter_mut() {
@@ -740,37 +728,6 @@ fn configure_claude_hooks_full(claude_dir: &Path, dry_run: bool) -> Vec<ConfigRe
     ) {
         results.push(ConfigResult::Configured(
             "Registered .env warning hook".to_string(),
-        ));
-        changes += 1;
-    }
-
-    // SessionStart — session-start.sh
-    if ensure_hook_registered(
-        &mut parsed,
-        "SessionStart",
-        "*",
-        "~/.claude/hooks/session-start.sh",
-        "session-start.sh",
-        Some(5),
-    ) {
-        results.push(ConfigResult::Configured(
-            "Registered session-start.sh hook".to_string(),
-        ));
-        changes += 1;
-    }
-
-    // SessionEnd — flush any paths buffered during the agent edit session.
-    let hold_end_cmd = r#"ig hold end "$CLAUDE_PROJECT_DIR" 2>/dev/null || true"#;
-    if ensure_hook_registered(
-        &mut parsed,
-        "SessionEnd",
-        "*",
-        hold_end_cmd,
-        "ig hold end",
-        Some(5),
-    ) {
-        results.push(ConfigResult::Configured(
-            "Registered ig hold end hook".to_string(),
         ));
         changes += 1;
     }
@@ -1353,10 +1310,13 @@ pub(crate) fn resolve_real_home() -> Option<PathBuf> {
 const SHELL_HOOK_OPEN: &str = "# >>> ig managed >>>";
 const SHELL_HOOK_CLOSE: &str = "# <<< ig managed <<<";
 
+// v2.0: the per-cd autostart used to warm a daemon tenant. The daemon is gone,
+// so the only remaining job is to drop a tailored `.ignore` file the first time
+// the user lands in a legacy `.ig/`-bearing tree. Wrapped in `(cmd &)` (bash)
+// or `&!` (zsh) / `disown` (fish) so the background job never prints anything.
 const SHELL_HOOK_ZSH: &str = r#"# >>> ig managed >>>
 _ig_autostart() {
     command -v ig >/dev/null 2>&1 || return 0
-    ig warm --silent "$PWD" >/dev/null 2>&1 &!
     if [[ -d .ig && ! -f .ignore ]]; then
         ig autoignore "$PWD" >/dev/null 2>&1 &!
     fi
@@ -1366,15 +1326,9 @@ if [[ -n "$ZSH_VERSION" ]]; then
 fi
 # <<< ig managed <<<"#;
 
-// bash has no `&!` (zsh-only). A bare `&` leaves the job under job control,
-// so bash prints `[N] PID` at launch and `[N] Done` / `[N] Exit N` at the
-// next prompt — spammy and visible to users. Wrapping in `(cmd &)` spawns the
-// job in a sub-shell that exits immediately; the parent shell never registers
-// the job, so nothing is printed. POSIX-portable.
 const SHELL_HOOK_BASH: &str = r#"# >>> ig managed >>>
 _ig_autostart() {
     command -v ig >/dev/null 2>&1 || return 0
-    (ig warm --silent "$PWD" >/dev/null 2>&1 &)
     if [[ -d .ig && ! -f .ignore ]]; then
         (ig autoignore "$PWD" >/dev/null 2>&1 &)
     fi
@@ -1382,14 +1336,9 @@ _ig_autostart() {
 PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }_ig_autostart"
 # <<< ig managed <<<"#;
 
-// fish prints "fish: Job N, '…' has ended" for background jobs unless they
-// are explicitly disowned. `disown` is a fish builtin and silences the
-// notification.
 const SHELL_HOOK_FISH: &str = r#"# >>> ig managed >>>
 function _ig_autostart --on-variable PWD
     command -q ig; or return
-    ig warm --silent $PWD >/dev/null 2>&1 &
-    disown
     if test -d .ig; and not test -f .ignore
         ig autoignore $PWD >/dev/null 2>&1 &
         disown
@@ -2035,7 +1984,7 @@ mod tests {
         let existing = "# before\n# >>> ig managed >>>\nold\n# <<< ig managed <<<\n# after\n";
         let updated = replace_managed_shell_hook(existing, SHELL_HOOK_ZSH).unwrap();
         assert!(updated.contains("# before"));
-        assert!(updated.contains("ig warm --silent"));
+        assert!(updated.contains("ig autoignore"));
         assert!(!updated.contains("\nold\n"));
         assert!(updated.contains("# after"));
     }
@@ -2246,7 +2195,6 @@ mod tests {
             .collect();
         assert!(errors.is_empty(), "no errors expected: {:?}", errors.len());
         assert!(dir.path().join("hooks/ig-guard.sh").exists());
-        assert!(dir.path().join("hooks/session-start.sh").exists());
         assert!(dir.path().join("hooks/format.sh").exists());
     }
 

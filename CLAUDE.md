@@ -20,28 +20,25 @@ cp target/release/ig ~/.local/bin/ig
 
 ## Architecture
 
-Sparse n-grams (port of GitHub Blackbird / danlark1/sparse_ngrams) with covering algorithm. The index lives in the **XDG cache** (`~/.cache/ig/projects/<hash-of-root>/`) by default, not in `<root>/.ig/`. `find_root` recognises `package.json`, `Cargo.toml`, `go.mod`, etc. in addition to `.git/`. Set `IG_LOCAL_INDEX=1` to force local mode.
+Sparse n-grams (port of GitHub Blackbird / danlark1/sparse_ngrams) with covering algorithm.
 
-A **single global daemon** serves every project on the machine via `~/.cache/ig/daemon/daemon.sock`. `GlobalState` holds an `LRU<root, Arc<TenantState>>` (cap 8 by default, override via `IG_DAEMON_TENANTS_MAX` / `IG_DAEMON_MAX_ACTIVE_PROJECTS`). Each `TenantState` lazily opens its `IndexReader` on first query and keeps per-tenant regex / `NgramQuery` LRU caches.
+**Process-per-invocation** (v2.0.0+): every `ig` command is a one-shot process. There is no daemon, no Unix socket, no background watcher. On each query the binary opens the on-disk index, serves the search, and exits. If the index is missing or stale (`INDEX_VERSION` bump, source files newer than metadata), the search subcommand rebuilds it inline before serving the first results.
 
-The daemon has a Cursor-style RSS governor: soft pressure evicts tenant caches and inactive watchers; hard pressure removes the socket/pid, writes `~/.cache/ig/daemon/memory.cooldown.json`, then exits so hooks cannot relaunch it in a loop. Defaults live in `~/.config/ig/config.toml` under `[limits]`: `daemon_soft_rss_mb = 768`, `daemon_hard_rss_mb = 1024`, `index_memory_mb = 64`, `index_batch_size = 250`, `daemon_semantic_index = false`.
+The index lives in the **XDG cache** (`~/.cache/ig/projects/<hash-of-root>/`) by default, not in `<root>/.ig/`. `find_root` recognises `package.json`, `Cargo.toml`, `go.mod`, etc. in addition to `.git/`. Set `IG_LOCAL_INDEX=1` to force local mode.
 
-Cache invalidation uses a 16-byte **seal** file (`generation: u64`, `finalized_at_nanos: u64`) atomic-renamed as the final act of every rebuild. The daemon checks the seal on each query (pull, authoritative) **and** has a `notify` watcher on `.ig/` (push, best-effort). Full contract: `docs/specs/SPEC-daemon-cache-invalidation.md`.
-
-**Cache layout** (v1.19.0+):
+**Cache layout** (v2.0.0+):
 
 ```
 ~/.cache/ig/
-├── daemon/         daemon.sock + daemon.pid + daemon.log[.1…5]
-├── projects/<hash>/   per-project artifacts (lexicon, postings, metadata, seal, …)
+├── projects/<hash>/   per-project artifacts (lexicon, postings, metadata, …)
 ├── by-name/<slug>     human-friendly symlinks → ../projects/<hash>
 ├── tee/               centralized tee output
 └── manifest.json      global registry (cheap cache-ls)
 ```
 
-`cache::ensure_layout()` migrates pre-v1.19 installs (hash dirs at root, daemon files mixed in) on first launch. Idempotent, lockfile-protected.
+`cache::ensure_layout()` migrates pre-v1.19 installs (hash dirs at root) on first launch. Idempotent, lockfile-protected. The legacy `daemon/` directory (sock + pid + rotated logs) is also pruned by `ig update` after the v1 → v2 upgrade.
 
-**Setup managed-block** (v1.19.1+): `ig setup` writes a sentinel-wrapped section into `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, etc. — automatically refreshed on every `ig update` (quiet by default, only drift is reported). The deep-dive rules file `~/.claude/rules/tools/ig.md` is fully owned by `ig setup` (overwritten on every run).
+**Setup managed-block**: `ig setup` writes a sentinel-wrapped section into `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, etc. — automatically refreshed on every `ig update` (quiet by default, only drift is reported). The deep-dive rules file `~/.claude/rules/tools/ig.md` is fully owned by `ig setup` (overwritten on every run).
 
 Pipeline: `regex → regex-syntax Extractor → covering sparse n-grams → hash table lookup (lexicon.bin) → vbyte-decoded posting list intersection (postings.bin) → bloom/loc/zone mask filter → parallel regex verification`
 
@@ -49,65 +46,28 @@ Pipeline: `regex → regex-syntax Extractor → covering sparse n-grams → hash
 
 ### Index core
 - `src/index/ngram.rs` — sparse n-gram algorithm (hash_bigram, build_all_ngrams, build_covering_ngrams) + `NgramMaskEntry` type alias.
-- `src/index/writer.rs` — index build pipeline. `build_index` (full) and `incremental_overlay` both call `seal::bump_seal` as their last act.
+- `src/index/writer.rs` — index build pipeline (`build_index` full + `incremental_overlay`).
 - `src/index/reader.rs` — index query (mmap + hash table). Uses bloom_mask / loc_mask / zone_mask from `PostingEntry` for sub-trigram filtering.
 - `src/index/vbyte.rs` — varbyte posting codec, `PostingEntry` with masks (v1.17.1).
-- `src/index/seal.rs` — 16-byte atomic publish marker (v1.18.0).
 - `src/index/overlay.rs` — incremental overlay reader/writer + tombstones.
 - `src/index/merge.rs` — k-way merge with atomic tmp+rename publish for `lexicon.bin` and `postings.bin`.
-- `src/index/metadata.rs` — `IndexMetadata` (file_count, ngram_count, files…). `INDEX_VERSION = 13`. Atomic write via tmp+rename.
+- `src/index/metadata.rs` — `IndexMetadata` (file_count, ngram_count, files…). Atomic write via tmp+rename.
 - `src/query/extract.rs` — regex → `NgramQuery` conversion + `regex_to_query_costed` cost-estimation closure.
-- `src/cache.rs` — XDG cache layout, `gc`, `migrate`, `cache-ls` (v1.15.0).
-
-### Daemon
-- `src/daemon.rs` — single global Unix-socket server. `GlobalState` (multi-tenant LRU) + `ActiveProject` (per-project source-file watcher + `.ig/` seal watcher + session lock).
-
-### Agent edit-session lock (v1.19.5)
-
-`watch_worker` accepts `WatchEvent::{Paths, SessionBegin, SessionEnd}` on a single `mpsc` channel so ordering with FS events is preserved. Between `SessionBegin` and `SessionEnd`, paths are **buffered, not rebuilt** — this kills the OVERLAY_THRESHOLD cascade triggered by AI agents (Claude Code, Codex) editing 50–200 files in a few seconds. On `SessionEnd` the buffer is sorted/deduped/hash-filtered and folded into a single `update_index_for_paths` call.
-
-- IPC ops: `session_begin`, `session_end`, `session_status` (in `process_request`).
-- CLI: `ig hold begin|end|status [path]` (alias `session-hold`). The command is named `Hold` because `Session` was already taken by adoption stats.
-- `ProjectStatus` exposes `session_active: bool` and `session_pending: usize` so `ig hold status` and `ig projects list` show the lock state.
-
-**Wiring into Claude Code** (already in `~/.claude/settings.json` on this machine):
-
-```jsonc
-"SessionStart": [{ "hooks": [
-  { "type": "command", "command": "~/.claude/hooks/session-start.sh", "timeout": 5 }
-]}],
-"SessionEnd":   [{ "hooks": [
-  { "type": "command", "command": "ig hold end   \"$CLAUDE_PROJECT_DIR\" 2>/dev/null || true" }
-]}]
-```
-
-`session-start.sh` calls `ig hold begin "${CLAUDE_PROJECT_DIR:-$PWD}"` synchronously before any gain/status work. Do not also run `ig warm` from this hook: `hold begin` auto-warms and prevents a watcher rebuild window before the session lock is active.
-
-**Codex CLI** has no hook system as of 2026-05; users must wrap manually:
-
-```bash
-codex_with_hold() {
-  ig hold begin "$PWD" >/dev/null 2>&1 || true
-  trap 'ig hold end "$PWD" >/dev/null 2>&1 || true' EXIT INT TERM
-  codex "$@"
-}
-```
-
-**Important — session inheritance.** Hooks fire when a Claude/Codex CLI *starts*. CLIs already running when `~/.claude/settings.json` is updated will not pick up the new hooks: they keep editing without `hold begin`, the daemon resumes the rebuild loop, and RSS climbs again. Always restart the CLIs after a settings change.
+- `src/cache.rs` — XDG cache layout, `gc`, `migrate`, `cache-ls`.
 
 ### CLI / agent integration
 - `src/read.rs` — smart file reading (full + signatures-only mode).
 - `src/smart.rs` — 2-line heuristic file summaries.
-- `src/pack.rs` — project context generator (`.ig/context.md`).
+- `src/pack.rs` — project context generator.
 - `src/ls.rs` — compact directory listing.
 - `src/rewrite.rs` — command rewriting engine for PreToolUse hook.
 - `src/runner.rs` — `ig run`/`ig proxy` command proxy with filter pipeline and tee fallback.
-- `src/tee.rs` — tee store for raw output of truncated/failed commands (`.ig/tee/`).
-- `src/filter/` — TOML-driven filter pipeline (8 stages: ansi, replace, keep, drop, truncate, head, tail, fallback).
+- `src/tee.rs` — tee store for raw output of truncated/failed commands.
+- `src/filter/` — TOML-driven filter pipeline.
 - `src/tracking.rs` — token savings tracking (JSONL history).
 - `src/gain.rs` — savings dashboard.
-- `src/setup.rs` — AI agent auto-configuration + hook installation (self-updating shell-hook block, v1.17.0).
-- `src/update.rs` — `ig warm`, `ig projects {list,forget}` (v1.17.0).
+- `src/setup.rs` — AI agent auto-configuration + hook installation.
+- `src/update.rs` — self-update + legacy cleanup (daemon sock/pid/log pruning).
 
 ## Commands
 
@@ -116,38 +76,24 @@ ig "pattern" [path]          # search (shortcut, recommended)
 ig search <pattern> [path]   # search (explicit)
 ig index [path]              # build/rebuild index
 ig status [path]             # show stats
-ig watch [path]              # auto-rebuild on file changes
-ig warm [path]               # warm a project with the global daemon (v1.17.0)
-ig projects list             # list active (warmed) projects (v1.17.0)
-ig projects forget <root>    # drop a project from the active set (v1.17.0)
-ig hold begin [path]         # suspend watcher rebuilds during agent edit burst (v1.19.5)
-ig hold end [path]           # flush buffered events into a single overlay rebuild
-ig hold status [path]        # show whether a session is active + queued path count
-ig daemon start              # start the global daemon (v1.16.0+)
-ig daemon stop               # stop the daemon
-ig daemon status             # daemon PID + socket
-ig daemon install            # systemd-user (Linux) or launchd (macOS) auto-start
-ig daemon uninstall          # remove auto-restart
-ig query <pattern> [path]    # query daemon directly
 ig gc [--days N] [--max-size 5GB] [--dry-run] # prune stale / oversized XDG cache
-ig migrate [--dry-run]       # move <root>/.ig/ to ~/.cache/ig/ (v1.15.0)
-ig cache-ls                  # list cache entries with size + last_used (v1.15.0)
+ig migrate [--dry-run]       # move <root>/.ig/ to ~/.cache/ig/
+ig cache-ls                  # list cache entries with size + last_used
 ig files [path]              # list project files
 ig symbols [path]            # extract symbol definitions
 ig context <file> <line>     # show enclosing code block
 ig ls [path]                 # compact directory listing
 ig read <file> [-s]          # smart file reading (signatures mode)
 ig smart [path]              # 2-line file summaries
-ig pack [path]               # generate .ig/context.md
+ig pack [path]               # generate project context
 ig gain [--clear]            # token savings dashboard
 ig run <cmd>                 # run any command through the filter pipeline
-ig proxy <cmd>               # alias of `ig run` (more intuitive in hook rewrites)
-ig tee list                  # list saved raw outputs of truncated / failed commands
-ig tee show <id>             # print the raw output of a tee entry
-ig tee clear                 # delete every tee entry
-ig rewrite <cmd>             # rewrite command to ig equivalent (hook-internal, hidden from --help)
+ig proxy <cmd>               # alias of `ig run`
+ig tee list|show|clear       # raw output store for truncated / failed commands
+ig rewrite <cmd>             # rewrite command to ig equivalent (hook-internal, hidden)
 ig completions <shell>       # generate shell completions
 ig setup                     # configure AI CLI agents + install hooks
+ig update                    # self-update + clean up legacy daemon artifacts
 ```
 
 ## Conventions
@@ -162,22 +108,19 @@ ig setup                     # configure AI CLI agents + install hooks
 
 Unit tests catch logic bugs but they don't catch:
 - File-system layout changes (migrations, atomic-rename races)
-- Daemon socket / PID / log path drift
-- Cross-process interactions (writer rebuilds while daemon serves queries)
-- macOS-specific behavior (FSEvents reliability, codesign, mmap survival across truncate)
+- Cross-process interactions (two concurrent `ig index` invocations)
+- macOS-specific behavior (codesign, mmap survival across truncate)
 
 So before declaring any work done, run **all three layers**:
 
-1. **Unit tests** — `cargo test --quiet`. 425+ passing, no failures.
+1. **Unit tests** — `cargo test --quiet`.
 2. **Lint + format** — `cargo clippy --all-targets -- -D warnings && cargo fmt --check`.
 3. **Real tests** — exercise the actual binary against the actual cache:
-   - `cp target/release/ig ~/.local/bin/ig && codesign -fs - -i dev.makfly.ig ~/.local/bin/ig` (macOS). The `-i dev.makfly.ig` keeps the codesign identifier stable across rebuilds, so TCC (privacy database) and BTM (background-item service) don't re-prompt the user for file-access permissions or notify "Background Items Added" on every binary change. Without `-i`, ad-hoc codesign embeds the binary hash in the identifier and macOS treats each rebuild as a brand-new app.
-   - `ig daemon stop && ig daemon start` — verify the daemon comes up cleanly.
-   - `ig daemon status` — confirms PID + socket path.
+   - `cp target/release/ig ~/.local/bin/ig && codesign -fs - -i dev.makfly.ig ~/.local/bin/ig` (macOS). The `-i dev.makfly.ig` keeps the codesign identifier stable across rebuilds, so TCC (privacy database) and BTM (background-item service) don't re-prompt the user for file-access permissions on every binary change.
    - On a real project (tilvest, instant-grep, …) : `ig -c "<pattern>"` returns the same count as `rg -c "<pattern>"` (parity check).
    - Inspect `~/Library/Caches/ig/` (or `~/.cache/ig/` on Linux) to confirm the on-disk layout matches expectations.
 
-A change that passes unit tests but breaks real-world use (daemon hangs, cache layout corrupt, codesign rejected) is **not done**. Skip the real tests at your own risk — the v1.17.x daemon stale-state bug shipped because real tests weren't run between code change and CI green.
+A change that passes unit tests but breaks real-world use (cache layout corrupt, codesign rejected) is **not done**.
 
 ## Filter matching policy
 
