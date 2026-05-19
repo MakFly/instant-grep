@@ -319,7 +319,17 @@ fn try_rewrite_segment(segment: &str) -> Option<String> {
         // Commands routed through `ig run` filter engine
         "cargo" => rewrite_via_run(&parts),
         "docker" => rewrite_docker(&parts),
-        "kubectl" => rewrite_via_run(&parts),
+        // PR #5 — native wrappers with dedicated ig subcommands
+        "kubectl" => rewrite_to_ig_sub("kubectl", &parts),
+        "gh" => rewrite_to_ig_sub("gh", &parts),
+        "glab" => rewrite_to_ig_sub("glab", &parts),
+        "gt" => rewrite_to_ig_sub("gt", &parts),
+        "aws" => rewrite_to_ig_sub("aws", &parts),
+        "psql" => rewrite_to_ig_sub("psql", &parts),
+        "curl" => rewrite_to_ig_sub("curl", &parts),
+        "wget" => rewrite_to_ig_sub("wget", &parts),
+        "wc" => rewrite_to_ig_sub("wc", &parts),
+        "gcloud" => rewrite_via_run(&parts),
         "pytest" | "ruff" | "mypy" => rewrite_via_run(&parts),
         "eslint" | "biome" | "prettier" | "tsc" => rewrite_via_run(&parts),
         "vitest" | "jest" | "playwright" => rewrite_via_run(&parts),
@@ -327,14 +337,9 @@ fn try_rewrite_segment(segment: &str) -> Option<String> {
         "golangci-lint" => rewrite_via_run(&parts),
         "dotnet" => rewrite_via_run(&parts),
         "rspec" | "rubocop" | "rake" => rewrite_via_run(&parts),
-        "gh" => rewrite_via_run(&parts),
-        "aws" | "gcloud" => rewrite_via_run(&parts),
-        "psql" => rewrite_via_run(&parts),
         "pnpm" => rewrite_via_run(&parts),
         "npm" => rewrite_npm(&parts),
         "npx" => rewrite_npx(&parts),
-        "wc" => rewrite_via_run(&parts),
-        "curl" | "wget" => rewrite_via_run(&parts),
         "rsync" | "ping" => rewrite_via_run(&parts),
         "make" | "mvn" | "bundle" | "swift" | "mix" => rewrite_via_run(&parts),
         "shellcheck" | "yamllint" | "markdownlint" | "hadolint" => rewrite_via_run(&parts),
@@ -739,6 +744,16 @@ fn rewrite_git(parts: &[String]) -> Option<String> {
 fn rewrite_via_run(parts: &[String]) -> Option<String> {
     let cmd = parts.join(" ");
     Some(format!("ig run {}", cmd))
+}
+
+/// PR #5: rewrite `<tool> <args>` → `ig <tool> <args>` for native wrappers.
+fn rewrite_to_ig_sub(sub: &str, parts: &[String]) -> Option<String> {
+    let rest: Vec<String> = parts.iter().skip(1).map(|s| shell_quote(s)).collect();
+    if rest.is_empty() {
+        Some(format!("ig {}", sub))
+    } else {
+        Some(format!("ig {} {}", sub, rest.join(" ")))
+    }
 }
 
 /// docker subcmd → ig docker subcmd (only for non-interactive commands)
@@ -1555,7 +1570,7 @@ mod tests {
     fn test_rewrite_kubectl() {
         assert!(matches!(
             classify_command("kubectl get pods"),
-            RewriteResult::Rewrite(s) if s == "ig run kubectl get pods"
+            RewriteResult::Rewrite(s) if s == "ig kubectl get pods"
         ));
     }
 
@@ -1563,7 +1578,65 @@ mod tests {
     fn test_rewrite_gh() {
         assert!(matches!(
             classify_command("gh pr list"),
-            RewriteResult::Rewrite(s) if s == "ig run gh pr list"
+            RewriteResult::Rewrite(s) if s == "ig gh pr list"
+        ));
+        assert!(matches!(
+            classify_command("gh pr view 42"),
+            RewriteResult::Rewrite(s) if s == "ig gh pr view 42"
+        ));
+    }
+
+    // --- PR #5 native wrapper rewrites ---
+
+    #[test]
+    fn test_rewrite_aws_ec2() {
+        assert!(matches!(
+            classify_command("aws ec2 describe-instances"),
+            RewriteResult::Rewrite(s) if s == "ig aws ec2 describe-instances"
+        ));
+    }
+
+    #[test]
+    fn test_rewrite_glab() {
+        assert!(matches!(
+            classify_command("glab mr list"),
+            RewriteResult::Rewrite(s) if s == "ig glab mr list"
+        ));
+    }
+
+    #[test]
+    fn test_rewrite_psql() {
+        assert!(matches!(
+            classify_command("psql -c 'SELECT 1'"),
+            RewriteResult::Rewrite(s) if s.starts_with("ig psql ")
+        ));
+    }
+
+    #[test]
+    fn test_rewrite_curl_wget() {
+        assert!(matches!(
+            classify_command("curl https://example.com"),
+            RewriteResult::Rewrite(s) if s == "ig curl https://example.com"
+        ));
+        assert!(matches!(
+            classify_command("wget https://example.com/file"),
+            RewriteResult::Rewrite(s) if s == "ig wget https://example.com/file"
+        ));
+    }
+
+    #[test]
+    fn test_rewrite_wc() {
+        assert!(matches!(
+            classify_command("wc -l src/main.rs"),
+            RewriteResult::Rewrite(s) if s == "ig wc -l src/main.rs"
+        ));
+    }
+
+    #[test]
+    fn test_rewrite_gt() {
+        assert!(matches!(
+            classify_command("gt log"),
+            RewriteResult::Rewrite(s) if s == "ig gt log"
         ));
     }
 }
