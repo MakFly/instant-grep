@@ -4,6 +4,54 @@ All notable changes to `instant-grep` are documented here. Format roughly follow
 
 ## [Unreleased]
 
+### Features — PR #5 of RTK-iso plan: git platforms + cloud + system wrappers
+
+- `feat(cmds)`: native wrappers for **gh, glab, gt** (git platforms). The
+  GitHub / GitLab wrappers auto-inject `--json <fields>` (or `-F json`)
+  when ig owns the args, parse with `serde_json::Value`, and render
+  compact PR / issue / run summaries. `gh pr/issue view` route the body
+  through `filter_markdown_body` (HTML comments, badges, image-only
+  lines, hrules stripped; code fences preserved). `gt log` condenses the
+  Graphite stack ASCII art down to one line per branch.
+- `feat(cmds)`: native wrappers for **aws, kubectl, psql, curl, wget**
+  (cloud / data). `aws` ships per-service renderers for `sts
+  get-caller-identity`, `ec2 describe-instances`, `lambda list-functions`,
+  `dynamodb scan/query`, `iam list-roles/users` (unknown services fall
+  through to passthrough). `kubectl` is restricted to `get/logs/describe/
+  apply`; everything else passes through unchanged. `psql` surfaces the
+  first 10 rows + total for SELECT, and the command tag for DML.
+  `curl` truncates bodies over 64 KiB and auto-tees bodies over 1 MiB
+  when stdin / stdout are not TTYs (strict opt-in). `wget` keeps only
+  the final summary line.
+- `feat(cmds)`: native wrappers for **log, summary, tree, wc** (system).
+  `log` dispatches to `log show` (macOS) / `journalctl` (Linux),
+  dedupes consecutive identical messages, tails to the last 200 unique
+  lines. `summary` produces word count + first 5 / last 3 lines for any
+  file, plus a `#` / `##` outline for markdown. `tree` defers to the
+  real `tree` binary (defaults to `-L 3`) and hints at `ig ls` when
+  missing. `wc` is a tracked passthrough.
+- `feat(cmds): docker compose subcommand support` (rewritten via the
+  existing `ig docker` thin wrapper + docker filter TOML).
+- `feat(rewrite)`: hook auto-suggestions now route the PR #5 tools to
+  their dedicated subcommands (`gh pr view N` → `ig gh pr view N`,
+  `aws ec2 describe-instances` → `ig aws ec2 describe-instances`,
+  `kubectl get pods` → `ig kubectl get pods`, …) instead of the generic
+  `ig run` filter path. `gt`, `glab`, `psql`, `curl`, `wget`, `wc`
+  receive the same direct-subcommand treatment.
+- `feat(cmds/run)`: `PR4_DEDICATED_TOOLS` allowlist extended with
+  `gh`, `glab`, `gt`, `aws`, `kubectl`, `psql`, `curl`, `wget`, `wc`,
+  `tree` so `ig run gh pr list` re-execs as `ig gh pr list` and bypasses
+  the generic filter pipeline.
+- `feat(cmds/util)`: new `markdown::filter_markdown_body` shared util
+  (HTML comments, badges, image-only lines, horizontal rules, multi-blank
+  collapse; preserves fenced code blocks).
+- `test(pr5)`: golden fixtures for `gh pr list`, `aws sts`, `aws ec2`,
+  `kubectl get`, `glab mr list` driven through the existing `ig __parse
+  <tool>` harness (now dispatches PR #5 parsers via discriminators like
+  `gh-pr-list`, `aws-ec2`, `kubectl-get`). Integration tests:
+  `markdown_filter.rs`, `aws_passthrough_unknown.rs`,
+  `kubectl_passthrough.rs`, `curl_tee.rs`.
+
 ### Features — PR #4 of RTK-iso plan: native Rust parsers per tool
 
 - `feat(cmds)`: native Rust parsers for **vitest, jest, playwright, pytest,
