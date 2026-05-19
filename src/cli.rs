@@ -328,8 +328,15 @@ pub enum Commands {
         shell: clap_complete::Shell,
     },
 
-    /// Configure AI CLI agents (Claude Code, Codex, Gemini...) to use ig
+    /// Configure AI CLI agents (Claude Code, Codex, Gemini...) to use ig.
+    /// `init` is accepted as a synonym for RTK-muscle-memory compatibility.
+    #[command(alias = "init")]
     Setup {
+        /// Target a specific agent (all, claude, codex, cursor, copilot,
+        /// gemini, opencode, windsurf, cline, hermes, kilocode, antigravity).
+        #[arg(long, default_value = "all")]
+        agent: String,
+
         /// Show what would be configured without writing any files
         #[arg(long)]
         dry_run: bool,
@@ -339,6 +346,27 @@ pub enum Commands {
         /// already configured and only drifted entries should surface.
         #[arg(long, short)]
         quiet: bool,
+
+        /// Install only the hook scripts / settings.json patches, skip
+        /// the rules files (CLAUDE.md, AGENTS.md, …).
+        #[arg(long)]
+        hook_only: bool,
+
+        /// Create missing agent config dirs (default: only patch existing ones).
+        #[arg(long)]
+        auto_patch: bool,
+
+        /// Refuse to patch existing settings.json files even if they're stale.
+        #[arg(long)]
+        no_patch: bool,
+
+        /// Show currently installed artifacts for the selected agent(s) and exit.
+        #[arg(long)]
+        show: bool,
+
+        /// Uninstall ig artifacts for the selected agent(s).
+        #[arg(long)]
+        uninstall: bool,
     },
 
     /// Remove all ig artifacts (hooks, configs, binary, daemons, tracking data)

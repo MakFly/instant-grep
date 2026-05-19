@@ -652,8 +652,40 @@ fn main() -> Result<()> {
             clap_complete::generate(shell, &mut cmd, "ig", &mut std::io::stdout());
         }
 
-        Some(Commands::Setup { dry_run, quiet }) => {
-            setup::run_setup_with_options(dry_run, quiet);
+        Some(Commands::Setup {
+            agent,
+            dry_run,
+            quiet,
+            hook_only,
+            auto_patch,
+            no_patch,
+            show,
+            uninstall,
+        }) => {
+            // Legacy `ig setup` (no flags) → keep the historic monolithic
+            // path, which prints the classic per-agent banner / explorer
+            // agent install / shell-hook. Any new-flag use routes through
+            // the per-agent dispatcher.
+            let any_flag =
+                agent != "all" || hook_only || auto_patch || no_patch || show || uninstall;
+            if !any_flag {
+                setup::run_setup_with_options(dry_run, quiet);
+            } else {
+                let ctx = setup::InstallContext {
+                    dry_run,
+                    quiet,
+                    auto_patch,
+                    no_patch,
+                    hook_only,
+                };
+                match setup::run_per_agent(&ctx, &agent, show, uninstall) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("\x1b[31m✗ {}\x1b[0m", e);
+                        std::process::exit(2);
+                    }
+                }
+            }
         }
 
         Some(Commands::Uninstall { dry_run, yes }) => {
