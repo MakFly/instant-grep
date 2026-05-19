@@ -1,0 +1,2 @@
+1P 1F 0S 123ms
+FAIL example.com/m/calc/TestDiv | calc_test.go:25: division by zero

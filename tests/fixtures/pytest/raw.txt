@@ -1,0 +1,9 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.0, pytest-7.4.0, pluggy-1.0.0
+collected 5 items
+
+tests/test_math.py ..F..                                                  [100%]
+
+=================================== FAILURES ===================================
+FAILED tests/test_math.py::test_divide - AssertionError: 0 != 1
+========================== 4 passed, 1 failed in 0.42s ==========================

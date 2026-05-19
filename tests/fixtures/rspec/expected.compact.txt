@@ -1,0 +1,5 @@
+Tests: 1 passed, 1 failed, 0 skipped (234 ms)
+
+Failures:
+  1. Calculator divides (./spec/calc_spec.rb:9)
+     expected 5 got 0

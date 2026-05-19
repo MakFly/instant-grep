@@ -1,0 +1,5 @@
+Tests: 1 passed, 1 failed, 0 skipped (250 ms)
+
+Failures:
+  1. divides correctly (a.test.js)
+     TypeError: cannot divide by zero

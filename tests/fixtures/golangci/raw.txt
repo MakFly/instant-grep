@@ -1,0 +1,1 @@
+{"Issues":[{"FromLinter":"govet","Text":"shadow declaration of x","Severity":"warning","Pos":{"Filename":"main.go","Line":12,"Column":5}},{"FromLinter":"errcheck","Text":"unchecked error","Severity":"error","Pos":{"Filename":"main.go","Line":20,"Column":2}}]}

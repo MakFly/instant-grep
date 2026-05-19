@@ -1,0 +1,2 @@
+1P 1F 0S 250ms
+FAIL divides correctly @ a.test.js | TypeError: cannot divide by zero

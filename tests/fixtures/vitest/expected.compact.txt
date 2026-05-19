@@ -1,0 +1,5 @@
+Tests: 2 passed, 1 failed, 0 skipped (420 ms)
+
+Failures:
+  1. subtracts (tests/math.test.ts)
+     Error: expected 0 to be 1

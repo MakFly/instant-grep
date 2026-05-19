@@ -1,0 +1,5 @@
+Tests: 1 passed, 1 failed, 0 skipped (123 ms)
+
+Failures:
+  1. example.com/m/calc/TestDiv
+     calc_test.go:25: division by zero

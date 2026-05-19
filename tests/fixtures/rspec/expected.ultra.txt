@@ -1,0 +1,2 @@
+1P 1F 0S 234ms
+FAIL Calculator divides @ ./spec/calc_spec.rb:9 | expected 5 got 0

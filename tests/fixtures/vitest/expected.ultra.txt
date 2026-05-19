@@ -1,0 +1,2 @@
+2P 1F 0S 420ms
+FAIL subtracts @ tests/math.test.ts | Error: expected 0 to be 1

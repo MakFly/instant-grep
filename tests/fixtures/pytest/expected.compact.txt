@@ -1,0 +1,5 @@
+Tests: 4 passed, 1 failed, 0 skipped (420 ms)
+
+Failures:
+  1. test_divide (tests/test_math.py)
+     AssertionError: 0 != 1

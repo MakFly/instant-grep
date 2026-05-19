@@ -1,0 +1,2 @@
+3P 1F 1S 1500ms
+FAIL submits form @ e2e/home.spec.ts:12 | Timeout 30000ms exceeded

@@ -1,0 +1,5 @@
+Tests: 3 passed, 1 failed, 1 skipped (1500 ms)
+
+Failures:
+  1. submits form (e2e/home.spec.ts:12)
+     Timeout 30000ms exceeded

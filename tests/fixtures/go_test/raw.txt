@@ -1,0 +1,10 @@
+{"Action":"run","Package":"example.com/m/calc","Test":"TestAdd"}
+{"Action":"output","Package":"example.com/m/calc","Test":"TestAdd","Output":"=== RUN   TestAdd\n"}
+{"Action":"output","Package":"example.com/m/calc","Test":"TestAdd","Output":"--- PASS: TestAdd (0.00s)\n"}
+{"Action":"pass","Package":"example.com/m/calc","Test":"TestAdd","Elapsed":0.00}
+{"Action":"run","Package":"example.com/m/calc","Test":"TestDiv"}
+{"Action":"output","Package":"example.com/m/calc","Test":"TestDiv","Output":"=== RUN   TestDiv\n"}
+{"Action":"output","Package":"example.com/m/calc","Test":"TestDiv","Output":"    calc_test.go:25: division by zero\n"}
+{"Action":"output","Package":"example.com/m/calc","Test":"TestDiv","Output":"--- FAIL: TestDiv (0.00s)\n"}
+{"Action":"fail","Package":"example.com/m/calc","Test":"TestDiv","Elapsed":0.00}
+{"Action":"fail","Package":"example.com/m/calc","Elapsed":0.123}

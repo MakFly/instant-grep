@@ -1,0 +1,2 @@
+4P 1F 0S 420ms
+FAIL test_divide @ tests/test_math.py | AssertionError: 0 != 1

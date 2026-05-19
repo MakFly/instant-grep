@@ -1,0 +1,1 @@
+{"numTotalTests":2,"numPassedTests":1,"numFailedTests":1,"numPendingTests":0,"testResults":[{"name":"a.test.js","assertionResults":[{"fullName":"adds correctly","status":"passed","failureMessages":[]},{"fullName":"divides correctly","status":"failed","failureMessages":["TypeError: cannot divide by zero"]}]}],"startTime":1000,"endTime":1250}

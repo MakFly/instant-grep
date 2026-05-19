@@ -1,0 +1,4 @@
+Lint: 1 errors, 1 warnings
+
+main.go:12:5 [warning] shadow declaration of x (govet)
+main.go:20:2 [error] unchecked error (errcheck)
