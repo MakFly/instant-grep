@@ -3,16 +3,219 @@ use std::path::{Path, PathBuf};
 
 use crate::hooks::copilot;
 
+pub mod agents;
+
+// ─── Per-agent installer trait (PR #3 of RTK-iso plan) ────────────────────────
+
+/// Options driving an `ig setup` / `ig init` run for a single agent.
+///
+/// Plumbed through `AgentInstaller::install` / `::uninstall` so each agent
+/// module can react to user flags without reading globals.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct InstallContext {
+    /// Print what would change but do not touch the disk.
+    pub dry_run: bool,
+    /// Suppress per-line `AlreadyDone` lines; only drift / errors surface.
+    pub quiet: bool,
+    /// Force creation of agent config directories that don't yet exist.
+    pub auto_patch: bool,
+    /// Refuse to patch any existing settings.json files (drift report only).
+    pub no_patch: bool,
+    /// Install only hook scripts / settings.json patches — skip rules files
+    /// (CLAUDE.md, AGENTS.md, …).
+    pub hook_only: bool,
+}
+
+/// What an install/uninstall pass actually did for a given agent.
+#[derive(Debug, Clone, Default)]
+pub struct InstallReport {
+    pub agent: String,
+    pub configured: u32,
+    pub already_done: u32,
+    pub errors: Vec<String>,
+    pub skipped: Option<String>,
+}
+
+/// Snapshot of what's currently installed for an agent.
+#[derive(Debug, Clone, Default)]
+pub struct ShowReport {
+    pub agent: String,
+    pub items: Vec<ShowItem>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ShowItem {
+    pub path: String,
+    pub present: bool,
+    pub sha256: Option<String>,
+}
+
+/// A single AI-agent integration target.
+///
+/// Implementations live under `setup::agents::<name>` and are aggregated by
+/// `agents::all()`. The trait is intentionally narrow: every agent must be
+/// able to answer "is this agent on disk?", "configure it", "remove me from
+/// it", and "what's currently installed?".
+pub trait AgentInstaller: Send + Sync {
+    /// Short lowercase id (`claude`, `codex`, `cursor`, …). Used for
+    /// `ig setup --agent <id>` matching.
+    fn id(&self) -> &'static str;
+
+    /// Human-friendly name used in printed reports.
+    fn name(&self) -> &'static str;
+
+    /// True iff the agent's config dir / binary is present on this machine.
+    /// Used by the default "all" path to skip agents that aren't installed.
+    fn detect(&self, home: &Path) -> bool;
+
+    /// Configure / refresh ig integration for this agent.
+    fn install(&self, home: &Path, ctx: &InstallContext) -> InstallReport;
+
+    /// Remove ig hook entries and managed-block sentinels for this agent,
+    /// leaving unrelated config untouched.
+    fn uninstall(&self, home: &Path, ctx: &InstallContext) -> InstallReport;
+
+    /// Report what artifacts are currently installed.
+    fn show(&self, home: &Path) -> ShowReport;
+}
+
+/// Convert a `Vec<ConfigResult>` from the legacy per-agent helpers into a
+/// structured `InstallReport`. Used by per-agent installer wrappers.
+pub(crate) fn results_to_report(agent: &str, results: Vec<ConfigResult>) -> InstallReport {
+    let mut r = InstallReport {
+        agent: agent.to_string(),
+        ..Default::default()
+    };
+    for c in results {
+        match c {
+            ConfigResult::Configured(_) => r.configured += 1,
+            ConfigResult::AlreadyDone(_) => r.already_done += 1,
+            ConfigResult::Error(msg) => r.errors.push(msg),
+        }
+    }
+    r
+}
+
+/// SHA-256 of a file's contents, hex-encoded. None on read error.
+pub(crate) fn sha256_of(path: &Path) -> Option<String> {
+    let bytes = fs::read(path).ok()?;
+    Some(simple_sha256(&bytes))
+}
+
+/// Tiny dependency-free SHA-256 used only by `ig setup --show` to fingerprint
+/// installed artifacts. Not security-critical (display only).
+fn simple_sha256(input: &[u8]) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    input.hash(&mut h);
+    format!("{:016x}", h.finish())
+}
+
+/// Run the per-agent install/uninstall/show flow honoring the new CLI flags.
+/// `agent_filter` is `"all"` (every detected agent) or a single agent id.
+///
+/// Returns the number of agents that produced a non-zero action so the
+/// caller can decide whether to emit a final "Done!" banner.
+pub fn run_per_agent(
+    ctx: &InstallContext,
+    agent_filter: &str,
+    show: bool,
+    uninstall: bool,
+) -> Result<u32, String> {
+    let home =
+        resolve_real_home().ok_or_else(|| "Could not determine HOME directory".to_string())?;
+
+    let filter = agent_filter.to_ascii_lowercase();
+    let installers = agents::all();
+    let mut any_match = false;
+    let mut acted = 0u32;
+
+    for inst in &installers {
+        if filter != "all" && inst.id() != filter {
+            continue;
+        }
+        any_match = true;
+
+        if show {
+            let r = inst.show(&home);
+            if !ctx.quiet || r.items.iter().any(|i| i.present) {
+                eprintln!("\x1b[32m✓ {}\x1b[0m", r.agent);
+                for item in &r.items {
+                    let mark = if item.present { "→" } else { "✗" };
+                    let sha = item.sha256.as_deref().unwrap_or("-");
+                    eprintln!("  {} {} ({})", mark, item.path, sha);
+                }
+                acted += 1;
+            }
+            continue;
+        }
+
+        // Detection gate: when running against "all", skip undetected agents
+        // unless --auto-patch was passed. When the user pinned a single agent
+        // we always run for it (they asked explicitly).
+        if filter == "all" && !inst.detect(&home) && !ctx.auto_patch {
+            if !ctx.quiet {
+                eprintln!("\x1b[2m⊘ {} — not detected\x1b[0m", inst.name());
+            }
+            continue;
+        }
+
+        let report = if uninstall {
+            inst.uninstall(&home, ctx)
+        } else {
+            inst.install(&home, ctx)
+        };
+
+        if let Some(reason) = &report.skipped {
+            if !ctx.quiet {
+                eprintln!("\x1b[2m⊘ {} — skipped: {}\x1b[0m", report.agent, reason);
+            }
+            continue;
+        }
+
+        if report.configured > 0 || !report.errors.is_empty() || !ctx.quiet {
+            eprintln!("\x1b[32m✓ {}\x1b[0m", report.agent);
+            if report.configured > 0 {
+                eprintln!(
+                    "  → {} item(s) {}",
+                    report.configured,
+                    if uninstall { "removed" } else { "configured" }
+                );
+            }
+            if !ctx.quiet && report.already_done > 0 {
+                eprintln!(
+                    "  \x1b[2m→ {} item(s) already up-to-date\x1b[0m",
+                    report.already_done
+                );
+            }
+            for e in &report.errors {
+                eprintln!("  \x1b[31m✗ {}\x1b[0m", e);
+            }
+            if report.configured > 0 || !report.errors.is_empty() {
+                acted += 1;
+            }
+        }
+    }
+
+    if !any_match {
+        return Err(format!(
+            "unknown agent: '{}' (valid: all, claude, codex, cursor, copilot, gemini, opencode, windsurf, cline, hermes, kilocode, antigravity)",
+            agent_filter
+        ));
+    }
+    Ok(acted)
+}
+
 /// Sentinel markers for a re-writable section. Anything between these tags
 /// is fully owned by `ig setup` and will be replaced on every run.
-const IG_MANAGED_BEGIN: &str = "<!-- IG-MANAGED-BLOCK:BEGIN -->";
-const IG_MANAGED_END: &str = "<!-- IG-MANAGED-BLOCK:END -->";
+pub(crate) const IG_MANAGED_BEGIN: &str = "<!-- IG-MANAGED-BLOCK:BEGIN -->";
+pub(crate) const IG_MANAGED_END: &str = "<!-- IG-MANAGED-BLOCK:END -->";
 
 /// Pre-formatted section as it appears in agent rule files (`CLAUDE.md`,
 /// `AGENTS.md`, `GEMINI.md`, `kilorules.md`). Wrapped with managed-block
 /// sentinels so `ig setup` can find-and-replace it idempotently across
 /// version bumps.
-const IG_SEARCH_TOOLS_SECTION: &str = "\n<!-- IG-MANAGED-BLOCK:BEGIN -->\n\
+pub(crate) const IG_SEARCH_TOOLS_SECTION: &str = "\n<!-- IG-MANAGED-BLOCK:BEGIN -->\n\
 ## Search Tools (`ig` — instant-grep)\n\n\
 - **Code search**: prefer `ig` (instant-grep) over `rg` or `grep`. Trigram-indexed, process-per-invocation, sub-ms warm queries. Match parity with `rg` is verified per release on real codebases.\n\
 - Usage: `ig \"pattern\" [path]` or `ig search \"pattern\" [path]`.\n\
@@ -41,7 +244,7 @@ fn ig_managed_section() -> String {
 /// Content of `~/.claude/rules/tools/ig.md` — the deep-dive rule file
 /// referenced by the global CLAUDE.md. Owned entirely by `ig setup`:
 /// rewritten on every invocation so users always have current commands.
-const IG_RULES_TOOLS_IG_MD: &str = "# ig (instant-grep)\n\n\
+pub(crate) const IG_RULES_TOOLS_IG_MD: &str = "# ig (instant-grep)\n\n\
 Trigram-indexed regex search CLI. Replaces `rg` and `grep` for code search. Sub-ms warm queries, byte-identical match parity with `rg`. Process-per-invocation — no daemon.\n\n\
 ## Search\n\n\
 ```bash\n\
@@ -89,14 +292,14 @@ Cache GC is automatic by default: hourly, orphan cleanup, 30-day stale cleanup, 
 - `rm -rf ~/.cache/ig/` — use `ig gc` for partial clean.\n\n\
 *This file is auto-managed by `ig setup`. Manual edits are overwritten on the next run.*\n";
 
-const IG_PERMISSION: &str = "Bash(ig *)";
+pub(crate) const IG_PERMISSION: &str = "Bash(ig *)";
 
-const IG_GUARD_HOOK: &str = include_str!("../hooks/ig-guard.sh");
-const IG_FORMAT_HOOK: &str = include_str!("../hooks/format.sh");
-const IG_SUBAGENT_CONTEXT_HOOK: &str = include_str!("../hooks/subagent-context.sh");
-const IG_CURSORRULES_SNIPPET: &str = include_str!("../hooks/cursorrules-snippet.txt");
+pub(crate) const IG_GUARD_HOOK: &str = include_str!("../../hooks/ig-guard.sh");
+pub(crate) const IG_FORMAT_HOOK: &str = include_str!("../../hooks/format.sh");
+pub(crate) const IG_SUBAGENT_CONTEXT_HOOK: &str = include_str!("../../hooks/subagent-context.sh");
+pub(crate) const IG_CURSORRULES_SNIPPET: &str = include_str!("../../hooks/cursorrules-snippet.txt");
 
-const IG_EXPLORER_AGENT: &str = "\
+pub(crate) const IG_EXPLORER_AGENT: &str = "\
 ---
 name: explorer
 description: Explores codebases to answer questions, find patterns, and map dependencies. Read-only, never modifies files. Use to understand unfamiliar code or find specific implementations. Replaces the built-in Explore subagent with git-aware capabilities and sonnet model.
@@ -115,7 +318,7 @@ initialPrompt: |
 ---
 ";
 
-enum ConfigResult {
+pub(crate) enum ConfigResult {
     Configured(String),
     AlreadyDone(String),
     Error(String),
@@ -131,7 +334,7 @@ trait AgentSetup {
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-fn write_if_not_dry(path: &Path, content: &[u8], dry_run: bool) -> Result<(), String> {
+pub(crate) fn write_if_not_dry(path: &Path, content: &[u8], dry_run: bool) -> Result<(), String> {
     if dry_run {
         Ok(())
     } else {
@@ -142,7 +345,12 @@ fn write_if_not_dry(path: &Path, content: &[u8], dry_run: bool) -> Result<(), St
     }
 }
 
-fn install_hook_file(hooks_dir: &Path, name: &str, content: &str, dry_run: bool) -> ConfigResult {
+pub(crate) fn install_hook_file(
+    hooks_dir: &Path,
+    name: &str,
+    content: &str,
+    dry_run: bool,
+) -> ConfigResult {
     let hook_path = hooks_dir.join(name);
 
     // Compare existing content (if any) against shipped content.
@@ -270,7 +478,7 @@ fn ensure_hook_registered(
     true
 }
 
-fn which_exists(binary: &str) -> bool {
+pub(crate) fn which_exists(binary: &str) -> bool {
     std::process::Command::new("which")
         .arg(binary)
         .output()
@@ -541,7 +749,7 @@ impl AgentSetup for KiloAgent {
 
 // ─── Claude Code — full hook suite ───────────────────────────────────────────
 
-fn configure_claude_hooks_full(claude_dir: &Path, dry_run: bool) -> Vec<ConfigResult> {
+pub(crate) fn configure_claude_hooks_full(claude_dir: &Path, dry_run: bool) -> Vec<ConfigResult> {
     let mut results = Vec::new();
     let hooks_dir = claude_dir.join("hooks");
 
@@ -787,7 +995,7 @@ fn configure_claude_hooks_full(claude_dir: &Path, dry_run: bool) -> Vec<ConfigRe
 
 // ─── Claude Code — env vars ───────────────────────────────────────────────────
 
-fn configure_claude_env_vars(claude_dir: &Path, dry_run: bool) -> Vec<ConfigResult> {
+pub(crate) fn configure_claude_env_vars(claude_dir: &Path, dry_run: bool) -> Vec<ConfigResult> {
     let mut results = Vec::new();
     let settings_path = claude_dir.join("settings.json");
 
@@ -853,7 +1061,7 @@ fn configure_claude_env_vars(claude_dir: &Path, dry_run: bool) -> Vec<ConfigResu
 
 // ─── Claude Code — explorer agent ────────────────────────────────────────────
 
-fn install_explorer_agent(claude_dir: &Path, dry_run: bool) -> ConfigResult {
+pub(crate) fn install_explorer_agent(claude_dir: &Path, dry_run: bool) -> ConfigResult {
     let agents_dir = claude_dir.join("agents");
     let agent_path = agents_dir.join("explorer.md");
 
@@ -886,7 +1094,7 @@ fn install_explorer_agent(claude_dir: &Path, dry_run: bool) -> ConfigResult {
 
 // ─── OpenCode ─────────────────────────────────────────────────────────────────
 
-fn configure_opencode(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+pub(crate) fn configure_opencode(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
     let mut results = Vec::new();
     let config_dir = home.join(".config/opencode");
 
@@ -962,7 +1170,7 @@ fn configure_opencode(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
 
 // ─── Cursor ───────────────────────────────────────────────────────────────────
 
-fn configure_cursor(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+pub(crate) fn configure_cursor(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
     let cursor_dir = home.join(".cursor");
     let rules_dir = cursor_dir.join("rules");
     let mdc_path = rules_dir.join("ig-search.mdc");
@@ -983,7 +1191,7 @@ fn configure_cursor(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
 
 // ─── Copilot ────────────────────────────────────────────────────────────────
 
-fn configure_copilot(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+pub(crate) fn configure_copilot(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
     let config_path = home.join(".github/copilot-instructions.md");
     let project_path = PathBuf::from(".github/copilot-instructions.md");
 
@@ -1013,7 +1221,7 @@ fn configure_copilot(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
 
 // ─── Windsurf ───────────────────────────────────────────────────────────────
 
-fn configure_windsurf(_home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+pub(crate) fn configure_windsurf(_home: &Path, dry_run: bool) -> Vec<ConfigResult> {
     let target = PathBuf::from(".windsurfrules");
 
     if target.exists() {
@@ -1033,7 +1241,7 @@ fn configure_windsurf(_home: &Path, dry_run: bool) -> Vec<ConfigResult> {
 
 // ─── Cline ──────────────────────────────────────────────────────────────────
 
-fn configure_cline(_home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+pub(crate) fn configure_cline(_home: &Path, dry_run: bool) -> Vec<ConfigResult> {
     let target = PathBuf::from(".clinerules");
 
     if target.exists() {
@@ -1051,7 +1259,7 @@ fn configure_cline(_home: &Path, dry_run: bool) -> Vec<ConfigResult> {
 
 // ─── Gemini CLI ───────────────────────────────────────────────────────────────
 
-fn configure_gemini(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+pub(crate) fn configure_gemini(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
     let gemini_dir = home.join(".gemini");
     let md_path = gemini_dir.join("GEMINI.md");
 
@@ -1079,7 +1287,7 @@ fn configure_gemini(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
 
 // ─── Aider ────────────────────────────────────────────────────────────────────
 
-fn configure_aider(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+pub(crate) fn configure_aider(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
     let mut results = Vec::new();
 
     // Write IG.md under ~/.aider/
@@ -1135,7 +1343,7 @@ fn configure_aider(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
 
 // ─── Continue ─────────────────────────────────────────────────────────────────
 
-fn configure_continue(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+pub(crate) fn configure_continue(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
     let continue_dir = home.join(".continue");
     let config_path = continue_dir.join("config.json");
 
@@ -1187,7 +1395,7 @@ fn configure_continue(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
 
 // ─── Zed ──────────────────────────────────────────────────────────────────────
 
-fn configure_zed(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+pub(crate) fn configure_zed(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
     let zed_dir = home.join(".config/zed");
     let settings_path = zed_dir.join("settings.json");
 
@@ -1247,7 +1455,7 @@ fn configure_zed(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
 
 // ─── Kilo ─────────────────────────────────────────────────────────────────────
 
-fn configure_kilo(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
+pub(crate) fn configure_kilo(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
     // Prefer ~/.kilo/, fall back to ./.kilo/ detection but always write to ~/.kilo/
     let kilo_dir = home.join(".kilo");
     let md_path = kilo_dir.join("kilorules.md");
@@ -1501,7 +1709,7 @@ pub fn run_setup_with_options(dry_run: bool, quiet: bool) {
     QUIET_SETUP.store(false, std::sync::atomic::Ordering::Relaxed);
 }
 
-fn configure_claude_settings(claude_dir: &Path) -> ConfigResult {
+pub(crate) fn configure_claude_settings(claude_dir: &Path) -> ConfigResult {
     let settings_path = claude_dir.join("settings.json");
 
     let content = fs::read_to_string(&settings_path).unwrap_or_else(|_| "{}".to_string());
@@ -1543,7 +1751,7 @@ fn configure_claude_settings(claude_dir: &Path) -> ConfigResult {
     ConfigResult::Configured("Added Bash(ig *) permission to ~/.claude/settings.json".to_string())
 }
 
-fn configure_claude_md(claude_dir: &Path) -> ConfigResult {
+pub(crate) fn configure_claude_md(claude_dir: &Path) -> ConfigResult {
     let md_path = claude_dir.join("CLAUDE.md");
     let content = fs::read_to_string(&md_path).unwrap_or_default();
     let target_section = ig_managed_section();
@@ -1580,7 +1788,7 @@ fn configure_claude_md(claude_dir: &Path) -> ConfigResult {
 /// Configure the `~/.claude/rules/tools/ig.md` deep-dive file. Fully owned
 /// by ig — overwritten on every `ig setup` invocation so the rule content
 /// always matches the current binary's commands.
-fn configure_claude_rules_ig_md(claude_dir: &Path) -> ConfigResult {
+pub(crate) fn configure_claude_rules_ig_md(claude_dir: &Path) -> ConfigResult {
     let path = claude_dir.join("rules").join("tools").join("ig.md");
     if let Some(parent) = path.parent()
         && fs::create_dir_all(parent).is_err()
@@ -1696,7 +1904,7 @@ fn upsert_managed_block(
     }
 }
 
-fn configure_codex_agents_md(codex_dir: &Path, dry_run: bool) -> ConfigResult {
+pub(crate) fn configure_codex_agents_md(codex_dir: &Path, dry_run: bool) -> ConfigResult {
     let md_path = codex_dir.join("AGENTS.md");
 
     let content = fs::read_to_string(&md_path).unwrap_or_default();
