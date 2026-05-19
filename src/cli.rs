@@ -222,6 +222,16 @@ pub enum Commands {
         command: String,
     },
 
+    /// Audit installed hooks and recent permission verdicts
+    HookAudit {
+        /// Number of past days to scan for the verdict histogram
+        #[arg(long, default_value = "7")]
+        since: u32,
+        /// Emit machine-readable JSON instead of a human table
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Show token savings dashboard
     Gain {
         /// Clear tracking history

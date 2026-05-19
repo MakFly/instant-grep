@@ -303,7 +303,16 @@ fn e2e_rewrite_emits_shell_safe_quoting() {
     let evil = r#"foo;rm -rf $HOME `echo bad` "x""#;
     let cmd = format!("grep -rn '{}' src/", evil.replace('\'', "'\\''"));
     let out = ig_cmd(&cache).arg("rewrite").arg(&cmd).output().unwrap();
-    assert!(out.status.success(), "rewrite failed: {:?}", out);
+    // RTK 0/1/2/3 exit-code protocol: a rewrite suggestion exits with code 1
+    // (with the rewritten command on stdout). Exit 0 means "passthrough" and
+    // would mean no rewrite was emitted — which is what this test guards
+    // against. Accept 1 (rewrite present) as the success signal here.
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "expected rewrite exit code 1, got {:?}",
+        out
+    );
     let rewritten = String::from_utf8_lossy(&out.stdout).into_owned();
 
     // We expect the pattern to land in single quotes (the canonical output

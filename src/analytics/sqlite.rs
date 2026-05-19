@@ -95,6 +95,12 @@ impl TrackingDb {
         Ok(Self { conn })
     }
 
+    /// Borrow the underlying connection. Used by the audit command to run
+    /// ad-hoc aggregate queries (verdict histogram by exit code).
+    pub fn conn(&self) -> &Connection {
+        &self.conn
+    }
+
     /// Insert one tracking event. Idempotent dedup: `(timestamp, command,
     /// original_bytes, output_bytes)` is treated as a natural key — if a
     /// row with the same tuple exists, the new insert is silently dropped.

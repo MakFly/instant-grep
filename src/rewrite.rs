@@ -1,13 +1,18 @@
 //! Command rewriting engine — intercepts shell commands and maps them to ig equivalents.
 //! Used by the PreToolUse hook to transparently redirect cat/grep/ls/tree/find to ig.
 //!
-//! Exit codes (same protocol as RTK):
-//!   0 + stdout  → rewrite found, auto-allow
-//!   1           → no rewrite, passthrough
-//!   2           → deny, reason on stderr
-//!   3 + stdout  → rewrite found, require user confirmation
+//! Exit codes (RTK protocol — see SPEC-rtk-iso-plan.md § 1.9 and rtk #1155):
+//!   0           → passthrough unchanged (command is recognised, nothing to do)
+//!   1 + stdout  → rewrite suggestion / ask — hook should let user choose
+//!   2 + stderr  → permission verdict = Deny — hook should block
+//!   3           → Default (no rule matched) AND command is unfamiliar.
+//!                 Load-bearing "no rule" sentinel: ensures undefined behaviour
+//!                 fails closed.
+//!
+//! Set `IG_HOOK_EXIT_LEGACY=1` to fold the protocol back to the pre-2.0
+//! shape (always exit 0; print rewrite to stdout). One-release escape hatch.
 
-use std::process;
+use crate::hooks::permissions::{PermissionEngine, Verdict};
 
 /// Quote a single argument for safe inclusion in a /bin/sh command line.
 ///
@@ -50,22 +55,85 @@ pub enum RewriteResult {
     Ask(String),     // exit 3 — rewrite but require user confirmation
 }
 
-pub fn run_rewrite(command: &str) {
-    match classify_command(command) {
-        RewriteResult::Rewrite(cmd) => {
+/// Known-good command prefixes. A command starting with one of these is
+/// treated as "familiar" — Default verdict (no rule matched) + no rewrite
+/// returns exit 0 instead of the "unfamiliar" sentinel exit 3.
+const KNOWN_GOOD_PREFIXES: &[&str] = &[
+    "git", "ls", "cat", "grep", "find", "cargo", "npm", "pnpm", "yarn", "bun", "python", "python3",
+    "node", "go", "rustc", "cd", "echo", "pwd", "which", "whoami", "mkdir", "touch", "rg", "ig",
+    "true", "false", "head", "tail", "wc", "sort", "uniq", "awk", "sed", "test", "ssh", "scp",
+    "tar", "gzip", "gunzip", "zip", "unzip", "make", "bash", "sh", "zsh", "env", "printf", "cp",
+    "mv", "ln", "stat", "file", "date", "diff",
+];
+
+fn has_known_good_prefix(cmd: &str) -> bool {
+    let trimmed = cmd.trim_start();
+    let bin = trimmed.split_whitespace().next().unwrap_or("");
+    // Strip any leading absolute path: `/usr/bin/grep` → `grep`.
+    let bin = bin.rsplit('/').next().unwrap_or(bin);
+    KNOWN_GOOD_PREFIXES.contains(&bin)
+}
+
+/// Returns the appropriate exit code for the given command under the
+/// RTK 0/1/2/3 protocol. Side-effects: prints rewrite suggestion to stdout,
+/// or deny reason to stderr, depending on the verdict.
+///
+/// Caller is expected to `std::process::exit(run_rewrite(...))`.
+pub fn run_rewrite(command: &str) -> i32 {
+    let legacy = std::env::var("IG_HOOK_EXIT_LEGACY")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+
+    // 1. Permission verdict comes first (Deny > Ask), before any rewrite logic.
+    let engine = PermissionEngine::load();
+    let (verdict, matched) = engine.check(command);
+
+    match verdict {
+        Verdict::Deny => {
+            let reason = matched
+                .map(|r| format!("DENY: matched rule {:?}", r.pattern.as_str()))
+                .unwrap_or_else(|| "DENY: matched a deny rule".to_string());
+            eprintln!("{}", reason);
+            return if legacy { 0 } else { 2 };
+        }
+        Verdict::Ask => {
+            // Echo the original command so the hook can re-present it to the user.
+            print!("{}", command);
+            return if legacy { 0 } else { 1 };
+        }
+        Verdict::Allow | Verdict::Default => {}
+    }
+
+    // 2. Existing classify_command for actual rewriting.
+    let classified = classify_command(command);
+
+    match (classified, verdict) {
+        (RewriteResult::Rewrite(cmd), _) => {
             print!("{}", cmd);
-            process::exit(0);
+            if legacy { 0 } else { 1 }
         }
-        RewriteResult::Passthrough => {
-            process::exit(1);
+        (RewriteResult::Ask(cmd), _) => {
+            print!("{}", cmd);
+            if legacy { 0 } else { 1 }
         }
-        RewriteResult::Deny(reason) => {
+        (RewriteResult::Deny(reason), _) => {
             eprintln!("DENY: {}", reason);
-            process::exit(2);
+            if legacy { 0 } else { 2 }
         }
-        RewriteResult::Ask(cmd) => {
-            print!("{}", cmd);
-            process::exit(3);
+        (RewriteResult::Passthrough, Verdict::Allow) => 0,
+        (RewriteResult::Passthrough, Verdict::Default) => {
+            // Load-bearing sentinel (rtk #1155): if no permission rule matched
+            // AND we don't recognise the command, fail closed by signalling
+            // exit 3 so the hook can prompt the user.
+            if has_known_good_prefix(command) || command.trim().is_empty() || legacy {
+                0
+            } else {
+                3
+            }
+        }
+        (RewriteResult::Passthrough, Verdict::Deny | Verdict::Ask) => {
+            // Unreachable: those verdicts return earlier.
+            0
         }
     }
 }

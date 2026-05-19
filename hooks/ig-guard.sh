@@ -67,9 +67,21 @@ fi
 REWRITTEN=$($IG rewrite "$COMMAND" 2>/dev/null)
 EXIT_CODE=$?
 
+# RTK 0/1/2/3 exit-code protocol (see src/rewrite.rs):
+#   0 → passthrough (familiar command, nothing to do)
+#   1 → rewrite suggestion / ask — surface to user, allow execution
+#   2 → deny — block
+#   3 → Default + unfamiliar — prompt the user (Claude Code: exit 1)
 case $EXIT_CODE in
-  0) # Rewrite found — auto-allow silently
-    [[ "$COMMAND" = "$REWRITTEN" ]] && exit 0
+  0)
+    # Passthrough — nothing to do.
+    exit 0
+    ;;
+  1)
+    # Rewrite suggestion. If unchanged, treat as passthrough.
+    if [[ -z "$REWRITTEN" || "$COMMAND" = "$REWRITTEN" ]]; then
+      exit 0
+    fi
     UPDATED_INPUT=$(echo "$ORIGINAL_INPUT" | jq --arg cmd "$REWRITTEN" '.command = $cmd')
     jq -n --argjson updated "$UPDATED_INPUT" '{
       "hookSpecificOutput": {
@@ -79,19 +91,18 @@ case $EXIT_CODE in
         "updatedInput": $updated
       }
     }'
+    exit 0
     ;;
-  2) # Deny — destructive command (rm -rf /, git reset --hard, …)
+  2)
     echo "BLOCK (ig rewrite): destructive command refused" >&2
     exit 2
     ;;
-  3) # Rewrite needs user confirmation (git push --force, …)
-    UPDATED_INPUT=$(echo "$ORIGINAL_INPUT" | jq --arg cmd "$REWRITTEN" '.command = $cmd')
-    jq -n --argjson updated "$UPDATED_INPUT" '{
-      "hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "updatedInput": $updated
-      }
-    }'
+  3)
+    # Default verdict + unfamiliar command → ask the user.
+    echo "ASK (ig rewrite): no permission rule for this command — please confirm" >&2
+    exit 1
     ;;
-  *) exit 0 ;;
+  *)
+    exit 0
+    ;;
 esac
