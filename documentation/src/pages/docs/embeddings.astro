@@ -4,26 +4,18 @@ import { Code } from "astro:components"
 ---
 
 <DocsLayout title="OpenAI Embeddings (POC)" description="How ig's opt-in embedding playground works — chunking, OpenAI text-embedding-3-small, brute-force cosine, and why it's disabled by default.">
-  <!-- LEGACY (v1.x) banner — auto-injected on v2.0.0 daemon removal -->
-  <div class="mb-6 rounded-md border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm">
-    <strong>Legacy (v1.x) content.</strong> This page may reference the
-    Unix-socket daemon, the seal push/pull cache-invalidation protocol, the
-    agent edit-session lock (<code>ig hold begin/end</code>), or the
-    <code>ig warm</code> / <code>ig projects</code> / <code>ig query</code> /
-    <code>ig watch</code> subcommands. All of those were removed in
-    <strong>v2.0.0</strong>; <code>ig</code> is now process-per-invocation and
-    mmap's the on-disk index on every search. See the
-    <a href="https://github.com/MakFly/instant-grep/blob/main/CHANGELOG.md" class="underline">v2.0.0 changelog</a>
-    for the full removal list and the <code>ig update</code> migration. The
-    rest of this page (trigram engine, BM25, semantic PMI, token compression)
-    is still accurate.
+  <div class="mb-6 rounded-md border border-border bg-muted/40 p-4 text-sm">
+    <strong>Experimental / opt-in.</strong> The embedding playground is a
+    pedagogical POC gated behind the <code>embed-poc</code> cargo feature
+    <em>and</em> a runtime toggle (<code>ig emb on/off</code>). The published
+    binary ships with it disabled at both layers — the default search path is
+    the trigram engine. Nothing on this page is required to use <code>ig</code>.
   </div>
-
 
   <h1>OpenAI Embeddings — opt-in POC</h1>
   <p>
     A pedagogical playground for dense semantic search over your codebase, using OpenAI's <code>text-embedding-3-small</code> model.
-    Disabled by default at <strong>two independent layers</strong>: compile-time (cargo feature flag) and runtime (<code>ig emb on/off</code>, since v1.14.2). The published binary contains zero OpenAI client code unless you build with <code>--features embed-poc</code>; even then, no network call fires until you flip <code>ig emb on</code>.
+    Disabled by default at <strong>two independent layers</strong>: compile-time (cargo feature flag) and runtime (<code>ig emb on/off</code>). The published binary contains zero OpenAI client code unless you build with <code>--features embed-poc</code>; even then, no network call fires until you flip <code>ig emb on</code>.
   </p>
 
   <div class="docs-callout">
@@ -31,7 +23,7 @@ import { Code } from "astro:components"
       <p><strong>Why opt-in?</strong></p>
       <ul>
         <li><strong>Cost.</strong> Indexing 3 k files ≈ $0.05; a runaway re-index could rack up real money.</li>
-        <li><strong>Network.</strong> Each search is one OpenAI round-trip (~200–800 ms). The trigram daemon answers in &lt; 1 ms.</li>
+        <li><strong>Network.</strong> Each search is one OpenAI round-trip (~200–800 ms). The local trigram index answers in &lt; 1 ms.</li>
         <li><strong>Recall is similar at this scale.</strong> Well-tuned <code>ig --semantic --top 10</code> (PMI) catches most queries dense embeddings catch on a 3 k-file repo. Embeddings start to dominate at 50 k+ files / multi-language polyglot repos.</li>
       </ul>
       <p>The fallback for users without an API key is the regular trigram path — sub-ms, no network, no cost.</p>
@@ -58,7 +50,7 @@ import { Code } from "astro:components"
           <td class="py-3 px-4">absent</td>
         </tr>
         <tr class="border-t hover:bg-muted/50">
-          <td class="py-3 px-4 font-semibold">Runtime <span class="text-muted-foreground">(v1.14.2+)</span></td>
+          <td class="py-3 px-4 font-semibold">Runtime</td>
           <td class="py-3 px-4"><code>ig emb on / off</code></td>
           <td class="py-3 px-4">Whether it executes when present</td>
           <td class="py-3 px-4">disabled</td>
@@ -450,7 +442,7 @@ ui/                                # generated via \`bunx shadcn@latest init\`
     </a>
     <a href="/docs/architecture" class="rounded-lg border p-4 flex flex-col gap-1.5 group hover:border-foreground/20 transition-colors">
       <h3 class="font-medium text-sm group-hover:text-foreground transition-colors">Architecture</h3>
-      <p class="text-xs text-muted-foreground">Trigram pipeline + daemon (the always-on path)</p>
+      <p class="text-xs text-muted-foreground">Trigram pipeline — the default search path</p>
     </a>
     <a href="https://github.com/MakFly/instant-grep/blob/main/CHANGELOG.md#1140--2026-04-27" class="rounded-lg border p-4 flex flex-col gap-1.5 group hover:border-foreground/20 transition-colors">
       <h3 class="font-medium text-sm group-hover:text-foreground transition-colors">v1.14.0 release notes</h3>

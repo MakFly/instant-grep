@@ -2,15 +2,6 @@
 import DocsLayout from "@/layouts/docs.astro"
 import { Code } from "astro:components"
 
-const benchmarks = [
-  { version: "V1", tool: "ig (V1 — naive trigrams)", latency: "18ms", notes: "Baseline — full trigram scan" },
-  { version: "V2", tool: "ig (V2 — index + verification)", latency: "8ms", notes: "Index lookup + regex verify" },
-  { version: "V3", tool: "ig (V3 — sparse n-grams)", latency: "3ms", notes: "Sparse n-gram algorithm introduced" },
-  { version: "V4", tool: "ig (V4 — covering set + mmap)", latency: "1.4ms", notes: "Covering set selection + mmap" },
-  { version: "V5", tool: "ig (V5 — parallel verify)", latency: "0.9ms", notes: "Rayon parallel regex verification" },
-  { version: "daemon", tool: "ig (daemon mode)", latency: "0.3ms", notes: "Index held in process memory" },
-]
-
 const timeline = [
   {
     label: "V1 — Naive trigrams",
@@ -35,57 +26,26 @@ const timeline = [
   {
     label: "V5 — Parallel verify",
     note: "0.9ms",
-    description: "Rayon-powered parallel regex verification across candidate files.",
-  },
-  {
-    label: "Daemon mode",
-    note: "0.3ms",
-    description: "Index held permanently in process memory. Unix socket queries bypass all startup.",
+    description: "Rayon-powered parallel regex verification across candidate files (pure search time).",
   },
 ]
 
 const heroStats = [
   { value: "29/30", label: "Wins vs ripgrep" },
   { value: "93.5%", label: "Token savings (v10)" },
-  { value: "4.1x", label: "More compact than RTK" },
-  { value: "0.71ms", label: "Daemon mode" },
+  { value: "2-8ms", label: "Warm-index search" },
+  { value: "438", label: "Tests passing" },
 ]
-
-const daemonSteps = [
-  { step: "Unix socket read (query)", time: "~0.02ms" },
-  { step: "N-gram extraction from regex", time: "~0.05ms" },
-  { step: "Hash table lookup (lexicon in memory)", time: "~0.03ms" },
-  { step: "Posting list intersection", time: "~0.05ms" },
-  { step: "Parallel regex verification", time: "~0.10ms" },
-  { step: "Unix socket write (results)", time: "~0.05ms" },
-]
-
-const daemonWidths = [7, 17, 10, 17, 33, 17]
 ---
 
 <DocsLayout title="Performance" description="Benchmarks, optimization history, and why sparse n-grams win">
-  <!-- LEGACY (v1.x) banner — auto-injected on v2.0.0 daemon removal -->
-  <div class="mb-6 rounded-md border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm">
-    <strong>Legacy (v1.x) content.</strong> This page may reference the
-    Unix-socket daemon, the seal push/pull cache-invalidation protocol, the
-    agent edit-session lock (<code>ig hold begin/end</code>), or the
-    <code>ig warm</code> / <code>ig projects</code> / <code>ig query</code> /
-    <code>ig watch</code> subcommands. All of those were removed in
-    <strong>v2.0.0</strong>; <code>ig</code> is now process-per-invocation and
-    mmap's the on-disk index on every search. See the
-    <a href="https://github.com/MakFly/instant-grep/blob/main/CHANGELOG.md" class="underline">v2.0.0 changelog</a>
-    for the full removal list and the <code>ig update</code> migration. The
-    rest of this page (trigram engine, BM25, semantic PMI, token compression)
-    is still accurate.
-  </div>
-
     <!-- Page header -->
     <div class="mb-10">
       <h1 class="text-3xl font-semibold text-foreground mb-4">
         Performance
       </h1>
       <p class="text-muted-foreground text-lg leading-relaxed">
-        From 18ms to 0.9ms — the complete optimization history across five versions.
+        From 18ms to under 1ms search time — the optimization history across five versions.
       </p>
     </div>
 
@@ -152,13 +112,13 @@ const daemonWidths = [7, 17, 10, 17, 33, 17]
       </p>
     </section>
 
-    <!-- Daemon benchmarks -->
+    <!-- Warm-index search times -->
     <section class="mb-12">
       <h2 class="text-2xl font-semibold text-foreground mb-4">
-        Daemon Mode — Server-side Search Times
+        Warm-Index Search Times
       </h2>
       <p class="text-sm text-muted-foreground mb-5">
-        Pure search time inside the daemon process (no process startup, no socket overhead). Laravel app, 1,552 files.
+        Pure search time over a warm, mmap'd index — n-gram lookup, posting intersection, and regex verification, excluding process startup. Laravel app, 1,552 files.
       </p>
 
       <div class="overflow-x-auto border rounded-lg overflow-hidden">
@@ -192,7 +152,7 @@ const daemonWidths = [7, 17, 10, 17, 33, 17]
 
       <div class="mt-5 p-4 rounded-lg border">
         <p class="text-sm text-muted-foreground leading-relaxed">
-          The daemon keeps the index mmap'd in process memory — rare/selective patterns like
+          With the index warm in the OS page cache, rare/selective patterns like
           <code>"DistributionController"</code> resolve in
           <span class="font-semibold text-foreground">0.08ms</span>. Even zero-result queries short-circuit in
           <span class="font-semibold text-foreground">0.01ms</span>.
@@ -348,32 +308,6 @@ const daemonWidths = [7, 17, 10, 17, 33, 17]
       </div>
     </section>
 
-    <!-- Daemon latency -->
-    <section class="mb-12">
-      <h2 class="text-2xl font-semibold text-foreground mb-4">
-        Daemon Latency Breakdown
-      </h2>
-      <p class="text-sm text-muted-foreground mb-6">
-        Six stages from query to result. Total p50 latency: <strong>0.71ms</strong>.
-      </p>
-
-      <div class="space-y-3">
-        {daemonSteps.map((item, i) => (
-          <div class="flex items-center gap-3">
-            <div class="w-56 text-xs text-muted-foreground text-right flex-shrink-0">{item.step}</div>
-            <div class="flex-1 flex items-center gap-2">
-              <div class="h-6 rounded bg-foreground/10" style={`width: ${daemonWidths[i]}%`}></div>
-              <span class="text-xs font-mono text-muted-foreground">{item.time}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-      <div class="flex items-center gap-3 mt-4 pt-4 border-t">
-        <div class="w-56 text-sm font-semibold text-right flex-shrink-0">Total (p50)</div>
-        <div class="text-sm font-semibold">0.71ms</div>
-      </div>
-    </section>
-
     <!-- Scaling curve -->
     <section class="mb-12">
       <h2 class="text-2xl font-semibold text-foreground mb-4">
@@ -420,70 +354,6 @@ const daemonWidths = [7, 17, 10, 17, 33, 17]
           <span class="font-semibold text-muted-foreground">5,279ms rg</span> =
           <span class="font-semibold text-foreground">189x speedup</span>.
         </p>
-      </div>
-    </section>
-
-    <!-- Daemon latency percentiles -->
-    <section class="mb-12">
-      <h2 class="text-2xl font-semibold text-foreground mb-4">
-        Daemon Latency Percentiles
-      </h2>
-      <p class="text-sm text-muted-foreground mb-5">
-        1,001 queries across all patterns. Overall: p50 = 0.71ms, p95 = 4.51ms, p99 = 4.69ms, avg = 1.51ms.
-      </p>
-
-      <div class="overflow-x-auto border rounded-lg overflow-hidden">
-        <table class="w-full text-sm border-collapse">
-          <thead>
-            <tr class="bg-muted">
-              <th class="text-left py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">Pattern</th>
-              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">p50</th>
-              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">p95</th>
-              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">p99</th>
-            </tr>
-          </thead>
-          <tbody class="text-xs">
-            {[
-              { pattern: '"ZZZNOTFOUND"', p50: "0.01ms", p95: "—", p99: "—", highlight: true },
-              { pattern: '"DistributionController"', p50: "0.08ms", p95: "—", p99: "—", highlight: false },
-              { pattern: '"Route::"', p50: "0.20ms", p95: "—", p99: "—", highlight: false },
-              { pattern: '"middleware"', p50: "0.74ms", p95: "—", p99: "—", highlight: false },
-              { pattern: '"exception"', p50: "0.75ms", p95: "—", p99: "—", highlight: false },
-              { pattern: '"class "', p50: "3.88ms", p95: "—", p99: "—", highlight: false },
-              { pattern: '"function"', p50: "4.43ms", p95: "—", p99: "—", highlight: false },
-            ].map((row) => (
-              <tr class="border-t border hover:bg-muted">
-                <td class="py-3 px-4 text-foreground"><code>{row.pattern}</code></td>
-                <td class="py-3 px-4 text-right font-semibold text-foreground">{row.p50}</td>
-                <td class="py-3 px-4 text-right text-muted-foreground">{row.p95}</td>
-                <td class="py-3 px-4 text-right text-muted-foreground">{row.p99}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- Throughput -->
-    <section class="mb-12">
-      <h2 class="text-2xl font-semibold text-foreground mb-4">
-        Throughput
-      </h2>
-      <p class="text-sm text-muted-foreground mb-5">
-        End-to-end QPS includes process startup; server-side QPS measures pure daemon throughput.
-      </p>
-
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div class="p-6 rounded-lg border bg-background text-center">
-          <div class="text-foreground text-3xl font-semibold mb-1">312 QPS</div>
-          <div class="text-xs text-foreground mb-1">Effective (with process startup)</div>
-          <div class="text-xs text-muted-foreground">CLI round-trip throughput</div>
-        </div>
-        <div class="p-6 rounded-lg border bg-background text-center">
-          <div class="text-foreground text-3xl font-semibold mb-1">2,695 QPS</div>
-          <div class="text-xs text-foreground mb-1">Server-side theoretical</div>
-          <div class="text-xs text-muted-foreground">Pure daemon query throughput</div>
-        </div>
       </div>
     </section>
 
@@ -612,7 +482,7 @@ const daemonWidths = [7, 17, 10, 17, 33, 17]
         v1.3 — Token Optimization Benchmarks
       </h2>
       <p class="text-sm text-muted-foreground mb-5">
-        v1.3 adds RTK integration and an enriched <code>context.md</code>.
+        v1.3 adds command rewriting and an enriched <code>context.md</code>.
         Measured on a real Next.js project: time-to-first-result and total API cost for a typical agent session.
       </p>
 
@@ -703,7 +573,7 @@ const daemonWidths = [7, 17, 10, 17, 33, 17]
         Git Proxy Compression
       </h3>
       <p class="text-sm text-muted-foreground mb-4">
-        <code>ig git</code> rewrites common git commands through RTK — filtering noise, squashing
+        <code>ig git</code> rewrites common git commands — filtering noise, squashing
         verbose output, and tracking savings. Benchmarked on a real monorepo.
       </p>
 
@@ -838,40 +708,7 @@ const daemonWidths = [7, 17, 10, 17, 33, 17]
       <div class="mt-2 p-4 rounded-lg border">
         <p class="text-sm text-muted-foreground leading-relaxed">
           The savings compound: ig search returns only matching lines, the git proxy strips verbose output,
-          and the SubagentStart hook pre-injects project context — so the agent never reads files it doesn't need.
-        </p>
-      </div>
-    </section>
-
-    <!-- Concurrent queries -->
-    <section class="mb-12">
-      <h2 class="text-2xl font-semibold text-foreground mb-4">
-        Concurrent Queries
-      </h2>
-      <p class="text-sm text-muted-foreground mb-5">
-        The daemon handles concurrent clients without contention — the index is read-only and mmap-shared.
-      </p>
-
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: "Concurrent clients", value: "10", sub: "parallel connections" },
-          { label: "Total queries", value: "200", sub: "evenly distributed" },
-          { label: "Errors", value: "0", sub: "zero dropped queries" },
-          { label: "Throughput", value: "266 QPS", sub: "effective under load" },
-        ].map((stat) => (
-          <div class="p-5 rounded-lg border bg-background text-center">
-            <div class="text-foreground text-2xl font-semibold mb-1">{stat.value}</div>
-            <div class="text-xs text-foreground mb-1">{stat.label}</div>
-            <div class="text-xs text-muted-foreground">{stat.sub}</div>
-          </div>
-        ))}
-      </div>
-
-      <div class="mt-4 p-4 rounded-lg border">
-        <p class="text-sm text-muted-foreground leading-relaxed">
-          Latency under concurrency:
-          <span class="font-semibold text-foreground">p50 = 0.97ms</span>,
-          <span class="font-semibold text-foreground">p95 = 5.87ms</span>.
+          and signature-only file reads keep the API surface in context — so the agent never reads files it doesn't need.
         </p>
       </div>
     </section>

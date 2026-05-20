@@ -4,38 +4,55 @@ import { Code } from "astro:components"
 ---
 
 <DocsLayout title="CLI Reference" description="Complete command reference — all ig commands with full flag documentation">
-  <!-- LEGACY (v1.x) banner — auto-injected on v2.0.0 daemon removal -->
-  <div class="mb-6 rounded-md border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm">
-    <strong>Legacy (v1.x) content.</strong> This page may reference the
-    Unix-socket daemon, the seal push/pull cache-invalidation protocol, the
-    agent edit-session lock (<code>ig hold begin/end</code>), or the
-    <code>ig warm</code> / <code>ig projects</code> / <code>ig query</code> /
-    <code>ig watch</code> subcommands. All of those were removed in
-    <strong>v2.0.0</strong>; <code>ig</code> is now process-per-invocation and
-    mmap's the on-disk index on every search. See the
-    <a href="https://github.com/MakFly/instant-grep/blob/main/CHANGELOG.md" class="underline">v2.0.0 changelog</a>
-    for the full removal list and the <code>ig update</code> migration. The
-    rest of this page (trigram engine, BM25, semantic PMI, token compression)
-    is still accurate.
-  </div>
-
-
   <h1>CLI Reference</h1>
 
   <p>Complete documentation for every ig command and flag. The <code>search</code> subcommand is the default — most commands listed here have no required subcommand prefix.</p>
 
+  <div class="docs-callout">
+    <div>
+      <p><strong>v2.0.0:</strong> <code>ig</code> is process-per-invocation — there is no
+      daemon. The <code>daemon</code>, <code>query</code>, <code>watch</code>,
+      <code>warm</code>, <code>hold</code>, and <code>projects</code> subcommands were
+      removed. v2.0.0 also adds 33 RTK-parity command wrappers (test runners, linters,
+      build tools, git platforms, cloud CLIs) — see <a href="#rtk-wrappers">Command wrappers</a> below.</p>
+    </div>
+  </div>
+
   <!-- Quick nav -->
   <nav class="quick-nav" aria-label="Commands">
-    {["search", "index", "status", "watch", "daemon", "query", "files", "symbols", "context", "ls", "read", "smart", "pack", "gain", "setup", "git", "discover", "proxy"].map((cmd) => (
+    {["search", "index", "status", "files", "symbols", "context", "ls", "read", "smart", "pack", "gain", "setup", "git", "import-rtk", "rtk-wrappers", "global-flags"].map((cmd) => (
       <a href={`#${cmd}`} class="quick-nav-link">ig {cmd}</a>
     ))}
   </nav>
+
+  <!-- Global flags -->
+  <section id="global-flags">
+    <h2>Global flags</h2>
+
+    <p>These flags work on any subcommand (they are declared <code>global = true</code>).</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Flag</th>
+          <th>Short</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><code class="flag">--ultra-compact</code></td><td><code class="flag">-u</code></td><td>One-liner per item, no snippets, aggressive truncation — the minimum-signal mode for AI agents</td></tr>
+        <tr><td><code class="flag">--verbose</code></td><td><code class="flag">-v / -vv / -vvv</code></td><td>Verbosity level. 0 = quiet (default), 3 = trace. Repeatable</td></tr>
+        <tr><td><code class="flag">--explain</code></td><td></td><td>Print the action ig is about to take (rewrite, filter selection, permission verdict) without changing behaviour</td></tr>
+        <tr><td><code class="flag">--semantic</code></td><td></td><td>Expand the query with PMI-learned synonyms (search only)</td></tr>
+      </tbody>
+    </table>
+  </section>
 
   <!-- ig search -->
   <section id="search">
     <h2>ig search</h2>
 
-    <p>The primary command. Searches for regex patterns across indexed files. Auto-builds the index on first run if no <code>.ig/</code> directory exists.</p>
+    <p>The primary command. Searches for regex patterns across indexed files. Auto-builds the index on first run, and rebuilds it inline whenever it is stale.</p>
 
     <div class="docs-callout">
       <div>
@@ -91,7 +108,7 @@ apps/.../create-conversational/vehicle-edit-step-dialog.tsx
 
     <h3 id="semantic">Semantic query expansion — <code>--semantic</code> <span class="badge">v1.10.0</span></h3>
 
-    <p>Learn synonyms from the corpus itself, no ML model, no download. During <code>ig index</code>, a second pass tokenises every line and counts co-occurrences in a 5-line sliding window; at finalisation we rank each token's top-10 neighbours by count-weighted PPMI and persist to <code>.ig/cooccurrence.bin</code> (~1.5 MB on a 3K-file repo).</p>
+    <p>Learn synonyms from the corpus itself, no ML model, no download. During <code>ig index</code>, a second pass tokenises every line and counts co-occurrences in a 5-line sliding window; at finalisation we rank each token's top-10 neighbours by count-weighted PPMI and persist a <code>cooccurrence.bin</code> file alongside the index in the XDG cache (~1.5 MB on a 3K-file repo).</p>
 
     <div class="relative">
       <div class="code-label">example</div>
@@ -141,11 +158,11 @@ ig --stats "use std" .`} lang="bash" theme="github-dark" />
   <section id="index">
     <h2>ig index</h2>
 
-    <p>Build or rebuild the sparse n-gram index for a directory. Creates <code>.ig/</code> with three binary files: <code>lexicon.bin</code>, <code>postings.bin</code>, and <code>metadata.bin</code>. Called automatically by <code>ig search</code> when no index exists.</p>
+    <p>Build or rebuild the sparse n-gram index for a directory. The index is written under <code>~/.cache/ig/projects/&lt;hash&gt;/</code> (XDG cache; <code>~/Library/Caches/ig/</code> on macOS) — never inside the repo. <code>ig search</code> calls this automatically when no index exists or the index is stale, so you rarely run it by hand.</p>
 
     <div class="relative">
       <div class="code-label">syntax</div>
-      <Code code={`ig index [OPTIONS]   # default: current directory`} lang="bash" theme="github-dark" />
+      <Code code={`ig index [PATH]   # default: current directory`} lang="bash" theme="github-dark" />
     </div>
 
     <div class="relative">
@@ -154,10 +171,7 @@ ig --stats "use std" .`} lang="bash" theme="github-dark" />
 ig index
 
 # Index specific path
-ig index /path/to/project
-
-# Force rebuild (even if index exists)
-ig index --force .`} lang="bash" theme="github-dark" />
+ig index /path/to/project`} lang="bash" theme="github-dark" />
     </div>
   </section>
 
@@ -165,7 +179,7 @@ ig index --force .`} lang="bash" theme="github-dark" />
   <section id="status">
     <h2>ig status</h2>
 
-    <p>Display statistics about the current index — file count, index size, n-gram count, version, and last build time.</p>
+    <p>Display statistics about the current index — file count, index size, n-gram count, version, and last build time. Use <code>ig cache-ls</code> to list every cached project.</p>
 
     <div class="relative">
       <div class="code-label">output example</div>
@@ -173,94 +187,14 @@ ig index --force .`} lang="bash" theme="github-dark" />
 
 instant-grep index status
 ──────────────────────────
-Location:    /home/user/project/.ig/
-Version:     7
+Location:    ~/.cache/ig/projects/2e0c.../
+Version:     13
 Files:       1,552
 N-grams:     48,392
 Lexicon:     31 MB
 Postings:    7.1 MB
 Metadata:    111 KB
-Built:       2026-03-24 10:12:08`} lang="text" theme="github-dark" />
-    </div>
-  </section>
-
-  <!-- ig watch -->
-  <section id="watch">
-    <h2>ig watch</h2>
-
-    <p>Watch a directory for file changes and automatically rebuild the index when files are created, modified, or deleted. The index stays fresh without manual intervention.</p>
-
-    <div class="relative">
-      <div class="code-label">usage</div>
-      <Code code={`# Watch and auto-rebuild on changes
-ig watch .
-
-[watching] src/ — press Ctrl+C to stop
-[rebuild]  src/main.rs modified → rebuilding... done (43ms)
-[rebuild]  src/lib.rs created → rebuilding... done (51ms)`} lang="bash" theme="github-dark" />
-    </div>
-
-    <div class="docs-callout">
-      <div>
-        <p>Combine with <code>ig daemon start</code> for best results: watch keeps the index fresh, daemon keeps it in memory. Together they give you permanent sub-ms search on a live codebase.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- ig daemon -->
-  <section id="daemon">
-    <h2>ig daemon</h2>
-
-    <p>Manage the background daemon — a Unix socket server that keeps the index mmap'd in process memory. Full lifecycle: start, stop, check status, or install as a launchd service for auto-restart on macOS. Use <code>ig query</code> to send queries to the running daemon.</p>
-
-    <div class="relative">
-      <div class="code-label">syntax</div>
-      <Code code={`ig daemon start     [PATH]   # start daemon in background
-ig daemon stop      [PATH]   # stop running daemon
-ig daemon status    [PATH]   # check if daemon is running
-ig daemon install   [PATH]   # install launchd service (macOS auto-restart)
-ig daemon uninstall [PATH]   # remove launchd service`} lang="bash" theme="github-dark" />
-    </div>
-
-    <div class="relative">
-      <div class="code-label">usage</div>
-      <Code code={`# Start daemon
-ig daemon start .
-
-[daemon] Daemon started
-[daemon] Socket: .ig/daemon.sock
-[daemon] Index loaded: 1,552 files (36 MB)
-[daemon] Ready for queries...
-
-# Check status
-ig daemon status .
-[daemon] Running (PID 12345) · socket: .ig/daemon.sock
-
-# Install as launchd service for auto-restart (macOS)
-ig daemon install .`} lang="bash" theme="github-dark" />
-    </div>
-  </section>
-
-  <!-- ig query -->
-  <section id="query">
-    <h2>ig query</h2>
-
-    <p>Send a query to a running daemon via Unix socket. Same interface as <code>ig search</code> but routes through the socket. Requires <code>ig daemon</code> to be running.</p>
-
-    <div class="relative">
-      <div class="code-label">syntax</div>
-      <Code code={`ig query [OPTIONS] <PATTERN> [PATH]`} lang="bash" theme="github-dark" />
-    </div>
-
-    <div class="relative">
-      <div class="code-label">examples</div>
-      <Code code={`# Query daemon (sub-ms)
-ig query "async fn" .
-
-# JSON output via daemon
-ig query --json "Result<" .
-
-# p50 latency: 0.3ms (warm daemon)`} lang="bash" theme="github-dark" />
+Built:       2026-05-20 10:12:08`} lang="text" theme="github-dark" />
     </div>
   </section>
 
@@ -393,7 +327,7 @@ ig ls
 src/          (12 files)
   index/      (6 files)  ngram.rs  reader.rs  writer.rs  ...
   query/      (2 files)  extract.rs  mod.rs
-  main.rs  daemon.rs  read.rs  smart.rs
+  main.rs  cache.rs  read.rs  smart.rs
 
 # Listing a subdirectory
 ig ls src/`} lang="text" theme="github-dark" />
@@ -431,26 +365,29 @@ ig ls src/`} lang="text" theme="github-dark" />
     <div class="relative">
       <div class="code-label">examples</div>
       <Code code={`# Full file content
-ig read src/daemon.rs
+ig read src/index/reader.rs
 
 # Signatures only (functions + structs — much smaller)
-ig read -s src/daemon.rs
+ig read -s src/index/reader.rs
 
-pub fn start_daemon(path: &Path) -> Result<()>
-pub fn stop_daemon(path: &Path) -> Result<()>
-pub async fn handle_connection(stream: UnixStream)
+pub fn open_for(root: &Path) -> Result<IndexReader>
+pub fn query(&self, ngrams: &NgramQuery) -> Vec<DocId>
+pub fn intersect_postings(&self, lists: &[&[u8]]) -> Vec<DocId>
 
 # Aggressive compression — strip comments, collapse blanks, elide bodies
-ig read -a src/daemon.rs
+ig read -a src/index/reader.rs
 
 # Budget mode — keep the 500 most informative tokens
-ig read -b 500 src/daemon.rs
+ig read -b 500 src/index/reader.rs
 
 # Budget + relevance boost — prioritize payment-related code
 ig read -b 500 -r "payment" src/billing.php
 
 # Delta mode — only git-changed lines with enclosing signatures
-ig read -d src/main.rs`} lang="bash" theme="github-dark" />
+ig read -d src/main.rs
+
+# Raw output — byte-for-byte identical to cat
+ig read -p src/main.rs`} lang="bash" theme="github-dark" />
     </div>
   </section>
 
@@ -470,9 +407,9 @@ ig read -d src/main.rs`} lang="bash" theme="github-dark" />
       <Code code={`# 2-line summaries for all project files
 ig smart
 
-src/daemon.rs
-  Unix socket server — start/stop/status/install lifecycle.
-  Keeps index mmap'd for sub-ms query latency.
+src/index/reader.rs
+  mmap-backed index query — hash table lookup + posting intersection.
+  Decodes VByte postings on the fly, applies bloom/loc masks.
 
 src/index/ngram.rs
   Sparse n-gram generation via hash_bigram + covering set selection.
@@ -497,18 +434,18 @@ key: composer.json, README.md, Makefile
 
   <!-- ig pack -->
   <section id="pack">
-    <h2>ig pack <span class="badge">New in v1.3</span></h2>
+    <h2>ig pack</h2>
 
-    <p>Generate a <code>.ig/context.md</code> file — a structured project snapshot for AI agents. Includes directory tree, symbol definitions, dependencies (<code>Cargo.toml</code> / <code>package.json</code>), API routes (Next.js), and environment variables (<code>.env.example</code>). Replaces manual context-building.</p>
+    <p>Generate a <code>context.md</code> project map (under the XDG cache dir) — a structured project snapshot for AI agents. Includes directory tree, symbol definitions, dependencies (<code>Cargo.toml</code> / <code>package.json</code>), API routes (Next.js), and environment variables (<code>.env.example</code>). Replaces manual context-building.</p>
 
     <div class="relative">
       <div class="code-label">syntax</div>
-      <Code code={`ig pack [PATH]   # writes .ig/context.md`} lang="bash" theme="github-dark" />
+      <Code code={`ig pack [PATH]   # writes the context.md project map`} lang="bash" theme="github-dark" />
     </div>
 
     <div class="relative">
       <div class="code-label">output sections</div>
-      <Code code={`# .ig/context.md contains:
+      <Code code={`# context.md contains:
 
 ## Directory Tree    — compact ig ls output
 ## Symbols          — all function/class/struct definitions
@@ -614,37 +551,84 @@ ig gain --json`} lang="bash" theme="github-dark" />
 
   <!-- ig setup -->
   <section id="setup">
-    <h2>ig setup <span class="badge">New</span></h2>
+    <h2>ig setup <span class="badge">alias: ig init</span></h2>
 
-    <p>Auto-configure AI CLI agents (Claude Code, Codex, Gemini CLI) to use ig for code search. Detects installed agents and injects configuration. Idempotent — safe to run multiple times.</p>
+    <p>Auto-configure AI CLI agents to use ig. Detects installed agents and injects configuration — hook scripts, <code>settings.json</code> patches, and managed rule-file blocks. Idempotent and non-destructive — safe to run multiple times. <code>ig init</code> is an accepted alias for RTK muscle memory.</p>
+
+    <p><code>ig setup</code> supports <strong>11 agents</strong>: claude, codex, cursor, copilot, gemini, opencode, windsurf, cline, hermes, kilocode, antigravity.</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Flag</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><code class="flag">--agent NAME</code></td><td>Target one agent instead of all (e.g. <code>--agent claude</code>); default <code>all</code></td></tr>
+        <tr><td><code class="flag">--show</code></td><td>List currently installed artifacts for the selected agent(s) and exit</td></tr>
+        <tr><td><code class="flag">--uninstall</code></td><td>Remove ig artifacts for the selected agent(s)</td></tr>
+        <tr><td><code class="flag">--hook-only</code></td><td>Install only the hook scripts / settings.json patches, skip the rule files</td></tr>
+        <tr><td><code class="flag">--auto-patch</code></td><td>Create missing agent config dirs (default: only patch existing ones)</td></tr>
+        <tr><td><code class="flag">--no-patch</code></td><td>Refuse to patch existing settings.json files even if stale</td></tr>
+        <tr><td><code class="flag">--import-rtk</code></td><td>Also import RTK filter files into ig's filter format</td></tr>
+        <tr><td><code class="flag">--dry-run</code></td><td>Preview every planned action without writing any files</td></tr>
+        <tr><td><code class="flag">--quiet</code> / <code class="flag">-q</code></td><td>Suppress the banner and skip already-up-to-date lines (used by <code>ig update</code>)</td></tr>
+      </tbody>
+    </table>
+
+    <p>Claude Code's PreToolUse hook uses the RTK <strong>0/1/2/3 exit-code protocol</strong>:
+    <code>0</code> = rewrite/allow, <code>1</code> = passthrough, <code>2</code> = deny,
+    <code>3</code> = ask. Run <code>ig hook-audit</code> to audit installed hooks and the
+    recent permission-verdict histogram.</p>
+
+    <div class="relative">
+      <div class="code-label">examples</div>
+      <Code code={`# Configure every detected agent
+ig setup
+
+# One agent only
+ig setup --agent claude
+
+# Preview without writing
+ig setup --dry-run
+
+# Show what is installed
+ig setup --show
+
+# Configure + import RTK filters in one shot
+ig setup --import-rtk`} lang="bash" theme="github-dark" />
+    </div>
+  </section>
+
+  <!-- ig import-rtk -->
+  <section id="import-rtk">
+    <h2>ig import-rtk <span class="badge">v2.0.0</span></h2>
+
+    <p>One-shot translation of RTK filter files into ig's filter format. Reads
+    <code>~/.config/rtk/filters.toml</code> and <code>./.rtk/filters.toml</code> and writes
+    the equivalent ig filters. RTK fields (<code>match</code>, <code>strip_ansi</code>,
+    <code>keep</code>, <code>drop</code>, <code>truncate</code>, <code>head</code>,
+    <code>tail</code>, <code>max_lines</code>, <code>on_empty</code>,
+    <code>dedup_consecutive</code>) map 1:1; RTK-only features that ig already covers with
+    a native parser are skipped with a comment.</p>
 
     <div class="relative">
       <div class="code-label">syntax</div>
-      <Code code={`ig setup`} lang="bash" theme="github-dark" />
-    </div>
-
-    <div class="relative">
-      <div class="code-label">output example</div>
-      <Code code={`ig setup
-
-✓ Claude Code
-  → Added Bash(ig *) permission to settings.json
-  → Added Search Tools section to CLAUDE.md
-✓ Codex CLI
-  → Added Search Tools section to AGENTS.md
-ℹ Gemini CLI (manual config needed)`} lang="text" theme="github-dark" />
+      <Code code={`ig import-rtk             # translate RTK filter files
+ig import-rtk --dry-run   # preview the translation without writing`} lang="bash" theme="github-dark" />
     </div>
   </section>
 
   <!-- ig git -->
   <section id="git">
-    <h2>ig git <span class="badge">New in v1.4</span></h2>
+    <h2>ig git</h2>
 
-    <p>Token-compressed git proxy. Routes git commands through RTK to strip verbose output, filter noise, and track token savings. Supports <code>status</code>, <code>log</code>, <code>diff</code>, <code>show</code>, and <code>branch</code>. Transparent — the output is still valid git output, just compressed.</p>
+    <p>Token-compressed git proxy. Strips verbose output, filters noise, and tracks token savings. Supports <code>status</code>, <code>log</code>, <code>diff</code>, <code>show</code>, and <code>branch</code>. Transparent — the output is still valid git output, just compressed.</p>
 
     <div class="relative">
       <div class="code-label">syntax</div>
-      <Code code={`ig git <SUBCOMMAND> [GIT OPTIONS]   # proxies to rtk git <subcommand>`} lang="bash" theme="github-dark" />
+      <Code code={`ig git <SUBCOMMAND> [GIT OPTIONS]`} lang="bash" theme="github-dark" />
     </div>
 
     <table>
@@ -685,86 +669,128 @@ ig git branch`} lang="bash" theme="github-dark" />
 
   <!-- ig discover -->
   <section id="discover">
-    <h2>ig discover <span class="badge">New in v1.4</span></h2>
+    <h2>ig discover</h2>
 
-    <p>Scan Claude Code session history for missed token-saving opportunities. Analyzes past shell commands and reports which ones could have been rewritten to ig equivalents — helping you tune your hook coverage.</p>
+    <p>Scan agent session history (and optionally shell history) for missed token-saving opportunities — commands that could have gone through <code>ig run</code> but didn't. Helps you tune your hook coverage.</p>
 
     <div class="relative">
       <div class="code-label">syntax</div>
-      <Code code={`ig discover [OPTIONS]   # scan Claude Code session logs`} lang="bash" theme="github-dark" />
+      <Code code={`ig discover [OPTIONS]   # scan agent + shell history`} lang="bash" theme="github-dark" />
     </div>
 
     <table>
       <thead>
         <tr>
           <th>Flag</th>
-          <th>Short</th>
           <th>Description</th>
         </tr>
       </thead>
       <tbody>
-        <tr><td><code class="flag">--since DATE</code></td><td></td><td>Scan sessions since a date (e.g. <code>--since 2026-03-01</code>)</td></tr>
-        <tr><td><code class="flag">--limit N</code></td><td></td><td>Cap results to top N missed opportunities</td></tr>
+        <tr><td><code class="flag">--since N</code></td><td>Only scan sessions/history from the last N days (default: 30)</td></tr>
+        <tr><td><code class="flag">--limit N</code></td><td>Maximum entries to show per section (default: 15)</td></tr>
+        <tr><td><code class="flag">--shell</code></td><td>Also scan <code>~/.zsh_history</code> / <code>~/.bash_history</code></td></tr>
+        <tr><td><code class="flag">--all</code></td><td>Scan all available history, ignoring <code>--since</code></td></tr>
+        <tr><td><code class="flag">--format</code></td><td>Output format: <code>text</code> (default) or <code>json</code></td></tr>
       </tbody>
     </table>
 
     <div class="relative">
       <div class="code-label">examples</div>
-      <Code code={`# Scan all sessions for missed savings
+      <Code code={`# Scan the last 30 days of sessions
 ig discover
 
-# Limit to sessions since March 2026
-ig discover --since 2026-03-01
+# Scan everything, including shell history
+ig discover --all --shell
 
-# Show top 20 missed opportunities
+# Cap to top 20 entries per section
 ig discover --limit 20`} lang="bash" theme="github-dark" />
     </div>
   </section>
 
-  <!-- ig proxy -->
+  <!-- ig run / proxy -->
   <section id="proxy">
-    <h2>ig proxy <span class="badge">New in v1.4</span></h2>
+    <h2>ig run <span class="badge">alias: ig proxy</span></h2>
 
-    <p>Debug passthrough mode — executes the raw command without any ig rewriting or RTK filtering. Useful for verifying hook behavior, comparing compressed vs native output, or bypassing rewrites for a single call.</p>
+    <p>Run any command through ig's token-optimized filter pipeline. The output is compacted by a TOML-driven filter (8 stages: ansi, replace, keep, drop, truncate, head, tail, fallback) and the wrapped command's exit code is propagated. When the output can't be parsed, ig falls back to raw passthrough. <code>ig run</code> also transparently routes <code>ls</code>, <code>find</code>, <code>cat</code>, and <code>git status/log/diff</code> to the dedicated ig subcommands (opt out with <code>IG_RUN_ROUTE=0</code>).</p>
 
     <div class="relative">
       <div class="code-label">syntax</div>
-      <Code code={`ig proxy <COMMAND> [ARGS...]   # execute raw without filtering`} lang="bash" theme="github-dark" />
+      <Code code={`ig run <COMMAND> [ARGS...]    # run through the filter pipeline
+ig proxy <COMMAND> [ARGS...]  # alias`} lang="bash" theme="github-dark" />
     </div>
 
     <div class="relative">
       <div class="code-label">examples</div>
-      <Code code={`# Run git status without compression (debug)
-ig proxy git status
+      <Code code={`# Run a build command with filtered output
+ig run cargo build
 
-# Run grep without rewriting
-ig proxy grep -r "pattern" src/
+# Routes to the dedicated subcommand automatically
+ig run git status     # → ig git status
+ig run ls src/        # → ig ls src/
 
-# Compare native vs compressed
-ig proxy git log -5
-ig git log -5`} lang="bash" theme="github-dark" />
+# See the filter / rewrite decision without changing behaviour
+ig --explain run cargo test`} lang="bash" theme="github-dark" />
     </div>
   </section>
 
-  <!-- ig rewrite (hook-internal) -->
-  <section>
-    <h3>ig rewrite <span class="badge badge--muted">hook-internal</span></h3>
+  <!-- RTK-parity command wrappers -->
+  <section id="rtk-wrappers">
+    <h2>Command wrappers <span class="badge">v2.0.0</span></h2>
 
-    <p>Rewrites a shell command to its ig-optimized equivalent. Used internally by the Claude Code <code>PreToolUse</code> hook — not intended for direct invocation. <code>ig setup</code> installs the hook automatically.</p>
+    <p>v2.0.0 ships native Rust wrappers for 33 common developer tools — feature parity with <a href="https://github.com/rtk-ai/rtk">rtk</a>. Each wrapper parses the tool's output (JSON where available), emits a compact summary, propagates the wrapped tool's exit code, honours <code>-u/--ultra-compact</code>, and falls back to raw passthrough when the output can't be parsed.</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Group</th>
+          <th>Subcommands</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Test runners</td><td><code>vitest</code> <code>jest</code> <code>playwright</code> <code>pytest</code> <code>cargo-test</code> <code>go-test</code> <code>rspec</code> <code>rake</code></td></tr>
+        <tr><td>Linters / formatters</td><td><code>eslint</code> <code>biome</code> <code>tsc</code> <code>prettier</code> <code>ruff</code> <code>mypy</code> <code>rubocop</code> <code>golangci-lint</code></td></tr>
+        <tr><td>Build / package</td><td><code>next</code> <code>prisma</code> <code>pnpm</code> <code>npm</code> <code>pip</code></td></tr>
+        <tr><td>Git platforms</td><td><code>gh</code> <code>glab</code> <code>gt</code></td></tr>
+        <tr><td>Cloud / data</td><td><code>aws</code> <code>kubectl</code> <code>psql</code> <code>curl</code> <code>wget</code></td></tr>
+        <tr><td>System</td><td><code>log</code> <code>summary</code> <code>tree</code> <code>wc</code></td></tr>
+      </tbody>
+    </table>
 
     <div class="relative">
-      <div class="code-label">example rewrites performed by the hook</div>
-      <Code code={`grep -r "pattern" src/   →  ig "pattern" src/
-find . -name "*.rs"      →  ig files -t rs .
-git status               →  ig git status`} lang="text" theme="github-dark" />
+      <div class="code-label">examples</div>
+      <Code code={`# Test runners — compact pass/fail summary
+ig vitest
+ig pytest tests/
+ig cargo-test
+
+# Linters — only files with diagnostics
+ig eslint src/
+ig tsc --noEmit
+ig ruff check .
+
+# Git platforms / cloud
+ig gh pr list
+ig kubectl get pods
+ig aws s3 ls
+
+# Ultra-compact, minimum signal
+ig -u jest`} lang="bash" theme="github-dark" />
     </div>
+
+    <h3 id="meta">Meta commands</h3>
+
+    <p><code>ig setup</code> / <code>ig init</code> (agent configuration),
+    <code>ig import-rtk</code> (RTK filter migration),
+    <code>ig hook-audit</code> (audit installed hooks + recent permission verdicts), and
+    <code>ig telemetry</code> (opt-in anonymous telemetry — off by default; the public
+    build compiles in no endpoint, so it is a hard no-op).</p>
   </section>
 
   <!-- JSON output format -->
   <section>
     <h3>JSON output format (<code>--json</code>)</h3>
 
-    <p>Structured, parseable, minimal tokens. Supported by <code>search</code>, <code>query</code>, <code>files</code>, <code>symbols</code>, and <code>context</code>.</p>
+    <p>Structured, parseable, minimal tokens. Supported by <code>search</code>, <code>files</code>, <code>symbols</code>, and <code>context</code>.</p>
 
     <div class="relative">
       <div class="code-label">schema</div>
@@ -772,9 +798,9 @@ git status               →  ig git status`} lang="text" theme="github-dark" />
   "pattern": "async fn",
   "matches": [
     {
-      "file": "src/daemon.rs",
+      "file": "src/index/reader.rs",
       "line": 23,
-      "text": "pub async fn handle_connection(stream: UnixStream) {"
+      "text": "pub fn open_for(root: &Path) -> Result<IndexReader> {"
     }
   ],
   "stats": {

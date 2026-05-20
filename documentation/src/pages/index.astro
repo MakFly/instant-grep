@@ -5,18 +5,6 @@ const installCmd = "curl -fsSL https://raw.githubusercontent.com/MakFly/instant-
 ---
 
 <Layout title="instant-grep — The AI agent's search engine">
-  <!-- LEGACY (v1.x) note — auto-injected on v2.0.0 daemon removal -->
-  <div class="mx-auto max-w-4xl px-6 pt-6 text-sm">
-    <div class="rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3">
-      <strong>Heads up:</strong> some content on this page predates v2.0.0 and
-      may still mention the global daemon, the seal protocol, or the
-      <code>ig daemon</code> / <code>ig warm</code> / <code>ig hold</code>
-      subcommands. Those were removed in v2.0.0 — see the
-      <a href="https://github.com/MakFly/instant-grep/blob/main/CHANGELOG.md" class="underline">changelog</a>.
-    </div>
-  </div>
-
-
   <div class="carton-page">
     <!-- Topbar — kraft style -->
     <header class="carton-header">
@@ -48,8 +36,8 @@ const installCmd = "curl -fsSL https://raw.githubusercontent.com/MakFly/instant-
         </h1>
 
         <p class="animate-fade-up stagger-2 carton-subtitle">
-          One binary. 93.5% token savings. 4.1x more compact than RTK.<br/>
-          Sub-millisecond search via daemon.
+          One binary. 93.5% token savings. Full RTK parity plus a trigram engine.<br/>
+          Process-per-invocation — no daemon, mmap'd index on every search.
         </p>
 
         <div class="animate-fade-up stagger-3 flex justify-center gap-4 mb-8">
@@ -94,8 +82,8 @@ const installCmd = "curl -fsSL https://raw.githubusercontent.com/MakFly/instant-
           <div class="pin"></div>
           <pre class="terminal-pre"><span class="t-dim">$</span> ig "async fn.*Result" src/ --stats
 
-<span class="t-file">src/daemon.rs</span>
-<span class="t-line">23</span>:    pub async fn handle_connection(stream: UnixStream) -&gt; Result&lt;()&gt;
+<span class="t-file">src/index/reader.rs</span>
+<span class="t-line">23</span>:    pub async fn open_for(root: &amp;Path) -&gt; Result&lt;IndexReader&gt;
 
 <span class="t-dim">--- stats ---</span>
 Candidates: 4/1,284 files (0.3%)
@@ -109,10 +97,10 @@ Index: yes</pre>
     <section class="carton-divider py-16 px-6">
       <div class="carton-container grid grid-cols-2 sm:grid-cols-4 gap-6 max-w-3xl mx-auto">
         {[
-          { value: "0.9ms", label: "Daemon search" },
+          { value: "2-8ms", label: "Warm-index search" },
           { value: "93.5%", label: "Token savings" },
-          { value: "4.1x", label: "vs RTK" },
-          { value: "320", label: "Tests passing" },
+          { value: "33", label: "RTK-parity wrappers" },
+          { value: "438", label: "Tests passing" },
         ].map((stat, i) => (
           <div class={`animate-fade-up stagger-${i + 1} stat-stamp`}>
             <div class="stat-value">{stat.value}</div>
@@ -131,12 +119,12 @@ Index: yes</pre>
         </p>
         <div class="grid md:grid-cols-3 gap-5">
           {[
-            { title: "Trigram-indexed search", desc: "Same algorithm as GitHub Code Search. Sub-ms via daemon.", icon: ">" },
-            { title: "93.5% token savings", desc: "Measured across 100 commands on a real 1,552-file project.", icon: "%" },
-            { title: "4.1x more compact", desc: "Real agent sessions prove it. 73K vs 298K per session.", icon: "x" },
+            { title: "Trigram-indexed search", desc: "Same algorithm as GitHub Code Search. Process-per-invocation, mmap'd index.", icon: ">" },
+            { title: "93.5% token savings", desc: "Measured across 100 commands on real projects.", icon: "%" },
+            { title: "Full RTK parity", desc: "33 native command-output wrappers, the 0/1/2/3 hook protocol, ig import-rtk.", icon: "=" },
             { title: "Smart file reading", desc: "Signatures, budget, relevance boost, delta. 4 compression modes.", icon: "~" },
-            { title: "One-command setup", desc: "ig setup configures Claude Code, Codex, Cursor automatically.", icon: "$" },
-            { title: "320 tests, zero failures", desc: "Battle-tested on Laravel, Rust, TypeScript, Go codebases.", icon: "#" },
+            { title: "One-command setup", desc: "ig setup configures 11 agents — Claude, Codex, Cursor, and more.", icon: "$" },
+            { title: "Opt-in telemetry", desc: "Off by default — the public build compiles in no endpoint at all.", icon: "#" },
           ].map((feature, i) => (
             <div class={`animate-fade-up stagger-${i + 1} index-card`}>
               <div class="index-card-icon">{feature.icon}</div>

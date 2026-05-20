@@ -4,35 +4,20 @@ import { Code } from "astro:components"
 ---
 
 <DocsLayout title="Getting Started" description="Install and use instant-grep in minutes">
-  <!-- LEGACY (v1.x) banner — auto-injected on v2.0.0 daemon removal -->
-  <div class="mb-6 rounded-md border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm">
-    <strong>Legacy (v1.x) content.</strong> This page may reference the
-    Unix-socket daemon, the seal push/pull cache-invalidation protocol, the
-    agent edit-session lock (<code>ig hold begin/end</code>), or the
-    <code>ig warm</code> / <code>ig projects</code> / <code>ig query</code> /
-    <code>ig watch</code> subcommands. All of those were removed in
-    <strong>v2.0.0</strong>; <code>ig</code> is now process-per-invocation and
-    mmap's the on-disk index on every search. See the
-    <a href="https://github.com/MakFly/instant-grep/blob/main/CHANGELOG.md" class="underline">v2.0.0 changelog</a>
-    for the full removal list and the <code>ig update</code> migration. The
-    rest of this page (trigram engine, BM25, semantic PMI, token compression)
-    is still accurate.
-  </div>
-
-
   <h1>Getting Started</h1>
   <p>
     From zero to sub-millisecond search in under 5 minutes. No configuration files.
-    No daemons to set up manually. Just build and go.
+    No daemon to set up. Every <code>ig</code> command is a one-shot process —
+    install the binary, run a search, and the index builds itself.
   </p>
 
   <div class="docs-callout">
     <div>
-      <p><strong>New in v1.10.0:</strong></p>
+      <p><strong>New in v2.0.0:</strong></p>
       <ul>
-        <li><code>ig --top N "pattern"</code> — BM25 ranking returns the N most relevant files instead of the first N found on disk. See <a href="/docs/cli#bm25">CLI reference</a>.</li>
-        <li><code>ig --semantic "error"</code> — PMI-learned query expansion (no ML model, synonyms learned from your repo during indexing). See <a href="/docs/cli#semantic">CLI reference</a>.</li>
-        <li>Auto-compact output when piped to an agent + dir-aggregate <code>ig smart &lt;dir&gt;</code> and <code>ig files</code>. See <a href="/docs/vs-rtk">vs rtk bench</a>: ig now beats rtk on total bytes and total wall time.</li>
+        <li>Full feature parity with <a href="https://github.com/rtk-ai/rtk">rtk</a> — 33 native command-output wrappers (test runners, linters, build tools, git platforms, cloud CLIs). See <a href="/docs/vs-rtk">ig vs RTK</a>.</li>
+        <li>Process-per-invocation — the v1.x global daemon, Unix socket, and filesystem watcher are gone. The on-disk index is mmap'd on every search and rebuilt inline when stale.</li>
+        <li>Coming from RTK? Run <code>ig import-rtk</code> to translate your RTK filter files in one shot.</li>
       </ul>
     </div>
   </div>
@@ -86,27 +71,42 @@ ig --version`}
 
   <h3>Configure AI agents</h3>
   <p>
-    If you used the one-line installer, agents are already configured. Otherwise run:
+    If you used the one-line installer, agents are already configured. Otherwise run
+    <code>ig setup</code> (alias <code>ig init</code>):
   </p>
 
   <Code
-    code={`# Auto-configure Claude Code, Codex, Gemini CLI...
+    code={`# Auto-configure every detected AI agent
 ig setup
 
 # ig setup does the following:
-#  - Installs ig-rewrite.sh hook in ~/.claude/hooks/
-#  - Registers the hook in ~/.claude/settings.json
+#  - Installs the PreToolUse hook script in ~/.claude/hooks/
+#  - Registers the hook in ~/.claude/settings.json (0/1/2/3 exit-code protocol)
 #  - Adds Bash(ig *) permission for Claude Code
-#  - Adds search tools section to ~/.claude/CLAUDE.md`}
+#  - Writes a managed Search Tools block into ~/.claude/CLAUDE.md / AGENTS.md
+#
+# ig setup supports 11 agents: claude, codex, cursor, copilot, gemini,
+# opencode, windsurf, cline, hermes, kilocode, antigravity.`}
     lang="bash"
     theme="github-dark"
   />
 
-  <h2>Build your first index</h2>
+  <div class="docs-callout">
+    <div>
+      <p><strong>Migrating from RTK?</strong> Run <code>ig import-rtk</code> to translate your
+      existing RTK <code>filters.toml</code> (user + project) into ig's filter format in
+      one shot — or pass <code>ig setup --import-rtk</code> to do it during agent setup.
+      See the <a href="https://github.com/MakFly/instant-grep/blob/main/docs/MIGRATING_FROM_RTK.md">migration guide</a>.</p>
+    </div>
+  </div>
+
+  <h2>The index builds itself</h2>
   <p>
-    Navigate to any project directory and run <code>ig index</code>.
-    This creates a <code>.ig/</code> directory with binary index files
-    and auto-generated project artifacts.
+    There is no manual index step. The first <code>ig</code> search on a project builds
+    the sparse n-gram index inline before returning results, and stores it in the
+    XDG cache (<code>~/.cache/ig/projects/&lt;hash&gt;/</code>, or
+    <code>~/Library/Caches/ig/</code> on macOS) — never inside your repo. If you want
+    to force a build, <code>ig index</code> still works:
   </p>
 
   <Code
@@ -116,9 +116,9 @@ ig setup
 * Skipping 38 excluded directories (node_modules, target, .git, ...)
 * Building sparse n-gram index: 1,552 files (SPIMI, 2 segments)
 + Index built in 450ms
-   lexicon:  31 MB   (.ig/lexicon.bin)
-   postings: 7.1 MB  (.ig/postings.bin)
-   metadata: 111 KB  (.ig/metadata.bin)`}
+   lexicon:  31 MB   (~/.cache/ig/projects/<hash>/lexicon.bin)
+   postings: 7.1 MB  (~/.cache/ig/projects/<hash>/postings.bin)
+   metadata: 111 KB  (~/.cache/ig/projects/<hash>/metadata.bin)`}
     lang="bash"
     theme="github-dark"
   />
@@ -171,16 +171,19 @@ ig --type rs "pub fn" .`}
 
   <h2>How auto-build works</h2>
   <p>
-    When you run <code>ig search</code>, it checks if a <code>.ig/</code> index
-    exists in the target directory. If not, it automatically runs <code>ig index</code> first.
-    You can always just run search — no manual indexing required.
+    Every <code>ig</code> command is a one-shot process. When you run a search it
+    resolves the project root, finds the matching index in the XDG cache, and
+    mmap's it. If the index is missing — or older than any source file, or built
+    against an out-of-date <code>INDEX_VERSION</code> — it rebuilds inline before
+    answering. You never call <code>ig index</code> manually.
   </p>
 
   <ol>
     <li><code>ig "pattern" .</code> called</li>
-    <li>Check for <code>.ig/metadata.bin</code> — if missing, build index first</li>
-    <li>Extract n-grams from regex, query posting lists, verify matches</li>
-    <li>Results printed in ~0.9ms</li>
+    <li>Resolve project root, locate <code>~/.cache/ig/projects/&lt;hash&gt;/</code></li>
+    <li>If the index is missing or stale, build/refresh it inline</li>
+    <li>mmap the index, extract n-grams from the regex, intersect posting lists, verify matches</li>
+    <li>Results printed, process exits</li>
   </ol>
 
   <h2>Next steps</h2>
@@ -191,7 +194,7 @@ ig --type rs "pub fn" .`}
     </a>
     <a href="/docs/architecture" class="rounded-lg border p-4 flex flex-col gap-1.5 group hover:border-foreground/20 transition-colors">
       <h3 class="font-medium text-sm group-hover:text-foreground transition-colors">Architecture</h3>
-      <p class="text-xs text-muted-foreground">Query pipeline and the background daemon</p>
+      <p class="text-xs text-muted-foreground">The query pipeline, process-per-invocation</p>
     </a>
     <a href="/docs/performance" class="rounded-lg border p-4 flex flex-col gap-1.5 group hover:border-foreground/20 transition-colors">
       <h3 class="font-medium text-sm group-hover:text-foreground transition-colors">Performance</h3>

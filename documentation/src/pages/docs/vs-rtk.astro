@@ -24,65 +24,86 @@ const domainBreakdown = [
 ]
 
 const features = [
-  // New v1.10.0 structural wins
-  { feature: "BM25 --top N ranking",                 ig: "v1.10.0",         rtk: "No (no index)",   moat: true },
-  { feature: "--semantic PMI query expansion",       ig: "v1.10.0",         rtk: "No (no index)",   moat: true },
-  { feature: "Auto-compact on pipe",                 ig: "v1.10.0",         rtk: "Always",          moat: false },
-  { feature: "Path ellision in compact headers",     ig: "v1.10.0",         rtk: "No",              moat: false },
-  { feature: "Dir-aggregate smart summaries",        ig: "v1.10.0",         rtk: "No",              moat: false },
-  // Pre-existing structural advantages
-  { feature: "Trigram-indexed search",               ig: "Yes",             rtk: "No (wraps rg)",   moat: true },
-  { feature: "Sub-ms Unix-socket daemon",            ig: "Yes",             rtk: "No",              moat: true },
+  // Structural advantages — the index moat
+  { feature: "Trigram-indexed search engine",        ig: "Yes",             rtk: "No (wraps rg)",   moat: true },
+  { feature: "BM25 --top N ranking",                 ig: "Yes",             rtk: "No (no index)",   moat: true },
+  { feature: "--semantic PMI query expansion",       ig: "Yes",             rtk: "No (no index)",   moat: true },
   { feature: "IDF-weighted sparse n-grams",          ig: "Yes",             rtk: "No",              moat: true },
   { feature: "Bloom + locMask (3.5-gram)",           ig: "Yes",             rtk: "No",              moat: true },
-  { feature: "Pre-computed filedata cache",          ig: "Yes",             rtk: "No",              moat: true },
+  { feature: "ig read -s / smart / symbols / pack",  ig: "Yes",             rtk: "No",              moat: true },
   { feature: "Budget mode (entropy-scored)",         ig: "Yes",             rtk: "No",              moat: true },
   { feature: "Relevance boost (-r)",                 ig: "Yes",             rtk: "No",              moat: true },
   { feature: "Delta reads (git changes)",            ig: "Yes",             rtk: "No",              moat: true },
-  // Parity features
-  { feature: "Token savings dashboard",              ig: "ig gain (top-20 default)", rtk: "rtk gain", moat: null },
+  // Parity features — v2.0.0 brings ig level with rtk
+  { feature: "Command-output filter wrappers",       ig: "33 wrappers",     rtk: "Yes",             moat: null },
+  { feature: "0/1/2/3 hook exit-code protocol",      ig: "Yes",             rtk: "Yes",             moat: null },
+  { feature: "Permission engine (deny / ask)",       ig: "Yes",             rtk: "Yes",             moat: null },
+  { feature: "RTK filter import",                    ig: "ig import-rtk",   rtk: "—",               moat: null },
+  { feature: "Agent setup / hook install",           ig: "11 agents",       rtk: "Yes",             moat: null },
+  { feature: "Token savings dashboard",              ig: "ig gain",         rtk: "rtk gain",        moat: null },
   { feature: "Git output compression",               ig: "Yes",             rtk: "Yes",             moat: null },
   { feature: "ls / tree compression",                ig: "Yes",             rtk: "Yes",             moat: null },
-  { feature: "File reading modes",                   ig: "4 modes",         rtk: "3 modes",         moat: true },
-  { feature: "Pipelines in rewrite",                 ig: "Yes",             rtk: "Yes",             moat: null },
-  { feature: "Env / sudo prefix stripping",          ig: "Yes",             rtk: "Yes",             moat: null },
+  { feature: "Pipelines / env / sudo in rewrite",    ig: "Yes",             rtk: "Yes",             moat: null },
   { feature: "Absolute path normalisation",          ig: "Yes",             rtk: "Yes",             moat: null },
-  { feature: "Git global opts (-C, --git-dir)",      ig: "Yes",             rtk: "Yes",             moat: null },
-  { feature: "Dedup consecutive output",             ig: "Yes",             rtk: "Yes",             moat: null },
-  { feature: "Rewritten command categories",         ig: "91 bins",         rtk: "72 rules",        moat: true },
+  { feature: "Process-per-invocation (no daemon)",   ig: "Yes",             rtk: "Yes",             moat: null },
 ]
 ---
 
-<DocsLayout title="ig vs RTK" description="Head-to-head comparison between ig 1.10.0 and RTK 0.37.2 -- 115 cases across 12 domains on a 347K-file monorepo, median of 3 runs per case.">
-  <!-- LEGACY (v1.x) banner — auto-injected on v2.0.0 daemon removal -->
-  <div class="mb-6 rounded-md border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm">
-    <strong>Legacy (v1.x) content.</strong> This page may reference the
-    Unix-socket daemon, the seal push/pull cache-invalidation protocol, the
-    agent edit-session lock (<code>ig hold begin/end</code>), or the
-    <code>ig warm</code> / <code>ig projects</code> / <code>ig query</code> /
-    <code>ig watch</code> subcommands. All of those were removed in
-    <strong>v2.0.0</strong>; <code>ig</code> is now process-per-invocation and
-    mmap's the on-disk index on every search. See the
-    <a href="https://github.com/MakFly/instant-grep/blob/main/CHANGELOG.md" class="underline">v2.0.0 changelog</a>
-    for the full removal list and the <code>ig update</code> migration. The
-    rest of this page (trigram engine, BM25, semantic PMI, token compression)
-    is still accurate.
-  </div>
-
+<DocsLayout title="ig vs RTK" description="As of v2.0.0, ig has feature parity with rtk plus a trigram search engine rtk lacks.">
   <div class="max-w-none">
     <!-- Page header -->
     <div class="mb-10">
       <div class="flex items-center gap-2 text-xs font-mono uppercase tracking-widest mb-3 text-muted-foreground">
-        <span>Head-to-Head Comparison -- v1.10.0</span>
+        <span>RTK Parity + the Index Moat -- v2.0.0</span>
       </div>
       <h1 class="text-3xl font-semibold mb-4">
-        ig vs RTK -- Head to Head
+        ig vs RTK
       </h1>
       <p class="text-muted-foreground text-lg leading-relaxed">
-        115 cases across 12 domains, run on the <code class="font-mono text-sm">iautos</code> SaaS monorepo (347,843 files raw, 3,146 after ig's default excludes).
-        2 warm-up passes + <strong>median of 3</strong> wall-time runs per case. ig 1.10.0 against rtk 0.37.2. Bytes measured with <code class="font-mono text-sm">wc -c</code>.
+        As of <strong>v2.0.0</strong>, <code class="font-mono text-sm">ig</code> ships full feature parity with
+        <a href="https://github.com/rtk-ai/rtk" class="underline">rtk</a> —
+        the same command-output filtering, the 0/1/2/3 hook exit-code protocol, the permission
+        engine — <strong>plus</strong> a trigram-indexed search engine rtk does not have.
+        If you use rtk today, <code class="font-mono text-sm">ig</code> does everything it does and adds a real search layer on top.
       </p>
     </div>
+
+    <!-- Section 0: Parity -->
+    <section class="mb-12">
+      <h2 class="text-xl font-semibold mb-4">v2.0.0 — Full RTK Parity</h2>
+      <p class="text-sm text-muted-foreground mb-5 leading-relaxed">
+        v2.0.0 closes the gap on everything rtk does. The two tools now share the same
+        agent-integration contract; what differs is the index underneath.
+      </p>
+
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div class="p-5 rounded-lg border">
+          <h3 class="font-semibold mb-2">What ig matches in rtk</h3>
+          <ul class="text-sm text-muted-foreground space-y-1.5 leading-relaxed">
+            <li>33 native command-output wrappers — test runners, linters, build tools, git platforms, cloud CLIs</li>
+            <li>The RTK 0/1/2/3 hook exit-code protocol (rewrite / passthrough / deny / ask)</li>
+            <li>A permission engine for destructive and confirm-required commands</li>
+            <li><code>ig import-rtk</code> — one-shot translation of RTK <code>filters.toml</code></li>
+            <li><code>ig setup</code> installs hooks for 11 agents</li>
+            <li>Process-per-invocation — no daemon, just like rtk</li>
+          </ul>
+        </div>
+        <div class="p-5 rounded-lg border">
+          <h3 class="font-semibold mb-2">What ig adds on top</h3>
+          <ul class="text-sm text-muted-foreground space-y-1.5 leading-relaxed">
+            <li>A persistent trigram index — <code>ig "regex" [path]</code>, sub-ms on a warm index, <code>rg</code>-parity matching</li>
+            <li><code>--top N</code> BM25 ranking and <code>--semantic</code> PMI expansion — both need an index rtk has no equivalent of</li>
+            <li><code>ig read -s</code> (signatures), <code>ig smart</code>, <code>ig symbols</code>, <code>ig pack</code> — index-backed file compression</li>
+            <li>Budget mode, relevance boost, and git-aware delta reads</li>
+          </ul>
+        </div>
+      </div>
+
+      <p class="text-xs text-muted-foreground mt-4">
+        The benchmark below was run on ig v1.10.0 vs rtk 0.37.2, before v2.0.0's parity work — it
+        still measures the structural advantage the trigram index gives ig on search and file reads.
+      </p>
+    </section>
 
     <!-- Section 1: The Verdict (hero stats) -->
     <section class="mb-12">

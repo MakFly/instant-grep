@@ -3,21 +3,6 @@ import DocsLayout from "@/layouts/docs.astro"
 ---
 
 <DocsLayout title="Architecture" description="How instant-grep works under the hood">
-  <!-- LEGACY (v1.x) banner — auto-injected on v2.0.0 daemon removal -->
-  <div class="mb-6 rounded-md border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm">
-    <strong>Legacy (v1.x) content.</strong> This page may reference the
-    Unix-socket daemon, the seal push/pull cache-invalidation protocol, the
-    agent edit-session lock (<code>ig hold begin/end</code>), or the
-    <code>ig warm</code> / <code>ig projects</code> / <code>ig query</code> /
-    <code>ig watch</code> subcommands. All of those were removed in
-    <strong>v2.0.0</strong>; <code>ig</code> is now process-per-invocation and
-    mmap's the on-disk index on every search. See the
-    <a href="https://github.com/MakFly/instant-grep/blob/main/CHANGELOG.md" class="underline">v2.0.0 changelog</a>
-    for the full removal list and the <code>ig update</code> migration. The
-    rest of this page (trigram engine, BM25, semantic PMI, token compression)
-    is still accurate.
-  </div>
-
   <div class="max-w-none">
     <!-- Page header -->
     <div class="mb-10">
@@ -151,11 +136,11 @@ import DocsLayout from "@/layouts/docs.astro"
             desc: "Parses regex AST to extract searchable literal fragments",
           },
           {
-            file: "src/daemon.rs",
+            file: "src/cache.rs",
             cls: "theme-orange-bright",
-            title: "Background Daemon",
-            fns: ["start_daemon()", "stop_daemon()", "daemon_status()", "install_launchd()", "uninstall_launchd()"],
-            desc: "Unix socket server with full lifecycle: start/stop/status/install/uninstall + launchd auto-restart",
+            title: "XDG Cache Layout",
+            fns: ["cache_dir_for()", "ensure_layout()", "gc()", "cache_ls()"],
+            desc: "Resolves the per-project index dir under ~/.cache/ig/projects/<hash>/, runs garbage collection, keeps the by-name symlinks and manifest in sync",
           },
           {
             file: "src/read.rs",
@@ -211,7 +196,7 @@ import DocsLayout from "@/layouts/docs.astro"
             cls: "theme-orange",
             title: "CLI Entry Point",
             fns: ["Commands enum", "clap::Parser", "dispatch()"],
-            desc: "Command dispatch via clap — routes to index, search, status, watch, daemon, query, ls, read, smart, pack, gain",
+            desc: "Command dispatch via clap — routes to search, index, status, ls, read, smart, pack, gain, and the RTK-parity command wrappers",
           },
         ].map((module) => (
           <div class="rounded-lg border border p-5">
@@ -273,16 +258,18 @@ import DocsLayout from "@/layouts/docs.astro"
     <!-- On-disk format -->
     <section class="mb-12">
       <h2 class="text-2xl font-semibold text-foreground mb-4">
-        On-disk Format (.ig/ directory) — INDEX_VERSION 13
+        On-disk Format (XDG cache) — INDEX_VERSION 13
       </h2>
       <p class="text-sm text-muted-foreground mb-5">
-        Five binary files, all memory-mapped for zero-copy access.
+        The index lives under <code class="font-mono">~/.cache/ig/projects/&lt;hash-of-root&gt;/</code>
+        (<code class="font-mono">~/Library/Caches/ig/</code> on macOS), never inside the repo.
+        Several binary files, all memory-mapped for zero-copy access on each invocation.
         <code class="font-mono">INDEX_VERSION</code> must be bumped when the format changes.
         v13: 18-byte lexicon entries keep aggregate bloom + locMask metadata, while <code class="font-mono">postings.bin</code> stores tagged per-document posting entries with bloom, loc and position-zone masks. Dense posting lists add skip-block metadata for selective intersections.
       </p>
 
       <div class="code-block rounded-lg overflow-hidden">
-        <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="pipeline-comment">.ig/                                                         Size (1,552 files)</span>
+        <pre class="p-5 font-mono text-sm leading-relaxed overflow-x-auto"><code set:html={`<span class="pipeline-comment">~/.cache/ig/projects/&lt;hash&gt;/                                  Size (1,552 files)</span>
 <span class="theme-gold">├── metadata.bin</span>    <span class="pipeline-comment">— bincode: paths, mtimes, git SHA, IDF flag                 112 KB</span>
 <span class="theme-blue">├── lexicon.bin</span>     <span class="pipeline-comment">— Hash table: [key:u64, offset:u32, len:u32,                 35 MB</span>
 <span class="theme-blue">│                      bloom:u8, loc_mask:u8] (18 bytes/entry)</span>
@@ -370,7 +357,7 @@ import DocsLayout from "@/layouts/docs.astro"
         <p class="text-sm text-muted-foreground leading-relaxed">
           Each n-gram is hashed by combining its characters using a polynomial rolling hash with a prime base.
           The hash fits in a <code class="font-mono">u64</code> — enabling the open-addressing hash table lookup
-          to be a single memory access when the index is warm in the OS page cache (or the daemon's mmap).
+          to be a single memory access when the mmap'd index is warm in the OS page cache.
         </p>
       </div>
     </section>
@@ -397,54 +384,55 @@ import DocsLayout from "@/layouts/docs.astro"
       </div>
     </section>
 
-    <!-- Sage Mode -->
+    <!-- Process-per-invocation -->
     <section class="mb-4">
       <h2 class="text-2xl font-semibold text-foreground mb-2">
-        Daemon Architecture
+        Process-per-Invocation <span class="text-sm font-mono text-muted-foreground">(v2.0.0)</span>
       </h2>
 
       <p class="text-sm text-muted-foreground mb-4 leading-relaxed">
-        The daemon keeps the index mmap'd in process memory,
-        eliminating OS page cache warmup on every query.
+        There is <strong class="text-foreground">no daemon</strong>, no Unix socket, and no
+        background filesystem watcher. Every <code class="font-mono">ig</code> command is a
+        one-shot Rust process: it resolves the project root, mmap's the on-disk index,
+        serves the request, and exits. The OS page cache absorbs almost everything a
+        long-lived process would have kept in user space — a warm second query inside
+        the same shell session matches the old daemon hot-path numbers.
       </p>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
         <div class="p-5 rounded-lg border border-border bg-secondary/30">
-          <div class="text-sm font-mono font-bold mb-2 theme-blue">Without daemon</div>
+          <div class="text-sm font-mono font-bold mb-2 theme-blue">First query (cold cache)</div>
           <ul class="text-xs text-muted-foreground space-y-1">
-            <li>• Cold start: open files, read mmap headers</li>
-            <li>• OS page faults on first access</li>
-            <li>• ~5-15ms for cold index</li>
-            <li>• ~0.9ms when OS cache is warm</li>
+            <li>• Open index files, take page faults on first access</li>
+            <li>• If the index is missing or stale, build it inline first</li>
+            <li>• ~5–15 ms once pages are resident</li>
           </ul>
         </div>
         <div class="p-5 rounded-lg border border-border bg-secondary/30">
-          <div class="text-sm font-mono font-bold mb-2 theme-orange-bright">With daemon</div>
+          <div class="text-sm font-mono font-bold mb-2 theme-orange-bright">Warm queries</div>
           <ul class="text-xs text-muted-foreground space-y-1">
-            <li>• Index already in process memory</li>
-            <li>• Unix socket: no TCP overhead</li>
-            <li>• Sub-0.5ms consistent latency</li>
-            <li>• Perfect for AI agent repeated queries</li>
+            <li>• Index already resident in the OS page cache</li>
+            <li>• mmap is near-instant — no socket, no IPC</li>
+            <li>• ~2–8 ms end-to-end including process startup</li>
+            <li>• No state to manage, no process to restart</li>
           </ul>
         </div>
       </div>
 
       <div class="code-block rounded-lg overflow-hidden">
-        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-orange"># Start daemon (background)</span>
-<span class="theme-blue">ig</span> daemon start .  <span class="pipeline-comment"># socket at .ig/daemon.sock</span>
+        <pre class="p-4 font-mono text-sm overflow-x-auto"><code set:html={`<span class="theme-orange"># Every command is a one-shot process — just run a search</span>
+<span class="theme-blue">ig</span> <span class="theme-gold">"async fn"</span> src/
 
-<span class="theme-orange"># Check status</span>
-<span class="theme-blue">ig</span> daemon status .
+<span class="theme-orange"># The index auto-builds on first search; force a rebuild with</span>
+<span class="theme-blue">ig</span> index .
 
-<span class="theme-orange"># Stop daemon</span>
-<span class="theme-blue">ig</span> daemon stop .
+<span class="theme-orange"># Inspect the XDG cache</span>
+<span class="theme-blue">ig</span> status .
+<span class="theme-blue">ig</span> cache-ls
 
-<span class="theme-orange"># Install as launchd service (auto-restart on macOS)</span>
-<span class="theme-blue">ig</span> daemon install .
-<span class="theme-blue">ig</span> daemon uninstall .
-
-<span class="theme-orange"># Query via socket (sub-ms)</span>
-<span class="theme-blue">ig</span> query <span class="theme-gold">"async fn"</span> .`}></code></pre>
+<span class="theme-orange"># Upgrading from a v1.x install? ig update prunes the leftover</span>
+<span class="theme-orange"># daemon.sock / daemon.pid / daemon.log / launchd / systemd artifacts.</span>
+<span class="theme-blue">ig</span> update`}></code></pre>
       </div>
     </section>
 
