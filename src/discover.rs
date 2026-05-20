@@ -216,20 +216,11 @@ fn agent_integration_status() -> serde_json::Value {
     serde_json::Value::Object(obj)
 }
 
-/// JSON output for `ig discover --format json`.
-pub fn run_discover_json(
-    since_days: u32,
-    limit: usize,
-    _shell: bool,
-    all: bool,
-) -> anyhow::Result<()> {
-    let effective_since = if all { 0 } else { since_days };
-    let data = collect_discover(effective_since);
-
-    let mut missed: Vec<_> = data.missed.iter().collect();
-    missed.sort_by_key(|b| std::cmp::Reverse(b.1.count));
-    let missed_json: Vec<_> = missed
-        .iter()
+/// Sort a missed-savings map into a JSON array, capped at `limit`.
+fn missed_to_json(missed: &BTreeMap<String, CmdStats>, limit: usize) -> Vec<serde_json::Value> {
+    let mut v: Vec<_> = missed.iter().collect();
+    v.sort_by_key(|b| std::cmp::Reverse(b.1.count));
+    v.into_iter()
         .take(limit)
         .map(|(cmd, stats)| {
             serde_json::json!({
@@ -238,7 +229,20 @@ pub fn run_discover_json(
                 "estimated_savings_bytes": stats.estimated_bytes,
             })
         })
-        .collect();
+        .collect()
+}
+
+/// JSON output for `ig discover --format json`.
+pub fn run_discover_json(
+    since_days: u32,
+    limit: usize,
+    shell: bool,
+    all: bool,
+) -> anyhow::Result<()> {
+    let effective_since = if all { 0 } else { since_days };
+    let data = collect_discover(effective_since);
+
+    let missed_json = missed_to_json(&data.missed, limit);
 
     let mut rtk_disabled: Vec<_> = data.rtk_disabled.iter().collect();
     rtk_disabled.sort_by_key(|b| std::cmp::Reverse(*b.1));
@@ -248,13 +252,21 @@ pub fn run_discover_json(
         .map(|(cmd, count)| serde_json::json!({ "command": cmd, "count": count }))
         .collect();
 
-    let out = serde_json::json!({
+    let mut out = serde_json::json!({
         "scanned_commands": data.total_commands,
         "rewritable": data.total_rewritable,
         "missed": missed_json,
         "rtk_disabled": rtk_disabled_json,
         "agent_integration_status": agent_integration_status(),
     });
+
+    // `--shell` folds in a shell-history scan, mirroring the text path.
+    if shell {
+        let (shell_missed, shell_total) = collect_shell_missed(effective_since);
+        out["shell_scanned_commands"] = serde_json::json!(shell_total);
+        out["shell_missed"] = serde_json::json!(missed_to_json(&shell_missed, limit));
+    }
+
     println!("{}", serde_json::to_string_pretty(&out)?);
     Ok(())
 }
@@ -553,17 +565,11 @@ fn shell_history_files() -> Vec<PathBuf> {
         .collect()
 }
 
-/// Scan `~/.zsh_history` / `~/.bash_history` for commands that could go
-/// through `ig run`. Complementary to `run_discover` which reads Claude
-/// Code sessions — many users run commands both in their shell and inside
-/// an agent.
-pub fn run_shell_history_scan(since_days: u32, limit: usize) {
+/// Scan `~/.zsh_history` / `~/.bash_history` and return the missed-savings
+/// map plus the total number of commands seen. Shared by the text and JSON
+/// discover paths.
+pub fn collect_shell_missed(since_days: u32) -> (BTreeMap<String, CmdStats>, u64) {
     let files = shell_history_files();
-    if files.is_empty() {
-        eprintln!("No shell history files found under $HOME");
-        return;
-    }
-
     let cutoff = if since_days > 0 {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -578,7 +584,6 @@ pub fn run_shell_history_scan(since_days: u32, limit: usize) {
     let mut total = 0u64;
 
     for path in &files {
-        // Skip old files entirely if their mtime predates the window
         if cutoff > 0
             && let Ok(meta) = fs::metadata(path)
             && let Ok(modified) = meta.modified()
@@ -607,6 +612,21 @@ pub fn run_shell_history_scan(since_days: u32, limit: usize) {
             }
         }
     }
+    (missed, total)
+}
+
+/// Scan `~/.zsh_history` / `~/.bash_history` for commands that could go
+/// through `ig run`. Complementary to `run_discover` which reads Claude
+/// Code sessions — many users run commands both in their shell and inside
+/// an agent.
+pub fn run_shell_history_scan(since_days: u32, limit: usize) {
+    let files = shell_history_files();
+    if files.is_empty() {
+        eprintln!("No shell history files found under $HOME");
+        return;
+    }
+
+    let (missed, total) = collect_shell_missed(since_days);
 
     eprintln!();
     eprintln!(

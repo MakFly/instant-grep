@@ -14,13 +14,26 @@ pub fn assemble() -> Value {
 
     let (tier_24h, top_24h) = match &db {
         Some(d) => match d.get_summary(Some(1), None) {
-            Ok(s) => (
-                s.count,
-                s.top_commands
-                    .iter()
-                    .map(|(c, n)| json!([c, n]))
-                    .collect::<Vec<_>>(),
-            ),
+            Ok(s) => {
+                // PII guard: the SQLite `command` column holds full command
+                // strings (paths, args, possibly secrets). Telemetry must
+                // never carry those — reduce every command to its bare
+                // binary basename and re-aggregate the counts.
+                let mut by_base: std::collections::BTreeMap<String, u64> =
+                    std::collections::BTreeMap::new();
+                for (cmd, n) in &s.top_commands {
+                    *by_base.entry(command_basename(cmd)).or_insert(0) += n;
+                }
+                let mut top: Vec<_> = by_base.into_iter().collect();
+                top.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+                (
+                    s.count,
+                    top.into_iter()
+                        .take(15)
+                        .map(|(c, n)| json!([c, n]))
+                        .collect::<Vec<_>>(),
+                )
+            }
             Err(_) => (0, Vec::new()),
         },
         None => (0, Vec::new()),
@@ -48,6 +61,18 @@ pub fn assemble() -> Value {
         "agents_installed": installed_agents(),
         "consent_version": consent_version(),
     })
+}
+
+/// Reduce a full command string to its bare binary basename — no paths, no
+/// args. `git status` → `git`, `/usr/bin/cargo test` → `cargo`. Anonymises
+/// the telemetry `top_commands` field.
+fn command_basename(cmd: &str) -> String {
+    let first = cmd.split_whitespace().next().unwrap_or("?");
+    std::path::Path::new(first)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(first)
+        .to_string()
 }
 
 fn empty_outcomes() -> Value {

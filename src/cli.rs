@@ -324,7 +324,7 @@ pub enum Commands {
         #[arg(long, default_value = "text")]
         format: String,
 
-        /// Scan every cached project, not just the current directory
+        /// Scan all available history, ignoring --since (no time cutoff)
         #[arg(long)]
         all: bool,
     },
