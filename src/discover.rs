@@ -360,7 +360,10 @@ fn print_discover_text(data: &DiscoverData, since_days: u32, limit: usize, ultra
 pub fn run_discover(since_days: u32, limit: usize) {
     let sessions_dir = claude_projects_dir();
     if !sessions_dir.exists() {
-        eprintln!("No Claude Code sessions found at {}", sessions_dir.display());
+        eprintln!(
+            "No Claude Code sessions found at {}",
+            sessions_dir.display()
+        );
         return;
     }
     let data = collect_discover(since_days);

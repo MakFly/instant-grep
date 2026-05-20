@@ -57,7 +57,10 @@ truncate = 100
         String::from_utf8_lossy(&out.stderr)
     );
 
-    let imported = proj.join(".ig").join("filters").join("imported-from-rtk.toml");
+    let imported = proj
+        .join(".ig")
+        .join("filters")
+        .join("imported-from-rtk.toml");
     assert!(
         imported.is_file(),
         "expected {} to be created",
@@ -103,7 +106,11 @@ fn dry_run_writes_nothing() {
         .expect("spawn ig import-rtk --dry-run");
     assert!(out.status.success());
     assert!(
-        !proj.join(".ig").join("filters").join("imported-from-rtk.toml").exists(),
+        !proj
+            .join(".ig")
+            .join("filters")
+            .join("imported-from-rtk.toml")
+            .exists(),
         "--dry-run must not write the imported filter file"
     );
 

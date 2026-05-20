@@ -60,9 +60,9 @@ fn parse_outcome_breakdown(db: &TrackingDb) -> Value {
     if let Ok(mut stmt) = db.conn().prepare(
         "SELECT COALESCE(parse_outcome,'unknown'), COUNT(*) FROM commands \
          WHERE timestamp >= ?1 GROUP BY parse_outcome",
-    ) && let Ok(rows) =
-        stmt.query_map([cutoff], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
-    {
+    ) && let Ok(rows) = stmt.query_map([cutoff], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+    }) {
         for row in rows.flatten() {
             counts.insert(row.0, row.1);
         }
