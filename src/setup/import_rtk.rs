@@ -1,0 +1,274 @@
+//! One-shot importer: translate RTK `filters.toml` into ig's filter TOML.
+//!
+//! RTK and ig share the same `[[filters]]` array shape, but RTK uses a few
+//! different field names (`keep`/`drop` vs `keep_lines`/`drop_lines`,
+//! `truncate` vs `truncate_at`). This module parses the RTK file generically
+//! and re-emits it in ig's schema. RTK-only mechanics (state machines, NDJSON
+//! streaming) have no TOML equivalent — ig ships native Rust parsers for
+//! those tools instead — so they are skipped with an inline comment.
+
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result};
+
+/// Summary of an `ig import-rtk` run.
+#[derive(Debug, Default)]
+pub struct ImportReport {
+    pub user_filters: usize,
+    pub project_filters: usize,
+    pub user_out: Option<PathBuf>,
+    pub project_out: Option<PathBuf>,
+    pub skipped: Vec<String>,
+    pub project_trusted: bool,
+}
+
+/// Translate RTK filter files into ig filter files.
+///
+/// - User-level: `~/.config/rtk/filters.toml` → `~/.config/ig/filters/imported-from-rtk.toml`
+/// - Project-level: `<root>/.rtk/filters.toml` → `<root>/.ig/filters/imported-from-rtk.toml`
+///   (only when the project root has a `.git/` directory — keeps the trust
+///   scope auditable).
+///
+/// Only the **project-local** output is auto-trusted; the user-level file is
+/// written but left untrusted for the user to review.
+pub fn import_rtk_filters(_yes: bool, dry_run: bool) -> Result<ImportReport> {
+    let mut report = ImportReport::default();
+
+    // --- user level ---
+    if let Some(rtk_user) = dirs::config_dir().map(|d| d.join("rtk").join("filters.toml"))
+        && rtk_user.is_file()
+        && let Some(ig_dir) = dirs::config_dir().map(|d| d.join("ig").join("filters"))
+    {
+        let (toml_out, count, mut skipped) = translate_file(&rtk_user)?;
+        report.skipped.append(&mut skipped);
+        let out = ig_dir.join("imported-from-rtk.toml");
+        if !dry_run {
+            std::fs::create_dir_all(&ig_dir).context("create ig user filters dir")?;
+            std::fs::write(&out, &toml_out).context("write user import")?;
+        }
+        report.user_filters = count;
+        report.user_out = Some(out);
+    }
+
+    // --- project level ---
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let root = crate::util::find_root(&cwd);
+    let rtk_proj = root.join(".rtk").join("filters.toml");
+    if rtk_proj.is_file() && root.join(".git").is_dir() {
+        let (toml_out, count, mut skipped) = translate_file(&rtk_proj)?;
+        report.skipped.append(&mut skipped);
+        let ig_dir = root.join(".ig").join("filters");
+        let out = ig_dir.join("imported-from-rtk.toml");
+        if !dry_run {
+            std::fs::create_dir_all(&ig_dir).context("create project filters dir")?;
+            std::fs::write(&out, &toml_out).context("write project import")?;
+            // Auto-trust the project-local file only — never the user file.
+            if crate::trust::trust_path(&out).is_ok() {
+                report.project_trusted = true;
+            }
+        }
+        report.project_filters = count;
+        report.project_out = Some(out);
+    }
+
+    Ok(report)
+}
+
+/// Print a human-readable summary of an import run.
+pub fn print_report(report: &ImportReport, dry_run: bool) {
+    let tag = if dry_run { " (dry-run)" } else { "" };
+    if report.user_out.is_none() && report.project_out.is_none() {
+        eprintln!("No RTK filter files found (~/.config/rtk/filters.toml, ./.rtk/filters.toml).");
+        return;
+    }
+    if let Some(p) = &report.user_out {
+        eprintln!(
+            "user:    {} filter(s) → {}{}",
+            report.user_filters,
+            p.display(),
+            tag
+        );
+        eprintln!("         (not auto-trusted — review then `ig trust` it)");
+    }
+    if let Some(p) = &report.project_out {
+        eprintln!(
+            "project: {} filter(s) → {}{}",
+            report.project_filters,
+            p.display(),
+            tag
+        );
+        if report.project_trusted {
+            eprintln!("         (auto-trusted)");
+        }
+    }
+    if !report.skipped.is_empty() {
+        eprintln!("skipped {} rtk-only feature(s):", report.skipped.len());
+        for s in &report.skipped {
+            eprintln!("  - {}", s);
+        }
+    }
+}
+
+/// Parse one RTK filter file and re-emit it as ig-schema TOML.
+/// Returns `(toml_text, filter_count, skipped_notes)`.
+fn translate_file(path: &Path) -> Result<(String, usize, Vec<String>)> {
+    let content =
+        std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let parsed: toml::Value =
+        toml::from_str(&content).with_context(|| format!("parse {}", path.display()))?;
+
+    let filters = parsed
+        .get("filters")
+        .and_then(|f| f.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut out = format!(
+        "# Imported from RTK: {}\n# Generated by `ig import-rtk` — safe to edit.\n\n",
+        path.display()
+    );
+    let mut count = 0usize;
+    let mut skipped = Vec::new();
+
+    for f in &filters {
+        let Some(tbl) = f.as_table() else {
+            continue;
+        };
+        let name = str_field(tbl, &["name"]).unwrap_or_else(|| format!("rtk-import-{count}"));
+        let Some(m) = str_field(tbl, &["match"]) else {
+            skipped.push(format!("{name}: no `match` field"));
+            continue;
+        };
+
+        out.push_str("[[filters]]\n");
+        out.push_str(&format!("name = {}\n", toml_str(&name)));
+        out.push_str(&format!("match = {}\n", toml_str(&m)));
+        if bool_field(tbl, &["strip_ansi"]) {
+            out.push_str("strip_ansi = true\n");
+        }
+
+        let keep = str_field(tbl, &["keep_lines", "keep"]);
+        let drop = str_field(tbl, &["drop_lines", "drop"]);
+        if let Some(v) = &keep {
+            out.push_str(&format!("keep_lines = {}\n", toml_str(v)));
+        } else if let Some(v) = &drop {
+            out.push_str(&format!("drop_lines = {}\n", toml_str(v)));
+        }
+        if keep.is_some() && drop.is_some() {
+            out.push_str("# (rtk filter had both keep+drop; ig keeps `keep_lines` only)\n");
+        }
+
+        if let Some(v) = int_field(tbl, &["truncate_at", "truncate"]) {
+            out.push_str(&format!("truncate_at = {v}\n"));
+        }
+        if let Some(v) = int_field(tbl, &["head"]) {
+            out.push_str(&format!("head = {v}\n"));
+        }
+        if let Some(v) = int_field(tbl, &["tail"]) {
+            out.push_str(&format!("tail = {v}\n"));
+        }
+        if let Some(v) = int_field(tbl, &["max_lines"]) {
+            out.push_str(&format!("max_lines = {v}\n"));
+        }
+        if let Some(v) = str_field(tbl, &["on_empty"]) {
+            out.push_str(&format!("on_empty = {}\n", toml_str(&v)));
+        }
+        if bool_field(tbl, &["dedup_consecutive", "dedup"]) {
+            out.push_str("dedup_consecutive = true\n");
+        }
+
+        for key in tbl.keys() {
+            if matches!(
+                key.as_str(),
+                "strategy" | "state" | "states" | "ndjson" | "stream" | "json_path" | "extract"
+            ) {
+                out.push_str(&format!(
+                    "# (rtk-only feature `{key}` skipped — ig has a native parser for this tool)\n"
+                ));
+                skipped.push(format!("{name}: rtk-only `{key}`"));
+            }
+        }
+        out.push('\n');
+        count += 1;
+    }
+
+    Ok((out, count, skipped))
+}
+
+fn str_field(tbl: &toml::value::Table, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|k| tbl.get(*k).and_then(|v| v.as_str()))
+        .map(str::to_string)
+}
+
+fn int_field(tbl: &toml::value::Table, keys: &[&str]) -> Option<i64> {
+    keys.iter()
+        .find_map(|k| tbl.get(*k).and_then(toml::Value::as_integer))
+}
+
+fn bool_field(tbl: &toml::value::Table, keys: &[&str]) -> bool {
+    keys.iter()
+        .any(|k| tbl.get(*k).and_then(toml::Value::as_bool).unwrap_or(false))
+}
+
+/// Quote a string as a TOML basic string (proper escaping).
+fn toml_str(s: &str) -> String {
+    toml::Value::String(s.to_string()).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn translate_maps_rtk_field_names() {
+        let dir = std::env::temp_dir().join(format!("ig-rtk-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("filters.toml");
+        std::fs::write(
+            &p,
+            r#"
+[[filters]]
+name = "git-status"
+match = "^git status"
+strip_ansi = true
+keep = "^\\s*M "
+truncate = 120
+dedup = true
+"#,
+        )
+        .unwrap();
+
+        let (out, count, skipped) = translate_file(&p).unwrap();
+        assert_eq!(count, 1);
+        assert!(skipped.is_empty());
+        assert!(out.contains("name = \"git-status\""));
+        assert!(out.contains("keep_lines = "));
+        assert!(out.contains("truncate_at = 120"));
+        assert!(out.contains("dedup_consecutive = true"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn translate_flags_rtk_only_features() {
+        let dir = std::env::temp_dir().join(format!("ig-rtk-test2-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("filters.toml");
+        std::fs::write(
+            &p,
+            r#"
+[[filters]]
+name = "vitest"
+match = "^vitest"
+strategy = "ndjson"
+"#,
+        )
+        .unwrap();
+
+        let (out, count, skipped) = translate_file(&p).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(skipped.len(), 1);
+        assert!(out.contains("rtk-only feature `strategy`"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}

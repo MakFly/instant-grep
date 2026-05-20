@@ -99,14 +99,24 @@ fn discover_command_key(cmd: &str) -> String {
     command_key(first_cmd)
 }
 
-pub fn run_discover(since_days: u32, limit: usize) {
+/// Structured result of a discover scan, shared by the text and JSON paths.
+#[derive(Default)]
+pub struct DiscoverData {
+    pub total_commands: u64,
+    pub total_rewritable: u64,
+    pub missed: BTreeMap<String, CmdStats>,
+    pub unhandled: BTreeMap<String, u64>,
+    /// Commands explicitly opted out of ig routing (`IG_RUN_ROUTE=0 …`).
+    pub rtk_disabled: BTreeMap<String, u64>,
+}
+
+/// Scan all Claude Code session JSONL files and classify every Bash command.
+/// `since_days == 0` means no time cutoff (scan everything).
+pub fn collect_discover(since_days: u32) -> DiscoverData {
+    let mut data = DiscoverData::default();
     let sessions_dir = claude_projects_dir();
     if !sessions_dir.exists() {
-        eprintln!(
-            "No Claude Code sessions found at {}",
-            sessions_dir.display()
-        );
-        return;
+        return data;
     }
 
     let cutoff = if since_days > 0 {
@@ -119,21 +129,13 @@ pub fn run_discover(since_days: u32, limit: usize) {
         0
     };
 
-    let mut missed: BTreeMap<String, CmdStats> = BTreeMap::new();
-    let mut unhandled: BTreeMap<String, u64> = BTreeMap::new();
-    let mut total_commands = 0u64;
-    let mut total_rewritable = 0u64;
-
-    // Walk all project directories
     for entry in fs::read_dir(&sessions_dir).into_iter().flatten().flatten() {
         let project_dir = entry.path();
         if !project_dir.is_dir() {
             continue;
         }
 
-        // Walk JSONL files recursively (includes subagents/ subdirectories)
         for path in walk_jsonl_files(&project_dir) {
-            // Check file modification time against cutoff (generous window to avoid false negatives)
             if cutoff > 0
                 && let Ok(meta) = fs::metadata(&path)
                 && let Ok(modified) = meta.modified()
@@ -148,51 +150,150 @@ pub fn run_discover(since_days: u32, limit: usize) {
                 }
             }
 
-            // Parse the JSONL file
             let Ok(content) = fs::read_to_string(&path) else {
                 continue;
             };
 
             for line in content.lines() {
-                // Quick check: skip lines that don't look like they contain Bash tool calls
                 if !line.contains("\"Bash\"") || !line.contains("\"tool_use\"") {
                     continue;
                 }
 
-                // Extract Bash commands from the line
                 for (cmd, line_ts) in extract_bash_commands(line) {
-                    // Filter by line timestamp if available
                     if cutoff > 0 && line_ts > 0 && line_ts < cutoff {
                         continue;
                     }
 
-                    total_commands += 1;
+                    data.total_commands += 1;
+
+                    // RTK_DISABLED bucket: command explicitly opted out of ig
+                    // routing via the env var. These bypassed ig on purpose,
+                    // so they are not "missed" — track them separately.
+                    if cmd.contains("IG_RUN_ROUTE=0") {
+                        let key = discover_command_key(&cmd);
+                        *data.rtk_disabled.entry(key).or_insert(0) += 1;
+                        continue;
+                    }
 
                     match discover_classify(&cmd) {
                         RewriteResult::Rewrite(_) => {
-                            // This command COULD be rewritten — it's a missed saving
-                            total_rewritable += 1;
+                            data.total_rewritable += 1;
                             let key = discover_command_key(&cmd);
-                            let stats = missed.entry(key).or_default();
+                            let stats = data.missed.entry(key).or_default();
                             stats.count += 1;
-                            // Estimate savings based on typical compression ratios
                             stats.estimated_bytes += estimate_output_bytes(&cmd);
                         }
                         RewriteResult::Passthrough => {
-                            // Not rewritable — track for "top unhandled" report
                             let key = discover_command_key(&cmd);
-                            *unhandled.entry(key).or_insert(0) += 1;
+                            *data.unhandled.entry(key).or_insert(0) += 1;
                         }
-                        RewriteResult::Deny(_) | RewriteResult::Ask(_) => {
-                            // Deny/ask — these are handled correctly, skip
-                        }
+                        RewriteResult::Deny(_) | RewriteResult::Ask(_) => {}
                     }
                 }
             }
         }
     }
+    data
+}
 
-    // Display results
+/// Per-agent integration status — detected / installed for each AI agent.
+fn agent_integration_status() -> serde_json::Value {
+    let mut obj = serde_json::Map::new();
+    if let Some(home) = dirs::home_dir() {
+        for inst in crate::setup::agents::all() {
+            let detected = inst.detect(&home);
+            let report = inst.show(&home);
+            let installed = report.items.iter().any(|i| i.present);
+            obj.insert(
+                inst.id().to_string(),
+                serde_json::json!({
+                    "detected": detected,
+                    "installed": installed,
+                }),
+            );
+        }
+    }
+    serde_json::Value::Object(obj)
+}
+
+/// JSON output for `ig discover --format json`.
+pub fn run_discover_json(
+    since_days: u32,
+    limit: usize,
+    _shell: bool,
+    all: bool,
+) -> anyhow::Result<()> {
+    let effective_since = if all { 0 } else { since_days };
+    let data = collect_discover(effective_since);
+
+    let mut missed: Vec<_> = data.missed.iter().collect();
+    missed.sort_by_key(|b| std::cmp::Reverse(b.1.count));
+    let missed_json: Vec<_> = missed
+        .iter()
+        .take(limit)
+        .map(|(cmd, stats)| {
+            serde_json::json!({
+                "command": cmd,
+                "count": stats.count,
+                "estimated_savings_bytes": stats.estimated_bytes,
+            })
+        })
+        .collect();
+
+    let mut rtk_disabled: Vec<_> = data.rtk_disabled.iter().collect();
+    rtk_disabled.sort_by_key(|b| std::cmp::Reverse(*b.1));
+    let rtk_disabled_json: Vec<_> = rtk_disabled
+        .iter()
+        .take(limit)
+        .map(|(cmd, count)| serde_json::json!({ "command": cmd, "count": count }))
+        .collect();
+
+    let out = serde_json::json!({
+        "scanned_commands": data.total_commands,
+        "rewritable": data.total_rewritable,
+        "missed": missed_json,
+        "rtk_disabled": rtk_disabled_json,
+        "agent_integration_status": agent_integration_status(),
+    });
+    println!("{}", serde_json::to_string_pretty(&out)?);
+    Ok(())
+}
+
+/// Text output honoring `--all` (no time cutoff) and `--ultra-compact`.
+pub fn run_discover_opts(since_days: u32, limit: usize, all: bool, run_opts: crate::RunOptions) {
+    let effective_since = if all { 0 } else { since_days };
+    let data = collect_discover(effective_since);
+    print_discover_text(&data, effective_since, limit, run_opts.ultra_compact);
+}
+
+fn print_discover_text(data: &DiscoverData, since_days: u32, limit: usize, ultra: bool) {
+    if ultra {
+        let mut missed: Vec<_> = data.missed.iter().collect();
+        missed.sort_by_key(|b| std::cmp::Reverse(b.1.count));
+        eprintln!(
+            "discover: {} cmds, {} rewritable, {} missed patterns",
+            data.total_commands,
+            data.total_rewritable,
+            data.missed.len()
+        );
+        for (cmd, stats) in missed.iter().take(limit) {
+            eprintln!(
+                "  {} ×{} ~{}",
+                cmd,
+                stats.count,
+                format_bytes(stats.estimated_bytes)
+            );
+        }
+        if !data.rtk_disabled.is_empty() {
+            eprintln!("  rtk_disabled: {} cmd(s)", data.rtk_disabled.len());
+        }
+        return;
+    }
+
+    let missed = data.missed.clone();
+    let unhandled = data.unhandled.clone();
+    let total_commands = data.total_commands;
+    let total_rewritable = data.total_rewritable;
     eprintln!("\x1b[1mig discover — Missed Token Savings\x1b[0m");
     eprintln!("════════════════════════════════════════════════════════════");
     eprintln!();
@@ -252,6 +353,18 @@ pub fn run_discover(since_days: u32, limit: usize) {
         }
         eprintln!("────────────────────────────────────────────────────────────");
     }
+}
+
+/// Default text discover (used by `ig gain --discover`). Scans the last
+/// `since_days` of Claude sessions and prints the missed-savings report.
+pub fn run_discover(since_days: u32, limit: usize) {
+    let sessions_dir = claude_projects_dir();
+    if !sessions_dir.exists() {
+        eprintln!("No Claude Code sessions found at {}", sessions_dir.display());
+        return;
+    }
+    let data = collect_discover(since_days);
+    print_discover_text(&data, since_days, limit, false);
 }
 
 /// Recursively collect all `.jsonl` files under `dir`, up to depth 3.
@@ -406,10 +519,10 @@ fn claude_projects_dir() -> PathBuf {
     PathBuf::from(home).join(".claude/projects")
 }
 
-#[derive(Default)]
-struct CmdStats {
-    count: u64,
-    estimated_bytes: u64,
+#[derive(Default, Clone)]
+pub struct CmdStats {
+    pub count: u64,
+    pub estimated_bytes: u64,
 }
 
 /// Parse a line of shell history and return the command portion, stripping

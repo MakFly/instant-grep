@@ -319,6 +319,14 @@ pub enum Commands {
         /// Also scan ~/.zsh_history and ~/.bash_history for missed cmds
         #[arg(long)]
         shell: bool,
+
+        /// Output format: `text` (default) or `json`
+        #[arg(long, default_value = "text")]
+        format: String,
+
+        /// Scan every cached project, not just the current directory
+        #[arg(long)]
+        all: bool,
     },
 
     /// Generate shell completions (bash, zsh, fish, powershell)
@@ -367,6 +375,10 @@ pub enum Commands {
         /// Uninstall ig artifacts for the selected agent(s).
         #[arg(long)]
         uninstall: bool,
+
+        /// Also import RTK filter files into ig's filter format.
+        #[arg(long)]
+        import_rtk: bool,
     },
 
     /// Remove all ig artifacts (hooks, configs, binary, daemons, tracking data)
@@ -488,6 +500,28 @@ pub enum Commands {
         /// Maximum entries to show (default: 15)
         #[arg(long, default_value = "15")]
         limit: usize,
+
+        /// Output format: `text` (default) or `json`
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
+
+    /// Opt-in anonymous telemetry (off by default; no endpoint compiled into
+    /// the public build, so `ping` is a hard no-op there).
+    Telemetry {
+        #[command(subcommand)]
+        op: TelemetryOp,
+    },
+
+    /// Import RTK filter files into ig's filter format (one-shot translation)
+    ImportRtk {
+        /// Preview the translation without writing any files
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Accept prompts non-interactively (reserved; import is non-destructive)
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
 
     /// Show ig adoption across Claude Code sessions
@@ -805,6 +839,23 @@ pub enum TeeOp {
     List,
     /// Delete every tee entry
     Clear,
+}
+
+#[derive(Subcommand)]
+pub enum TelemetryOp {
+    /// Show consent status, last ping, and whether an endpoint is compiled in
+    Status,
+    /// Grant or deny telemetry consent
+    Consent {
+        /// Grant consent
+        #[arg(long)]
+        yes: bool,
+        /// Deny consent
+        #[arg(long)]
+        no: bool,
+    },
+    /// Assemble and print the telemetry payload without sending it
+    Test,
 }
 
 #[cfg(test)]

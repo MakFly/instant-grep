@@ -30,6 +30,7 @@ mod setup;
 mod smart;
 mod symbols;
 mod tee;
+mod telemetry;
 mod tracking;
 mod trust;
 mod uninstall;
@@ -110,6 +111,21 @@ fn main() -> Result<()> {
     if drift_check_eligible && let Some(warning) = hooks::hook_check::maybe_warn_drift() {
         eprint!("{}", warning);
     }
+
+    // Opt-in telemetry ping is gated on the command kind. It is a hard no-op
+    // in the public build (no endpoint compiled in); the gate just avoids
+    // pinging on hook / setup / version fast paths even in a custom build.
+    let ping_eligible = !matches!(
+        &cli.command,
+        Some(Commands::Telemetry { .. })
+            | Some(Commands::Setup { .. })
+            | Some(Commands::Uninstall { .. })
+            | Some(Commands::Update { .. })
+            | Some(Commands::Version)
+            | Some(Commands::Rewrite { .. })
+            | Some(Commands::HookAudit { .. })
+            | Some(Commands::InternalParse { .. })
+    );
 
     // Check for updates in the background (non-blocking)
     update::check_update_background();
@@ -640,10 +656,16 @@ fn main() -> Result<()> {
             since,
             limit,
             shell,
+            format,
+            all,
         }) => {
-            discover::run_discover(since, limit);
-            if shell {
-                discover::run_shell_history_scan(since, limit);
+            if format.eq_ignore_ascii_case("json") {
+                discover::run_discover_json(since, limit, shell, all)?;
+            } else {
+                discover::run_discover_opts(since, limit, all, run_opts);
+                if shell {
+                    discover::run_shell_history_scan(since, limit);
+                }
             }
         }
 
@@ -661,7 +683,14 @@ fn main() -> Result<()> {
             no_patch,
             show,
             uninstall,
+            import_rtk,
         }) => {
+            if import_rtk {
+                match setup::import_rtk::import_rtk_filters(false, dry_run) {
+                    Ok(report) => setup::import_rtk::print_report(&report, dry_run),
+                    Err(e) => eprintln!("\x1b[33m! rtk import: {}\x1b[0m", e),
+                }
+            }
             // Legacy `ig setup` (no flags) → keep the historic monolithic
             // path, which prints the classic per-agent banner / explorer
             // agent install / shell-hook. Any new-flag use routes through
@@ -825,8 +854,25 @@ fn main() -> Result<()> {
             verify::run_verify();
         }
 
-        Some(Commands::Learn { since, limit }) => {
-            analytics::learn::run_learn(since, limit);
+        Some(Commands::Learn {
+            since,
+            limit,
+            format,
+        }) => {
+            if format.eq_ignore_ascii_case("json") {
+                analytics::learn::run_learn_json(since, limit);
+            } else {
+                analytics::learn::run_learn_opts(since, limit, run_opts);
+            }
+        }
+
+        Some(Commands::Telemetry { op }) => {
+            telemetry::run(op)?;
+        }
+
+        Some(Commands::ImportRtk { dry_run, yes }) => {
+            let report = setup::import_rtk::import_rtk_filters(yes, dry_run)?;
+            setup::import_rtk::print_report(&report, dry_run);
         }
 
         Some(Commands::Session { since }) => {
@@ -1165,6 +1211,10 @@ fn main() -> Result<()> {
                 println!();
             }
         }
+    }
+
+    if ping_eligible {
+        telemetry::maybe_ping();
     }
 
     Ok(())

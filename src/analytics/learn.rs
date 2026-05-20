@@ -23,24 +23,68 @@ struct CommandExec {
     error_text: String,
 }
 
-/// Run the learn analysis and print results.
-pub fn run_learn(since_days: u32, limit: usize) {
+/// Collect correction patterns + scanned-session count for the time window.
+fn collect_patterns(since_days: u32) -> (Vec<CorrectionPattern>, usize) {
     let sessions = find_sessions(since_days);
-    if sessions.is_empty() {
-        println!("No sessions found in the last {} days.", since_days);
-        return;
-    }
-
     let mut all_commands = Vec::new();
     for path in &sessions {
         if let Ok(cmds) = extract_commands(path) {
             all_commands.extend(cmds);
         }
     }
+    (detect_corrections(&all_commands), sessions.len())
+}
 
-    let patterns = detect_corrections(&all_commands);
+/// `ig learn` text output, honoring `--ultra-compact`.
+pub fn run_learn_opts(since_days: u32, limit: usize, run_opts: crate::RunOptions) {
+    let (patterns, sessions) = collect_patterns(since_days);
+    if sessions == 0 {
+        println!("No sessions found in the last {} days.", since_days);
+        return;
+    }
+    if patterns.is_empty() {
+        println!(
+            "No correction patterns found (last {} days, {} sessions).",
+            since_days, sessions
+        );
+        return;
+    }
+    if run_opts.ultra_compact {
+        for p in patterns.iter().take(limit) {
+            println!(
+                "{} ×{}  {} → {}",
+                p.error_type, p.count, p.example_wrong, p.example_right
+            );
+        }
+    } else {
+        print_patterns(&patterns, limit, since_days, sessions);
+    }
+}
 
-    print_patterns(&patterns, limit, since_days, sessions.len());
+/// JSON output for `ig learn --format json`.
+pub fn run_learn_json(since_days: u32, limit: usize) {
+    let (patterns, sessions) = collect_patterns(since_days);
+    let items: Vec<_> = patterns
+        .iter()
+        .take(limit)
+        .map(|p| {
+            serde_json::json!({
+                "error_type": p.error_type,
+                "count": p.count,
+                "example_wrong": p.example_wrong,
+                "example_right": p.example_right,
+            })
+        })
+        .collect();
+    let out = serde_json::json!({
+        "since_days": since_days,
+        "sessions_scanned": sessions,
+        "patterns": items,
+    });
+    match serde_json::to_string_pretty(&out) {
+        Ok(s) => println!("{}", s),
+        Err(e) => eprintln!("learn: json serialization error: {}", e),
+    }
 }
 
 /// Find `.jsonl` session files modified within the time window.

@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::hooks::copilot;
 
 pub mod agents;
+pub mod import_rtk;
 
 // ─── Per-agent installer trait (PR #3 of RTK-iso plan) ────────────────────────
 
