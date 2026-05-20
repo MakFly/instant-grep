@@ -26,13 +26,24 @@ pub fn run_update() -> Result<()> {
     cleanup_legacy_daemon();
 
     eprint!("  Checking latest version... ");
-    let response: serde_json::Value = ureq::get(GITHUB_API_URL)
+    // Offline-safe: a network failure here must not abort the command —
+    // the legacy-daemon cleanup above has already run, which is the
+    // load-bearing half of `ig update` on a v1.x → v2.0 upgrade.
+    let response: serde_json::Value = match ureq::get(GITHUB_API_URL)
         .header("User-Agent", &format!("ig/{}", CURRENT_VERSION))
         .call()
-        .context("failed to reach GitHub API")?
-        .body_mut()
-        .read_json()
-        .context("failed to parse release info")?;
+        .and_then(|mut r| r.body_mut().read_json())
+    {
+        Ok(json) => json,
+        Err(_) => {
+            eprintln!("offline");
+            eprintln!(
+                "\n  Could not reach GitHub — skipped the self-update check.\n  \
+                 Legacy daemon cleanup completed."
+            );
+            return Ok(());
+        }
+    };
 
     let tag = response
         .get("tag_name")
@@ -170,13 +181,44 @@ fn clean_legacy_backend(installed: &Path) {
 /// v2.0 upgrade cleanup: tear down any pre-v2.0 daemon left behind by the
 /// previous installation. Best-effort — every step is silent on failure so
 /// the update path can never abort here.
-fn cleanup_legacy_daemon() {
+///
+/// Order: precise pidfile kill → service unit removal → broad `pkill`
+/// fallback → file sweep. The pidfile kill is the targeted mechanism; the
+/// `pkill` is a backstop for daemons started outside the pidfile path.
+pub(crate) fn cleanup_legacy_daemon() {
     let home = match dirs::home_dir() {
         Some(h) => h,
         None => return,
     };
 
-    // 1. macOS launchd plist (bootout + remove).
+    let cache_root = if cfg!(target_os = "macos") {
+        home.join("Library/Caches/ig")
+    } else if let Ok(xdg) = std::env::var("XDG_CACHE_HOME") {
+        PathBuf::from(xdg).join("ig")
+    } else {
+        home.join(".cache/ig")
+    };
+    let daemon_dir = cache_root.join("daemon");
+
+    // 1. Precise kill via the legacy pidfile: SIGTERM, brief grace window,
+    //    then SIGKILL if it's still alive. Targeted — no risk of hitting an
+    //    unrelated process, unlike the `pkill` fallback below.
+    #[cfg(unix)]
+    if let Ok(txt) = fs::read_to_string(daemon_dir.join("daemon.pid"))
+        && let Ok(pid) = txt.trim().parse::<i32>()
+        && pid > 1
+    {
+        unsafe {
+            if libc::kill(pid, libc::SIGTERM) == 0 {
+                std::thread::sleep(std::time::Duration::from_millis(400));
+                if libc::kill(pid, 0) == 0 {
+                    libc::kill(pid, libc::SIGKILL);
+                }
+            }
+        }
+    }
+
+    // 2. macOS launchd plist (bootout + remove).
     #[cfg(target_os = "macos")]
     {
         let plist = home.join("Library/LaunchAgents/com.ig.daemon.global.plist");
@@ -194,7 +236,7 @@ fn cleanup_legacy_daemon() {
         }
     }
 
-    // 2. Linux systemd-user unit (disable + remove).
+    // 3. Linux systemd-user unit (disable + remove).
     #[cfg(target_os = "linux")]
     {
         let cfg = dirs::config_dir().unwrap_or_else(|| home.join(".config"));
@@ -207,29 +249,30 @@ fn cleanup_legacy_daemon() {
         }
     }
 
-    // 3. Kill any still-running `ig daemon` process from an old binary.
-    //    `pkill -f` matches against the full command line.
+    // 4. Fallback: kill any still-running `ig daemon` process not covered by
+    //    the pidfile (manual launches, stale pidfile). `pkill -f` matches the
+    //    full command line — `ig update`'s own argv ("ig update") never
+    //    matches "ig daemon", so there is no self-kill. TERM, grace, KILL.
     let _ = std::process::Command::new("pkill")
         .args(["-TERM", "-f", "ig daemon"])
         .output();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let _ = std::process::Command::new("pkill")
+        .args(["-KILL", "-f", "ig daemon"])
+        .output();
 
-    // 4. Remove daemon socket / pid / log files under the XDG cache.
-    let cache_root = if cfg!(target_os = "macos") {
-        home.join("Library/Caches/ig")
-    } else if let Ok(xdg) = std::env::var("XDG_CACHE_HOME") {
-        PathBuf::from(xdg).join("ig")
-    } else {
-        home.join(".cache/ig")
-    };
-    let daemon_dir = cache_root.join("daemon");
+    // 5. Sweep daemon socket / pid / lock / log files + the memory cooldown
+    //    marker, then drop the now-empty `daemon/` directory itself.
     if daemon_dir.is_dir() {
         for entry in fs::read_dir(&daemon_dir).into_iter().flatten().flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
-            // Sweep daemon.sock, daemon.pid, daemon.log, daemon.log.1..5, memory.cooldown.json
+            // daemon.sock, daemon.pid, daemon.lock, daemon.log[.1..5], memory.cooldown.json
             if name.starts_with("daemon.") || name.starts_with("memory.") {
                 let _ = fs::remove_file(entry.path());
             }
         }
+        // Only succeeds if the sweep emptied it — leaves anything unexpected.
+        let _ = fs::remove_dir(&daemon_dir);
     }
 }
 
