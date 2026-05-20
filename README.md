@@ -41,6 +41,38 @@ Drop-in replacement for `grep`, `cat`, `ls`, `find`, `git status/log/diff` — b
 
 `rtk` shells to `ripgrep` on every invocation and post-processes the output. `ig` is the only token compressor that ships its own **persistent on-disk index**, which unlocks two things `rtk` cannot replicate without re-implementing one: **`--top N` BM25 ranking** (10/10 byte wins on the 115-case benchmark) and **`--semantic` PMI expansion** (synonyms learned from your own codebase, no ML model). On total bytes + total wall time, `ig` wins both axes simultaneously (896 KB / 1.74 s vs 1.04 MB / 2.88 s).
 
+### RTK compatibility
+
+As of v2.0.0 `ig` ships feature parity with `rtk`: native Rust wrappers for
+test runners, linters, build/package managers, git platforms, and cloud CLIs
+(33 new subcommands), the RTK 0/1/2/3 hook exit-code protocol, and a permission
+engine. Migrating from RTK:
+
+- `ig import-rtk` — translate your RTK `filters.toml` (user + project) into
+  ig's filter format in one shot (also via `ig setup --import-rtk`).
+- `ig setup` (alias `ig init`) re-installs hooks for 11 agents.
+- See [`docs/MIGRATING_FROM_RTK.md`](docs/MIGRATING_FROM_RTK.md) for the full
+  command map and FAQ.
+
+`ig telemetry` exists but is **opt-in and off by default** — the public build
+compiles in no endpoint, so it is a hard no-op. `IG_TELEMETRY_DISABLED=1` is a
+permanent kill switch.
+
+New v2.0.0 subcommands, grouped:
+
+- **Test runners**: `vitest` `jest` `playwright` `pytest` `cargo-test`
+  `go-test` `rspec` `rake`
+- **Linters**: `eslint` `biome` `tsc` `prettier` `ruff` `mypy` `rubocop`
+  `golangci-lint`
+- **Build / pkg**: `next` `prisma` `pnpm` `npm` `pip`
+- **Git platforms**: `gh` `glab` `gt`
+- **Cloud / data**: `aws` `kubectl` `psql` `curl` `wget`
+- **System**: `log` `summary` `tree` `wc`
+- **Meta**: `hook-audit` `telemetry` `import-rtk`
+
+Every wrapper honors `-u/--ultra-compact`, propagates the wrapped tool's exit
+code, and falls back to raw passthrough when its output can't be parsed.
+
 ### For AI agents
 
 Every byte of CLI output is a token consumed. On a $200/month Claude Code Max plan, wasted tokens hit your rate limit sooner. `ig` cuts `git status` by 94 %, `cat large-file.ts` by 96 % (signatures mode), `rg dense-pattern src/` by 60–95 % — measured, not estimated. A PreToolUse hook auto-rewrites `grep` / `rg` / `find` / `cat` / `git` calls so the agent never knows the difference. **Zero-config** via `ig setup`: 8 agents configured in one command.
