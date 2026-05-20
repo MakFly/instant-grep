@@ -13,6 +13,7 @@ documentation/.astro
 test-local.sh
 /docs/*
 !/docs/specs/
+!/docs/MIGRATING_FROM_RTK.md
 
 # Claude Code local-only settings (auto-generated per machine)
 .claude/settings.local.json

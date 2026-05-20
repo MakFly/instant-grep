@@ -2,9 +2,67 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [2.0.0] — 2026-05-20
 
-### Features — PR #5 of RTK-iso plan: git platforms + cloud + system wrappers
+`v2.0.0` is a two-part release: the **daemon removal** (process-per-invocation
+again) and the **RTK-iso layer** — feature parity with [`rtk-ai/rtk`](https://github.com/rtk-ai/rtk)
+delivered across six PRs, with the trigram engine kept as the differentiator.
+See `docs/MIGRATING_FROM_RTK.md` for the RTK → ig migration guide.
+
+### BREAKING — daemon mode removed
+
+The global Unix-socket daemon, the per-project `notify` watcher, the seal-based
+push/pull cache-invalidation protocol, and the agent edit-session lock are all
+gone. Every `ig` command is now a one-shot process: it opens the on-disk index
+(`~/.cache/ig/projects/<hash>/`), serves the request, and exits.
+
+Removed subcommands: `ig daemon` (`start`/`stop`/`status`/`install`/`uninstall`),
+`ig query`, `ig warm`, `ig hold` (`begin`/`end`/`status`), `ig projects`
+(`list`/`forget`), `ig watch`. Removed concepts: the 16-byte `seal` publish
+marker, the `IndexReader` LRU, the daemon RSS governor, the `daemon/` cache
+subdirectory, the `session-start.sh` hook, and the `SessionStart` / `SessionEnd`
+`ig hold` registrations.
+
+### BREAKING — `ig rewrite` exit-code protocol (RTK 0/1/2/3)
+
+`ig rewrite` now returns a structured exit code instead of always exiting zero.
+Shell hooks consuming its output (notably `~/.claude/hooks/ig-guard.sh`, which
+`ig setup` re-installs automatically) MUST act on the code:
+
+| code | meaning                                          | hook should            |
+| ---- | ------------------------------------------------ | ---------------------- |
+| `0`  | passthrough — recognised, nothing to do          | run the original cmd   |
+| `1`  | rewrite suggestion (stdout) / ask rule matched   | surface to user        |
+| `2`  | deny verdict — block                             | exit 2 to block        |
+| `3`  | no rule matched AND command unfamiliar (#1155)   | prompt the user        |
+
+Set `IG_HOOK_EXIT_LEGACY=1` to collapse the protocol back to "always exit 0,
+print rewrite to stdout" for one release.
+
+### Added — RTK-iso PR #6: discover/learn parity, telemetry, RTK import
+
+- `feat(discover)`: `ig discover --format json` emits a schema-stable
+  `{ "missed": [...], "rtk_disabled": [...], "agent_integration_status": {...} }`
+  payload. New `--all` flag scans every cached project (via
+  `cache::list_entries()`) instead of just the cwd. New `RTK_DISABLED` bucket
+  surfaces commands that bypassed ig (`IG_RUN_ROUTE=0`).
+- `feat(learn)`: `ig learn --format json` for scripting; `--ultra-compact`
+  collapses each correction pattern to one line.
+- `feat(telemetry)`: opt-in, off by default. `ig telemetry status|consent|test`.
+  **No endpoint URL is compiled into the open-source binary** — `ping()` is a
+  hard no-op unless built with `IG_TELEMETRY_URL` set. Even with consent
+  granted, `IG_TELEMETRY_DISABLED=1` short-circuits. The payload carries no PII
+  (no paths, usernames, or cwd).
+- `feat(setup)`: `ig import-rtk` (and `ig setup --import-rtk`) — one-shot
+  translation of RTK `filters.toml` (user-level `~/.config/rtk/` and
+  project-level `.rtk/`) into ig's TOML filter format. Only the project-local
+  import is auto-trusted; the user-level file never is.
+- `feat(cli)`: `-u/--ultra-compact` is now wired across `files`, `ls`,
+  `symbols`, `pack`, `gain`, `context`, `diff`, `deps`, `discover`, `session`,
+  `economics`, `hook-audit` (previously only `search`/`status`/`smart`).
+- `docs`: `docs/MIGRATING_FROM_RTK.md` migration guide.
+
+### Added — RTK-iso PR #5: git platforms + cloud + system wrappers
 
 - `feat(cmds)`: native wrappers for **gh, glab, gt** (git platforms). The
   GitHub / GitLab wrappers auto-inject `--json <fields>` (or `-F json`)
@@ -52,7 +110,7 @@ All notable changes to `instant-grep` are documented here. Format roughly follow
   `markdown_filter.rs`, `aws_passthrough_unknown.rs`,
   `kubectl_passthrough.rs`, `curl_tee.rs`.
 
-### Features — PR #4 of RTK-iso plan: native Rust parsers per tool
+### Added — RTK-iso PR #4: native Rust parsers per tool
 
 - `feat(cmds)`: native Rust parsers for **vitest, jest, playwright, pytest,
   cargo_test, go test, rspec, rake** (test runners). Each spawns the
@@ -98,7 +156,7 @@ All notable changes to `instant-grep` are documented here. Format roughly follow
   rspec, golangci. Plus `tests/{vitest_dotenv_prefix, test_pytest_xfail,
   test_go_test_ndjson, recursion_guard, pr4_goldens}.rs`.
 
-### Features — `ig setup` per-agent (PR #3 of RTK-iso plan)
+### Added — RTK-iso PR #3: `ig setup` per-agent
 
 - `ig setup` is now agent-aware. New flags:
   `--agent <id>` (default `all`; valid: `claude, codex, cursor, copilot,
@@ -121,24 +179,7 @@ All notable changes to `instant-grep` are documented here. Format roughly follow
   claude` strips only ig-owned hook entries and the `Bash(ig *)` permission,
   leaving every other key intact.
 
-### BREAKING — `ig rewrite` exit-code protocol (RTK 0/1/2/3)
-
-`ig rewrite` now returns a structured exit code instead of always exiting
-zero. Shell hooks that consume its output (notably `~/.claude/hooks/ig-guard.sh`,
-which `ig setup` re-installs automatically) MUST act on the code:
-
-| code | meaning                                          | hook should            |
-| ---- | ------------------------------------------------ | ---------------------- |
-| `0`  | passthrough — recognised, nothing to do          | run the original cmd   |
-| `1`  | rewrite suggestion (stdout) / ask rule matched   | surface to user        |
-| `2`  | deny verdict — block                             | exit 2 to block        |
-| `3`  | no rule matched AND command unfamiliar (#1155)   | prompt the user        |
-
-Set `IG_HOOK_EXIT_LEGACY=1` to collapse the protocol back to "always exit 0,
-print rewrite to stdout" for one release. The bundled `ig-guard.sh` is
-updated in lockstep — re-run `ig setup` if you carry a custom copy.
-
-### Features
+### Added — RTK-iso PR #2: permission engine + hook integrity
 
 - Permission engine (`src/hooks/permissions.rs`) — built-in deny + ask
   rule set, compiled once via `OnceLock`. User and project overrides at
@@ -156,29 +197,6 @@ updated in lockstep — re-run `ig setup` if you carry a custom copy.
 - `ig hook-audit [--since N] [--json]` — manual integrity + verdict
   histogram. JSON mode returns `{ "drift": [...],
   "verdicts_last_n_days": {...} }` for scripting.
-
-## [2.0.0] — 2026-05-19
-
-### BREAKING — daemon mode removed
-
-The global Unix-socket daemon, the per-project `notify` watcher, the seal-based
-push/pull cache-invalidation protocol, and the agent edit-session lock are all
-gone. Every `ig` command is now a one-shot process again: it opens the on-disk
-index (`~/.cache/ig/projects/<hash>/`), serves the request, and exits.
-
-Removed subcommands:
-
-- `ig daemon` (`start`, `stop`, `status`, `install`, `uninstall`)
-- `ig query`
-- `ig warm`
-- `ig hold` (`begin`, `end`, `status`)
-- `ig projects` (`list`, `forget`)
-- `ig watch`
-
-Removed concepts: the 16-byte `seal` publish marker, the `IndexReader` LRU,
-the daemon RSS governor, the `daemon/` cache subdirectory, the
-`session-start.sh` Claude Code hook, and the `SessionStart` / `SessionEnd`
-hook registrations that called `ig hold begin/end`.
 
 ### Migration
 
