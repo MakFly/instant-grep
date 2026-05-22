@@ -2,6 +2,17 @@
 
 All notable changes to `instant-grep` are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions adhere to [SemVer](https://semver.org/).
 
+## [2.0.1] — 2026-05-22
+
+### Fixed
+
+- **`ig update` now deploys hooks from the new binary, not the old one.**
+  `post_update_rewarm()` previously called `setup` in-process, which used
+  `include_str!`-embedded hooks from the *currently running* (old) binary.
+  Hooks were always one release behind after `ig update`. The function now
+  spawns `ig setup --quiet` via the freshly installed binary so hook scripts
+  like `ig-guard.sh` are immediately up-to-date.
+
 ## [2.0.0] — 2026-05-20
 
 `v2.0.0` is a two-part release: the **daemon removal** (process-per-invocation

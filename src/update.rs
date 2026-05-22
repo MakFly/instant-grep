@@ -105,7 +105,7 @@ pub fn run_update() -> Result<()> {
     eprintln!("\n  ✓ Updated: {} → {}", tag, target.display());
 
     eprintln!();
-    post_update_rewarm()?;
+    post_update_rewarm(&target)?;
 
     update_cache(latest);
 
@@ -276,12 +276,29 @@ pub(crate) fn cleanup_legacy_daemon() {
     }
 }
 
-fn post_update_rewarm() -> Result<()> {
+fn post_update_rewarm(new_binary: &Path) -> Result<()> {
     eprintln!("  Refreshing ig ecosystem...");
-    // Quiet mode: only surface the agent rule files that actually drifted
-    // since the previous binary version. Most users have a stable agent
-    // setup; printing "already up-to-date" for every entry is noise.
-    crate::setup::run_setup_with_options(false, true);
+    // Run `setup --quiet` via the NEW binary so hooks embedded via
+    // include_str! come from the just-installed version, not the
+    // currently-running (old) process. Without this, hooks are always
+    // one release behind after `ig update`.
+    let status = std::process::Command::new(new_binary)
+        .args(["setup", "--quiet"])
+        .status();
+    match status {
+        Ok(s) if s.success() => {}
+        Ok(s) => {
+            eprintln!(
+                "  ⚠ `ig setup --quiet` exited with {}; hooks may not be up-to-date.",
+                s
+            );
+        }
+        Err(e) => {
+            eprintln!("  ⚠ Could not run new binary for setup: {}", e);
+            // Fallback: use in-process setup (old hooks, better than nothing)
+            crate::setup::run_setup_with_options(false, true);
+        }
+    }
     Ok(())
 }
 
