@@ -141,6 +141,17 @@ pub fn format_bytes(bytes: u64) -> String {
     }
 }
 
+/// Format a token count with SI suffixes (K / M) like rtk's `format_tokens`.
+pub fn format_tokens(n: u64) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.1}K", n as f64 / 1_000.0)
+    } else {
+        format!("{}", n)
+    }
+}
+
 /// Returns true for lines that are preamble/boilerplate (imports, directives, etc.)
 /// and should be skipped when looking for a file's semantic role.
 /// Union of smart.rs and read.rs detection logic.

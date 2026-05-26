@@ -2,9 +2,10 @@
 
 use std::collections::BTreeMap;
 use std::io::IsTerminal;
+use std::path::PathBuf;
 
 use crate::tracking;
-use crate::util::format_bytes;
+use crate::util::format_tokens;
 
 /// Options for the gain dashboard.
 pub struct GainOpts {
@@ -24,19 +25,18 @@ pub struct GainOpts {
 pub fn show_gain(opts: GainOpts) {
     if opts.clear {
         tracking::clear_history();
-        eprintln!("History cleared.");
+        println!("History cleared.");
         return;
     }
 
     let all_entries = tracking::read_history();
 
     if all_entries.is_empty() {
-        eprintln!("No ig commands tracked yet.");
-        eprintln!("Run ig with the rewrite hook installed to start tracking.");
+        println!("No tracking data yet.");
+        println!("Run ig with the rewrite hook installed to start tracking.");
         return;
     }
 
-    // Filter by project if requested
     let entries: Vec<&tracking::HistoryEntry> = if opts.project {
         let cwd = std::env::current_dir()
             .map(|p| p.to_string_lossy().to_string())
@@ -47,7 +47,7 @@ pub fn show_gain(opts: GainOpts) {
     };
 
     if entries.is_empty() {
-        eprintln!("No ig commands tracked for this project.");
+        println!("No ig commands tracked for this project.");
         return;
     }
 
@@ -94,11 +94,10 @@ pub fn show_gain(opts: GainOpts) {
         return;
     }
 
-    // Default dashboard
-    show_dashboard(&entries, opts.full);
+    show_dashboard(&entries, opts.full, opts.project);
 }
 
-fn show_dashboard(entries: &[&tracking::HistoryEntry], full: bool) {
+fn show_dashboard(entries: &[&tracking::HistoryEntry], full: bool, project_scoped: bool) {
     let total_commands = entries.len();
     let total_input: u64 = entries.iter().map(|e| e.original_bytes).sum();
     let total_output: u64 = entries.iter().map(|e| e.output_bytes).sum();
@@ -109,7 +108,6 @@ fn show_dashboard(entries: &[&tracking::HistoryEntry], full: bool) {
         0.0
     };
 
-    // Aggregate by command family with more detail than the raw subcommand.
     let mut by_cmd: BTreeMap<String, CmdStats> = BTreeMap::new();
     for entry in entries {
         let key = command_key(&entry.command);
@@ -119,25 +117,39 @@ fn show_dashboard(entries: &[&tracking::HistoryEntry], full: bool) {
         stats.saved_bytes += entry.saved_bytes;
     }
 
-    eprintln!("{}", style_header("ig Token Savings"));
-    eprintln!("════════════════════════════════════════════════════════════");
-    eprintln!();
-    eprintln!("Total commands:    {}", total_commands);
-    eprintln!("Input bytes:       {}", format_bytes(total_input));
-    eprintln!("Output bytes:      {}", format_bytes(total_output));
-    eprintln!(
-        "Bytes saved:       {} ({})",
-        format_bytes(total_saved),
-        colorize_pct(total_pct, &format!("{:.1}%", total_pct))
-    );
-    eprintln!("Efficiency meter:  {}", efficiency_meter(total_pct));
+    let title = if project_scoped {
+        "ig Token Savings (Project Scope)"
+    } else {
+        "ig Token Savings (Global Scope)"
+    };
+    println!("{}", styled(title));
+    println!("{}", "═".repeat(60));
+    if project_scoped {
+        if let Ok(cwd) = std::env::current_dir() {
+            println!("Scope: {}", shorten_path(&cwd.to_string_lossy()));
+        }
+    }
+    println!();
 
-    eprintln!();
+    print_kpi("Total commands", &total_commands.to_string());
+    print_kpi("Input tokens", &format_tokens(total_input));
+    print_kpi("Output tokens", &format_tokens(total_output));
+    print_kpi(
+        "Tokens saved",
+        &format!(
+            "{} ({:.1}%)",
+            format_tokens(total_saved),
+            total_pct
+        ),
+    );
+    print_efficiency_meter(total_pct);
+    println!();
+
     let mut sorted: Vec<_> = by_cmd.into_iter().collect();
     sorted.sort_by_key(|b| std::cmp::Reverse(b.1.saved_bytes));
-    eprintln!("{}", style_header("By Command"));
+    println!("{}", styled("By Command"));
 
-    let cmd_width = 30usize;
+    let cmd_width = 24usize;
     let impact_width = 10usize;
     let count_width = sorted
         .iter()
@@ -147,16 +159,16 @@ fn show_dashboard(entries: &[&tracking::HistoryEntry], full: bool) {
         .max(5);
     let saved_width = sorted
         .iter()
-        .map(|(_, stats)| format_bytes(stats.saved_bytes).len())
+        .map(|(_, stats)| format_tokens(stats.saved_bytes).len())
         .max()
-        .unwrap_or(7)
-        .max(7);
+        .unwrap_or(5)
+        .max(5);
     let table_width =
-        4 + 1 + cmd_width + 2 + count_width + 2 + saved_width + 2 + 6 + 2 + impact_width;
+        3 + 2 + cmd_width + 2 + count_width + 2 + saved_width + 2 + 6 + 2 + impact_width;
 
-    eprintln!("{}", "─".repeat(table_width));
-    eprintln!(
-        "{:>4} {:<cmd_width$}  {:>count_width$}  {:>saved_width$}  {:>6}  {:<impact_width$}",
+    println!("{}", "─".repeat(table_width));
+    println!(
+        "{:>3}  {:<cmd_width$}  {:>count_width$}  {:>saved_width$}  {:>6}  {:<impact_width$}",
         "#",
         "Command",
         "Count",
@@ -168,7 +180,7 @@ fn show_dashboard(entries: &[&tracking::HistoryEntry], full: bool) {
         saved_width = saved_width,
         impact_width = impact_width,
     );
-    eprintln!("{}", "─".repeat(table_width));
+    println!("{}", "─".repeat(table_width));
 
     let max_saved = sorted
         .first()
@@ -187,34 +199,31 @@ fn show_dashboard(entries: &[&tracking::HistoryEntry], full: bool) {
         } else {
             0.0
         };
+        let row_idx = format!("{:>2}.", i + 1);
         let cmd_cell = style_command_cell(&truncate_for_column(cmd, cmd_width));
-        let pct_plain = format!("{:>6.1}%", avg_pct);
+        let pct_plain = format!("{:>6}", format!("{:.1}%", avg_pct));
 
-        eprintln!(
-            "{:>3}. {}  {:>count_width$}  {:>saved_width$}  {}  {}",
-            i + 1,
+        println!(
+            "{}  {}  {:>count_width$}  {:>saved_width$}  {}  {}",
+            row_idx,
             cmd_cell,
             stats.count,
-            format_bytes(stats.saved_bytes),
+            format_tokens(stats.saved_bytes),
             colorize_pct(avg_pct, &pct_plain),
             mini_bar(stats.saved_bytes, max_saved, impact_width),
             count_width = count_width,
             saved_width = saved_width,
         );
     }
-    eprintln!("{}", "─".repeat(table_width));
+    println!("{}", "─".repeat(table_width));
     if !full && sorted.len() > visible_count {
-        eprintln!(
+        println!(
             "Showing top {} of {} commands. Use `ig gain --full` to see the full list.",
             visible_count,
             sorted.len()
         );
     }
 
-    // "Usage-only" commands: tracked via log_usage (no savings baseline), but
-    // still represent meaningful ig activity. `ig search` is the prime example —
-    // its output matches `grep -rn` byte-for-byte so there's no honest "saved"
-    // number to display, but count is informative.
     let usage_only: Vec<_> = sorted
         .iter()
         .filter(|(_, stats)| stats.saved_bytes == 0 && stats.count > 0)
@@ -223,32 +232,33 @@ fn show_dashboard(entries: &[&tracking::HistoryEntry], full: bool) {
         let mut by_count: Vec<_> = usage_only.clone();
         by_count.sort_by_key(|(_, stats)| std::cmp::Reverse(stats.count));
         let visible = by_count.len().min(10);
-        eprintln!();
-        eprintln!("{}", style_header("By Usage (no byte baseline)"));
-        let usage_width = 4 + 1 + cmd_width + 2 + count_width;
-        eprintln!("{}", "─".repeat(usage_width));
-        eprintln!(
-            "{:>4} {:<cmd_width$}  {:>count_width$}",
+        println!();
+        println!("{}", styled("By Usage (no token baseline)"));
+        let usage_width = 3 + 2 + cmd_width + 2 + count_width;
+        println!("{}", "─".repeat(usage_width));
+        println!(
+            "{:>3}  {:<cmd_width$}  {:>count_width$}",
             "#",
             "Command",
             "Count",
             cmd_width = cmd_width,
             count_width = count_width,
         );
-        eprintln!("{}", "─".repeat(usage_width));
+        println!("{}", "─".repeat(usage_width));
         for (i, (cmd, stats)) in by_count.iter().take(visible).enumerate() {
+            let row_idx = format!("{:>2}.", i + 1);
             let cmd_cell = style_command_cell(&truncate_for_column(cmd, cmd_width));
-            eprintln!(
-                "{:>3}. {}  {:>count_width$}",
-                i + 1,
+            println!(
+                "{}  {}  {:>count_width$}",
+                row_idx,
                 cmd_cell,
                 stats.count,
                 count_width = count_width,
             );
         }
-        eprintln!("{}", "─".repeat(usage_width));
+        println!("{}", "─".repeat(usage_width));
         if by_count.len() > visible {
-            eprintln!(
+            println!(
                 "Showing top {} of {} usage-only commands. Use `ig gain --full` for all.",
                 visible,
                 by_count.len()
@@ -258,19 +268,16 @@ fn show_dashboard(entries: &[&tracking::HistoryEntry], full: bool) {
 }
 
 fn show_history_refs(entries: &[&tracking::HistoryEntry]) {
-    eprintln!("\x1b[1mig Command History\x1b[0m");
-    eprintln!("════════════════════════════════════════════════════════════════════════════");
-    eprintln!(
+    println!("{}", styled("ig Command History"));
+    println!("{}", "═".repeat(60));
+    println!(
         "{:<20} {:<35} {:>8} {:>8} {:>6}",
         "Time", "Command", "Input", "Saved", "Pct"
     );
-    eprintln!("────────────────────────────────────────────────────────────────────────────");
+    println!("{}", "─".repeat(60));
 
     for entry in entries.iter().rev().take(50) {
         let time_str = format_timestamp(entry.timestamp);
-        // Truncate on a UTF-8 boundary so commands containing multi-byte
-        // chars (filenames with accents, emojis in pipe args) don't panic
-        // (issue #6).
         let cmd = if entry.command.len() > 33 {
             let cut = entry.command.floor_char_boundary(30);
             format!("{}...", &entry.command[..cut])
@@ -282,17 +289,25 @@ fn show_history_refs(entries: &[&tracking::HistoryEntry]) {
         } else {
             0.0
         };
-        eprintln!(
-            "{:<20} {:<35} {:>8} {:>8} {:>5.1}%",
+        let sign = if pct >= 70.0 {
+            "▲"
+        } else if pct >= 30.0 {
+            "■"
+        } else {
+            "•"
+        };
+        println!(
+            "{:<20} {} {:<33} {:>8} {:>8} {:>5.1}%",
             time_str,
+            sign,
             cmd,
-            format_bytes(entry.original_bytes),
-            format_bytes(entry.saved_bytes),
+            format_tokens(entry.original_bytes),
+            format_tokens(entry.saved_bytes),
             pct,
         );
     }
-    eprintln!("────────────────────────────────────────────────────────────────────────────");
-    eprintln!(
+    println!("{}", "─".repeat(60));
+    println!(
         "Showing last {} of {} entries",
         entries.len().min(50),
         entries.len()
@@ -304,7 +319,6 @@ fn show_graph(entries: &[&tracking::HistoryEntry]) {
     let now = now_secs();
     let fourteen_days_ago = now.saturating_sub(14 * 86400);
 
-    // Group saved bytes by date string
     let mut daily: BTreeMap<String, u64> = BTreeMap::new();
     for entry in entries {
         if entry.timestamp < fourteen_days_ago {
@@ -315,11 +329,10 @@ fn show_graph(entries: &[&tracking::HistoryEntry]) {
     }
 
     if daily.is_empty() {
-        eprintln!("No data in the last 14 days.");
+        println!("No data in the last 14 days.");
         return;
     }
 
-    // Build ordered list of last 14 days
     let mut days: Vec<(String, u64)> = Vec::new();
     for i in 0..14 {
         let ts = now.saturating_sub(i * 86400);
@@ -331,27 +344,27 @@ fn show_graph(entries: &[&tracking::HistoryEntry]) {
     days.reverse();
 
     let max_saved = days.iter().map(|(_, s)| *s).max().unwrap_or(1).max(1);
-    let bar_max: usize = 30;
+    let bar_max: usize = 40;
 
-    eprintln!("\x1b[1mDaily Savings (last 14 days)\x1b[0m");
-    eprintln!("──────────────────────────────────────────────────");
+    println!("{}", styled("Daily Savings (last 14 days)"));
+    println!("{}", "─".repeat(58));
     for (label, saved) in &days {
         let bar_len = ((*saved as f64 / max_saved as f64) * bar_max as f64) as usize;
         let bar = "█".repeat(bar_len);
+        let spaces = " ".repeat(bar_max - bar_len);
         if *saved > 0 {
-            eprintln!("{}  {:<30}  {}", label, bar, format_bytes(*saved));
+            println!("{} │{}{} {}", label, bar, spaces, format_tokens(*saved));
         } else {
-            eprintln!("{}  {:<30}  -", label, "");
+            println!("{} │{} -", label, " ".repeat(bar_max));
         }
     }
-    eprintln!("──────────────────────────────────────────────────");
+    println!("{}", "─".repeat(58));
 }
 
 /// Monthly quota estimate based on savings.
 fn show_quota(entries: &[&tracking::HistoryEntry], tier: &str) {
     let now = now_secs();
 
-    // Calculate daily average from last 30 days
     let thirty_days_ago = now.saturating_sub(30 * 86400);
     let recent: Vec<&&tracking::HistoryEntry> = entries
         .iter()
@@ -359,22 +372,19 @@ fn show_quota(entries: &[&tracking::HistoryEntry], tier: &str) {
         .collect();
 
     if recent.is_empty() {
-        eprintln!("No data in the last 30 days.");
+        println!("No data in the last 30 days.");
         return;
     }
 
     let total_saved: u64 = recent.iter().map(|e| e.saved_bytes).sum();
 
-    // Find actual span in days
     let min_ts = recent.iter().map(|e| e.timestamp).min().unwrap_or(now);
     let span_days = ((now - min_ts) as f64 / 86400.0).max(1.0);
     let daily_avg = total_saved as f64 / span_days;
     let monthly_saved = daily_avg * 30.0;
 
-    // Token conversion: 1 token ~ 4 chars (bytes)
     let monthly_tokens = monthly_saved / 4.0;
 
-    // Opus turn ~ 400K tokens
     let opus_turn_tokens: f64 = 400_000.0;
     let equiv_messages = monthly_tokens / opus_turn_tokens;
 
@@ -384,18 +394,18 @@ fn show_quota(entries: &[&tracking::HistoryEntry], tier: &str) {
         _ => ("Max 20x", "Max 20x ($200/mo)"),
     };
 
-    eprintln!("\x1b[1mMonthly Quota Estimate ({} tier)\x1b[0m", tier_label);
-    eprintln!("──────────────────────────────────────");
-    eprintln!(
-        "Monthly savings projection:  {:.1}M tokens",
-        monthly_tokens / 1_000_000.0
+    println!("{}", styled(&format!("Monthly Quota Estimate ({} tier)", tier_label)));
+    println!("{}", "─".repeat(58));
+    print_kpi(
+        "Monthly projection",
+        &format!("{:.1}M tokens", monthly_tokens / 1_000_000.0),
     );
-    eprintln!(
-        "Equivalent messages saved:   ~{:.0} Opus turns",
-        equiv_messages
+    print_kpi(
+        "Messages saved",
+        &format!("~{:.0} Opus turns", equiv_messages),
     );
-    eprintln!("Subscription tier:           {}", tier_desc);
-    eprintln!("──────────────────────────────────────");
+    print_kpi("Subscription tier", tier_desc);
+    println!("{}", "─".repeat(58));
 }
 
 #[derive(Clone, Copy)]
@@ -413,8 +423,7 @@ fn show_breakdown(entries: &[&tracking::HistoryEntry], group: GroupBy) {
         GroupBy::Month => "Monthly Breakdown",
     };
 
-    // Group entries
-    let mut groups: BTreeMap<String, (u64, u64, u64)> = BTreeMap::new(); // (count, input, saved)
+    let mut groups: BTreeMap<String, (u64, u64, u64)> = BTreeMap::new();
     for entry in entries {
         let key = match group {
             GroupBy::Day => date_from_ts(entry.timestamp),
@@ -433,15 +442,14 @@ fn show_breakdown(entries: &[&tracking::HistoryEntry], group: GroupBy) {
         GroupBy::Month => "Month",
     };
 
-    eprintln!("\x1b[1m{}\x1b[0m", title);
-    eprintln!("────────────────────────────────────────────");
-    eprintln!(
+    println!("{}", styled(title));
+    println!("{}", "─".repeat(46));
+    println!(
         "  {:<14} {:>8}  {:>8}  {:>5}",
         date_header, "Commands", "Saved", "Avg%"
     );
-    eprintln!("────────────────────────────────────────────");
+    println!("{}", "─".repeat(46));
 
-    // Show in reverse chronological order, last 30 entries max
     let mut sorted: Vec<_> = groups.into_iter().collect();
     sorted.sort_by_key(|b| std::cmp::Reverse(b.0.clone()));
 
@@ -451,15 +459,16 @@ fn show_breakdown(entries: &[&tracking::HistoryEntry], group: GroupBy) {
         } else {
             0.0
         };
-        eprintln!(
-            "  {:<14} {:>8}  {:>8}  {:>4.1}%",
+        let pct_plain = format!("{:.1}%", avg_pct);
+        println!(
+            "  {:<14} {:>8}  {:>8}  {}",
             key,
             count,
-            format_bytes(*saved),
-            avg_pct,
+            format_tokens(*saved),
+            colorize_pct(avg_pct, &format!("{:>5}", pct_plain)),
         );
     }
-    eprintln!("────────────────────────────────────────────");
+    println!("{}", "─".repeat(46));
 }
 
 // ── Date helpers ─────────────────────────────────────────────────────────
@@ -471,13 +480,11 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// Convert Unix timestamp to "YYYY-MM-DD" using manual calculation.
 fn date_from_ts(ts: u64) -> String {
     let (y, m, d) = civil_from_days(ts / 86400);
     format!("{:04}-{:02}-{:02}", y, m, d)
 }
 
-/// Convert Unix timestamp to short display like "Apr 11".
 fn short_date_from_ts(ts: u64) -> String {
     let (_, m, d) = civil_from_days(ts / 86400);
     let month_name = match m {
@@ -498,30 +505,22 @@ fn short_date_from_ts(ts: u64) -> String {
     format!("{} {:2}", month_name, d)
 }
 
-/// Convert Unix timestamp to "YYYY-MM" string.
 fn month_from_ts(ts: u64) -> String {
     let (y, m, _) = civil_from_days(ts / 86400);
     format!("{:04}-{:02}", y, m)
 }
 
-/// Convert Unix timestamp to ISO week string like "2026-W15".
 fn week_from_ts(ts: u64) -> String {
     let days = ts / 86400;
-    // ISO week: Monday=1. Jan 1 1970 was Thursday (day 4).
-    // day_of_week: 0=Monday ... 6=Sunday
-    let dow = ((days + 3) % 7) as i64; // Thursday=0 at epoch, shift so Monday=0
-    // ISO week date: find the Thursday of this week
+    let dow = ((days + 3) % 7) as i64;
     let thursday = days as i64 - dow + 3;
     let (y, m, _) = civil_from_days(thursday as u64);
-    // Day of year for that Thursday
     let jan1_days = days_from_civil(y, 1, 1);
     let week_num = ((thursday - jan1_days as i64) / 7) + 1;
-    // ISO year might differ at year boundaries
     let iso_year = if m == 1 && week_num > 50 { y - 1 } else { y };
     format!("{:04}-W{:02}", iso_year, week_num)
 }
 
-/// Convert days since epoch to (year, month, day).
 /// Algorithm from Howard Hinnant (public domain).
 fn civil_from_days(days: u64) -> (i32, u32, u32) {
     let z = days as i64 + 719468;
@@ -537,7 +536,6 @@ fn civil_from_days(days: u64) -> (i32, u32, u32) {
     (y as i32, m as u32, d as u32)
 }
 
-/// Convert (year, month, day) to days since epoch.
 fn days_from_civil(y: i32, m: u32, d: u32) -> u64 {
     let y = if m <= 2 { y as i64 - 1 } else { y as i64 };
     let era = y.div_euclid(400);
@@ -573,8 +571,7 @@ struct CmdStats {
     saved_bytes: u64,
 }
 
-/// Extract a normalized command key with enough detail to avoid collapsing
-/// unrelated workflows into a single bucket.
+/// Extract a normalized command key.
 fn command_key(cmd: &str) -> String {
     let parts: Vec<&str> = cmd.split_whitespace().collect();
     if parts.is_empty() {
@@ -728,8 +725,10 @@ fn first_non_flag_after<'a>(parts: &'a [&'a str], after_non_flag_index: usize) -
     None
 }
 
+// ── Display helpers (TTY-aware) ──────────────────────────────────────────
+
 fn use_color() -> bool {
-    std::io::stderr().is_terminal() && std::env::var("NO_COLOR").is_err()
+    std::io::stdout().is_terminal() && std::env::var("NO_COLOR").is_err()
 }
 
 fn ansi(text: &str, code: &str) -> String {
@@ -740,12 +739,12 @@ fn ansi(text: &str, code: &str) -> String {
     }
 }
 
-fn style_header(text: &str) -> String {
+fn styled(text: &str) -> String {
     ansi(text, "1;32")
 }
 
 fn style_command_cell(text: &str) -> String {
-    ansi(text, "1;36")
+    ansi(text, "1;96")
 }
 
 fn colorize_pct(pct: f64, text: &str) -> String {
@@ -758,15 +757,34 @@ fn colorize_pct(pct: f64, text: &str) -> String {
     }
 }
 
-fn truncate_for_column(text: &str, width: usize) -> String {
-    if text.chars().count() <= width {
-        return format!("{text:<width$}");
-    }
+fn print_kpi(label: &str, value: &str) {
+    println!("{:<18} {}", format!("{}:", label), value);
+}
 
+fn print_efficiency_meter(pct: f64) {
+    let width = 24usize;
+    let filled = (((pct / 100.0) * width as f64).round() as usize).min(width);
+    let meter = format!("{}{}", "█".repeat(filled), "░".repeat(width - filled));
+    let pct_str = format!("{pct:.1}%");
+    println!(
+        "{:<18} {} {}",
+        "Efficiency meter:",
+        ansi(&meter, "32"),
+        colorize_pct(pct, &pct_str)
+    );
+}
+
+fn truncate_for_column(text: &str, width: usize) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    let char_count = text.chars().count();
+    if char_count <= width {
+        return format!("{:<width$}", text, width = width);
+    }
     if width <= 3 {
         return text.chars().take(width).collect();
     }
-
     let mut out: String = text.chars().take(width - 3).collect();
     out.push_str("...");
     out
@@ -783,25 +801,33 @@ fn mini_bar(value: u64, max: u64, width: usize) -> String {
     ansi(&bar, "36")
 }
 
-fn efficiency_meter(pct: f64) -> String {
-    let width = 24usize;
-    let filled = (((pct / 100.0) * width as f64).round() as usize).min(width);
-    let bar = format!("{}{}", "█".repeat(filled), "░".repeat(width - filled));
-    format!(
-        "{} {}",
-        ansi(&bar, "32"),
-        colorize_pct(pct, &format!("{pct:.1}%"))
-    )
+fn shorten_path(path: &str) -> String {
+    let path_buf = PathBuf::from(path);
+    let comps: Vec<String> = path_buf
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().to_string())
+        .collect();
+    if comps.len() <= 4 {
+        return path.to_string();
+    }
+    let root = comps[0].as_str();
+    if root == "/" || root.is_empty() {
+        format!("/.../{}/{}", comps[comps.len() - 2], comps[comps.len() - 1])
+    } else {
+        format!(
+            "{}/.../{}/{}",
+            root,
+            comps[comps.len() - 2],
+            comps[comps.len() - 1]
+        )
+    }
 }
 
 /// Return the [start, end) unix-second range for a named period.
-/// Supported: this-day, last-day, this-week, last-week, this-month, last-month.
 fn period_range(name: &str, now: u64) -> Option<(u64, u64)> {
     const DAY: u64 = 86400;
     let today = (now / DAY) * DAY;
-    // Compute "start of current week" — treat week as 7 days ending today (simple model).
     let week_start = today.saturating_sub(6 * DAY);
-    // Month = last 30 days window (calendar-month parsing is done elsewhere via month_from_ts).
     let month_start = today.saturating_sub(29 * DAY);
     match name {
         "this-day" => Some((today, now)),
@@ -833,7 +859,7 @@ fn sum_entries(entries: &[&tracking::HistoryEntry], range: (u64, u64)) -> (u64, 
 pub fn show_compare(spec: &str, json: bool) {
     let parts: Vec<&str> = spec.splitn(2, ':').collect();
     if parts.len() != 2 {
-        eprintln!(
+        println!(
             "Invalid --compare value: {}. Expected format: this-week:last-week",
             spec
         );
@@ -844,11 +870,11 @@ pub fn show_compare(spec: &str, json: bool) {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let Some(left) = period_range(parts[0], now) else {
-        eprintln!("Unknown period: {}", parts[0]);
+        println!("Unknown period: {}", parts[0]);
         return;
     };
     let Some(right) = period_range(parts[1], now) else {
-        eprintln!("Unknown period: {}", parts[1]);
+        println!("Unknown period: {}", parts[1]);
         return;
     };
 
@@ -868,36 +894,41 @@ pub fn show_compare(spec: &str, json: bool) {
         return;
     }
 
-    eprintln!("\x1b[1mgain --compare\x1b[0m  {} vs {}", parts[0], parts[1]);
-    eprintln!("────────────────────────────────────────────────────────────");
-    eprintln!(
+    println!(
+        "{}  {} vs {}",
+        styled("gain --compare"),
+        parts[0],
+        parts[1]
+    );
+    println!("{}", "─".repeat(60));
+    println!(
         "  {:<18} {:>6}  {:>10}  {:>10}",
         "Period", "Count", "Saved", "Input"
     );
-    eprintln!("────────────────────────────────────────────────────────────");
-    eprintln!(
+    println!("{}", "─".repeat(60));
+    println!(
         "  {:<18} {:>6}  {:>10}  {:>10}",
         parts[0],
         lc,
-        format_bytes(ls),
-        format_bytes(li)
+        format_tokens(ls),
+        format_tokens(li)
     );
-    eprintln!(
+    println!(
         "  {:<18} {:>6}  {:>10}  {:>10}",
         parts[1],
         rc,
-        format_bytes(rs),
-        format_bytes(ri)
+        format_tokens(rs),
+        format_tokens(ri)
     );
-    eprintln!("────────────────────────────────────────────────────────────");
+    println!("{}", "─".repeat(60));
     let delta_count = lc as i64 - rc as i64;
     let delta_saved = ls as i64 - rs as i64;
     let sign = if delta_saved >= 0 { "+" } else { "" };
-    eprintln!(
+    println!(
         "  Δ commands: {:+}    Δ saved: {}{}",
         delta_count,
         sign,
-        format_bytes(delta_saved.unsigned_abs())
+        format_tokens(delta_saved.unsigned_abs())
     );
 }
 
@@ -927,14 +958,12 @@ mod tests {
 
     #[test]
     fn test_civil_from_days() {
-        // 2026-04-11 is day 20554 since epoch
         let (y, m, d) = civil_from_days(20554);
         assert_eq!((y, m, d), (2026, 4, 11));
     }
 
     #[test]
     fn test_date_from_ts() {
-        // 2026-04-11 00:00:00 UTC = 20554 * 86400
         let ts = 20554 * 86400;
         assert_eq!(date_from_ts(ts), "2026-04-11");
     }
@@ -959,7 +988,7 @@ mod tests {
 
     #[test]
     fn period_range_this_day() {
-        let now = 1_700_000_000; // mid-day
+        let now = 1_700_000_000;
         let (a, b) = period_range("this-day", now).unwrap();
         assert!(a <= now);
         assert_eq!(b, now);
@@ -1008,7 +1037,6 @@ mod tests {
             },
         ];
         let refs: Vec<&tracking::HistoryEntry> = entries.iter().collect();
-        // Range [150, 250) should match only the second entry (ts=200).
         let (input, output, count) = sum_entries(&refs, (150, 250));
         assert_eq!(count, 1);
         assert_eq!(input, 500);
