@@ -71,7 +71,8 @@ EXIT_CODE=$?
 #   0 → passthrough (familiar command, nothing to do)
 #   1 → rewrite suggestion / ask — surface to user, allow execution
 #   2 → deny — block
-#   3 → Default + unfamiliar — prompt the user (Claude Code: exit 1)
+#   3 → Default + unfamiliar — passthrough; Claude's own permission layer
+#       remains the source of truth for execution prompts.
 case $EXIT_CODE in
   0)
     # Passthrough — nothing to do.
@@ -98,9 +99,10 @@ case $EXIT_CODE in
     exit 2
     ;;
   3)
-    # Default verdict + unfamiliar command → ask the user.
-    echo "ASK (ig rewrite): no permission rule for this command — please confirm" >&2
-    exit 1
+    # Default verdict + unfamiliar command. This hook is only responsible for
+    # search-command rewrites and hard deny rules; unknown safe-looking shell
+    # scripts should not produce noisy PreToolUse ASK messages.
+    exit 0
     ;;
   *)
     exit 0

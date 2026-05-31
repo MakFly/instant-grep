@@ -26,6 +26,10 @@ fn main() {
 
     fs::write(&dest, &combined).unwrap();
 
-    // Tell cargo to re-run if any filter file changes
+    // Tell cargo to re-run if any embedded setup asset changes.
     println!("cargo:rerun-if-changed=filters/");
+    println!("cargo:rerun-if-changed=hooks/ig-guard.sh");
+    println!("cargo:rerun-if-changed=hooks/format.sh");
+    println!("cargo:rerun-if-changed=hooks/subagent-context.sh");
+    println!("cargo:rerun-if-changed=hooks/cursorrules-snippet.txt");
 }

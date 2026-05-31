@@ -2408,6 +2408,19 @@ mod tests {
     }
 
     #[test]
+    fn test_ig_guard_unfamiliar_default_passthrough() {
+        assert!(
+            IG_GUARD_HOOK.contains("safe-looking shell")
+                && IG_GUARD_HOOK.contains("exit 0"),
+            "ig-guard must not turn ig rewrite exit 3 into a PreToolUse prompt"
+        );
+        assert!(
+            !IG_GUARD_HOOK.contains("ASK (ig rewrite): no permission rule"),
+            "ig-guard should not print noisy ASK messages for safe-looking shell scripts"
+        );
+    }
+
+    #[test]
     fn test_configure_claude_hooks_full_idempotent() {
         let dir = TempDir::new().unwrap();
         // Run twice
