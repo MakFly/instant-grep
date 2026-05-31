@@ -124,10 +124,8 @@ fn show_dashboard(entries: &[&tracking::HistoryEntry], full: bool, project_scope
     };
     println!("{}", styled(title));
     println!("{}", "═".repeat(60));
-    if project_scoped {
-        if let Ok(cwd) = std::env::current_dir() {
-            println!("Scope: {}", shorten_path(&cwd.to_string_lossy()));
-        }
+    if project_scoped && let Ok(cwd) = std::env::current_dir() {
+        println!("Scope: {}", shorten_path(&cwd.to_string_lossy()));
     }
     println!();
 
@@ -136,11 +134,7 @@ fn show_dashboard(entries: &[&tracking::HistoryEntry], full: bool, project_scope
     print_kpi("Output tokens", &format_tokens(total_output));
     print_kpi(
         "Tokens saved",
-        &format!(
-            "{} ({:.1}%)",
-            format_tokens(total_saved),
-            total_pct
-        ),
+        &format!("{} ({:.1}%)", format_tokens(total_saved), total_pct),
     );
     print_efficiency_meter(total_pct);
     println!();
@@ -394,7 +388,10 @@ fn show_quota(entries: &[&tracking::HistoryEntry], tier: &str) {
         _ => ("Max 20x", "Max 20x ($200/mo)"),
     };
 
-    println!("{}", styled(&format!("Monthly Quota Estimate ({} tier)", tier_label)));
+    println!(
+        "{}",
+        styled(&format!("Monthly Quota Estimate ({} tier)", tier_label))
+    );
     println!("{}", "─".repeat(58));
     print_kpi(
         "Monthly projection",
@@ -894,12 +891,7 @@ pub fn show_compare(spec: &str, json: bool) {
         return;
     }
 
-    println!(
-        "{}  {} vs {}",
-        styled("gain --compare"),
-        parts[0],
-        parts[1]
-    );
+    println!("{}  {} vs {}", styled("gain --compare"), parts[0], parts[1]);
     println!("{}", "─".repeat(60));
     println!(
         "  {:<18} {:>6}  {:>10}  {:>10}",
