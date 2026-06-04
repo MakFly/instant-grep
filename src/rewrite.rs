@@ -1007,7 +1007,7 @@ fn split_redirects(cmd: &str) -> (&str, &str) {
                 i += 1;
             }
             _ if !in_single && !in_double => {
-                let is_redirect = if (c == b'>' || c == b'<') {
+                let is_redirect = if c == b'>' || c == b'<' {
                     true
                 } else if c.is_ascii_digit() && i + 1 < bytes.len() && bytes[i + 1] == b'>' {
                     true
