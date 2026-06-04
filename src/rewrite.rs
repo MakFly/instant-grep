@@ -295,7 +295,11 @@ fn try_rewrite_segment(segment: &str) -> Option<String> {
         return None;
     }
 
-    let (env_prefix, rest) = split_env_prefix(trimmed);
+    // Strip trailing shell redirects before parsing — they are not command
+    // arguments and must be re-appended verbatim after the rewrite.
+    let (command_part, redirect_suffix) = split_redirects(trimmed);
+
+    let (env_prefix, rest) = split_env_prefix(command_part);
     let parts_raw = shell_split(rest);
     if parts_raw.is_empty() {
         return None;
@@ -353,11 +357,16 @@ fn try_rewrite_segment(segment: &str) -> Option<String> {
         _ => None,
     }?;
 
-    if env_prefix.is_empty() {
-        Some(rewritten)
+    let mut result = if env_prefix.is_empty() {
+        rewritten
     } else {
-        Some(format!("{}{}", env_prefix, rewritten))
+        format!("{}{}", env_prefix, rewritten)
+    };
+    if !redirect_suffix.is_empty() {
+        result.push(' ');
+        result.push_str(redirect_suffix);
     }
+    Some(result)
 }
 
 /// cat file → ig read --plain file (or -s for large source files)
@@ -974,6 +983,57 @@ fn strip_absolute_path(bin: &str) -> &str {
     } else {
         bin
     }
+}
+
+/// Split trailing shell redirects (`2>&1`, `>file`, `>>file`, `&>file`, `<file`)
+/// from a command string. Returns `(command, redirects)` where `redirects` is
+/// the verbatim suffix (empty if none found). Works right-to-left, outside
+/// quotes, stopping at the first non-redirect token.
+fn split_redirects(cmd: &str) -> (&str, &str) {
+    let bytes = cmd.as_bytes();
+    let mut in_single = false;
+    let mut in_double = false;
+
+    // Scan left-to-right for the first unquoted redirect operator.
+    // A redirect is: [N]> | [N]>> | &> | &>> | < | << | <<<
+    // where N is a single digit (fd number).  `2>&1` starts at the `2`.
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        match c {
+            b'\'' if !in_double => in_single = !in_single,
+            b'"' if !in_single => in_double = !in_double,
+            b'\\' if in_double && i + 1 < bytes.len() => {
+                i += 1;
+            }
+            _ if !in_single && !in_double => {
+                let is_redirect = if (c == b'>' || c == b'<') {
+                    true
+                } else if c.is_ascii_digit() && i + 1 < bytes.len() && bytes[i + 1] == b'>' {
+                    true
+                } else if c == b'&' && i + 1 < bytes.len() && bytes[i + 1] == b'>' {
+                    true
+                } else {
+                    false
+                };
+                if is_redirect {
+                    let cut = {
+                        let mut s = i;
+                        while s > 0 && bytes[s - 1] == b' ' {
+                            s -= 1;
+                        }
+                        s
+                    };
+                    if cut > 0 {
+                        return (&cmd[..cut], cmd[cut..].trim_start());
+                    }
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    (cmd, "")
 }
 
 /// Quote-aware shell tokenizer (Fix R1).
@@ -1637,6 +1697,44 @@ mod tests {
         assert!(matches!(
             classify_command("gt log"),
             RewriteResult::Rewrite(s) if s == "ig gt log"
+        ));
+    }
+
+    // --- split_redirects tests ---
+
+    #[test]
+    fn split_redirects_strips_2_and_1() {
+        let (cmd, redir) = split_redirects("gh run list -L 5 2>&1");
+        assert_eq!(cmd, "gh run list -L 5");
+        assert_eq!(redir, "2>&1");
+    }
+
+    #[test]
+    fn split_redirects_strips_stdout_to_file() {
+        let (cmd, redir) = split_redirects("cargo build >out.log");
+        assert_eq!(cmd, "cargo build");
+        assert_eq!(redir, ">out.log");
+    }
+
+    #[test]
+    fn split_redirects_no_redirect() {
+        let (cmd, redir) = split_redirects("gh run list -L 5");
+        assert_eq!(cmd, "gh run list -L 5");
+        assert_eq!(redir, "");
+    }
+
+    #[test]
+    fn split_redirects_inside_quotes_ignored() {
+        let (cmd, redir) = split_redirects(r#"echo "2>&1 is a redirect""#);
+        assert_eq!(cmd, r#"echo "2>&1 is a redirect""#);
+        assert_eq!(redir, "");
+    }
+
+    #[test]
+    fn rewrite_gh_with_redirect_preserves_it() {
+        assert!(matches!(
+            classify_command("gh run list -L 5 2>&1"),
+            RewriteResult::Rewrite(s) if s == "ig gh run list -L 5 2>&1"
         ));
     }
 }
