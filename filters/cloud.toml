@@ -6,20 +6,6 @@ truncate_at = 200
 max_lines = 50
 
 [[filters]]
-name = "kubectl-get"
-match = "^kubectl get"
-strip_ansi = true
-truncate_at = 200
-max_lines = 50
-
-[[filters]]
-name = "kubectl-logs"
-match = "^kubectl logs"
-strip_ansi = true
-tail = 50
-truncate_at = 200
-
-[[filters]]
 name = "psql"
 match = "^psql"
 strip_ansi = true

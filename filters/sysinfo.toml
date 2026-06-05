@@ -21,6 +21,13 @@ truncate_at = 200
 max_lines = 40
 
 [[filters]]
+name = "tree"
+match = "^tree"
+strip_ansi = true
+truncate_at = 120
+max_lines = 60
+
+[[filters]]
 name = "diff"
 match = "^diff"
 strip_ansi = true

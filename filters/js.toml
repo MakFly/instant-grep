@@ -31,26 +31,18 @@ keep_lines = "\\S+\\.(js|ts|jsx|tsx|css|json|md)"
 max_lines = 40
 
 [[filters]]
-name = "next-build"
-match = "^(next build|npx next build|bunx next build)"
-strip_ansi = true
-keep_lines = "(Route|Size|First Load|error|Error|warn|○|●|ƒ|λ)"
-truncate_at = 200
-max_lines = 40
-
-[[filters]]
-name = "next-dev"
-match = "^(next dev|npx next dev|bunx next dev)"
-strip_ansi = true
-drop_lines = "^\\s*(ready|wait|event|info)"
-max_lines = 30
-
-[[filters]]
 name = "pnpm-list"
 match = "^pnpm (list|ls)"
 strip_ansi = true
 truncate_at = 120
 max_lines = 40
+
+[[filters]]
+name = "npm-install"
+match = "^npm install"
+strip_ansi = true
+keep_lines = "(added|removed|changed|up to date|npm warn|npm ERR|found \\d+ vulnerabilities|packages in)"
+max_lines = 30
 
 [[filters]]
 name = "npm-run"

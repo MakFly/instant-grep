@@ -19,9 +19,3 @@ strip_ansi = true
 keep_lines = "(\\w+\\s+\\w+|completed|failure|success|in_progress|queued|error)"
 max_lines = 30
 
-[[filters]]
-name = "gh-run-list"
-match = "^gh run list"
-strip_ansi = true
-truncate_at = 150
-max_lines = 20

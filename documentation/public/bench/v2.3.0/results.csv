@@ -1,0 +1,22 @@
+category,label,ig_bytes,ig_ms,rtk_bytes,rtk_ms,bytes_winner,time_winner
+search,literal: fn main,2858,112,3128,111,ig,rtk
+search,regex: impl.*Display,29,111,29,117,tie,ig
+search,count: pub fn,1682,114,1,112,rtk,rtk
+search,files-only: todo,198,114,0,111,rtk,rtk
+search,--top 5: filter,2553,109,16088,111,ig,ig
+search,--semantic: error,2291,111,16384,111,ig,tie
+read,full: main.rs,80476,111,69130,114,rtk,ig
+read,sigs: main.rs,2354,112,14833,109,ig,rtk
+read,full: pipeline.rs,15005,111,12509,111,rtk,tie
+read,sigs: pipeline.rs,1849,112,3989,109,ig,rtk
+smart,smart: src/filter/,36,109,0,109,rtk,tie
+smart,smart: src/,149,110,0,110,rtk,tie
+listing,ls: root,314,110,286,109,rtk,rtk
+listing,ls: src/,576,111,548,110,rtk,rtk
+git,git status,253,110,271,111,ig,ig
+git,git log,923,110,1270,110,ig,tie
+git,git diff,6662,111,5233,111,rtk,tie
+tools,env,3346,111,1026,110,rtk,rtk
+tools,deps,397,109,256,109,rtk,tie
+tools,json: Cargo.toml,0,109,0,109,tie,tie
+tools,diff: 2 files,22296,110,25745,109,ig,rtk

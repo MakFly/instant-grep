@@ -62,3 +62,24 @@ match = "^docker compose"
 strip_ansi = true
 keep_lines = "(Creating|Created|Starting|Started|Stopping|Stopped|Removing|Removed|Running|done|Up|Exit)"
 max_lines = 40
+
+[[filters]]
+name = "docker-pull"
+match = "^docker pull"
+strip_ansi = true
+keep_lines = "(Pulling|Digest|Status|Downloaded|Already exists|Pull complete|error|Error)"
+max_lines = 30
+
+[[filters]]
+name = "docker-exec"
+match = "^docker exec"
+strip_ansi = true
+truncate_at = 200
+max_lines = 60
+
+[[filters]]
+name = "docker-network"
+match = "^docker network"
+strip_ansi = true
+truncate_at = 120
+max_lines = 30

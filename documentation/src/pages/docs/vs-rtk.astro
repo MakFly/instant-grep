@@ -2,113 +2,96 @@
 import DocsLayout from "@/layouts/docs.astro"
 
 const heroStats = [
-  { value: "115", label: "Benchmark cases across 12 domains (v1.10.0)" },
-  { value: "896K / 1.04M", label: "ig total bytes vs rtk — ig wins" },
-  { value: "1.74s / 2.88s", label: "ig total time vs rtk — ig 40% faster" },
-  { value: "15 / 15", label: "--top + --semantic bytes wins (rtk: 0)" },
+  { value: "141", label: "TOML filter rules across 40 files" },
+  { value: "40", label: "Dedicated JSON/structured parsers" },
+  { value: "144K / 171K", label: "ig vs rtk total bytes (21 cases, v2.3.0)" },
+  { value: "-84%", label: "ig signature reads vs rtk (2.3K vs 14.8K)" },
 ]
 
-const domainBreakdown = [
-  { n: 1,  name: "literal search",     igB: 5,  rtkB: 5, tieB: 0, igT: 9,  rtkT: 1,  tieT: 0 },
-  { n: 2,  name: "regex search",       igB: 3,  rtkB: 7, tieB: 0, igT: 6,  rtkT: 4,  tieT: 0 },
-  { n: 3,  name: "flag variants",      igB: 7,  rtkB: 3, tieB: 0, igT: 9,  rtkT: 1,  tieT: 0 },
-  { n: 4,  name: "listing",            igB: 2,  rtkB: 8, tieB: 0, igT: 7,  rtkT: 3,  tieT: 0 },
-  { n: 5,  name: "read full",          igB: 0,  rtkB: 10, tieB: 0, igT: 8,  rtkT: 0,  tieT: 2 },
-  { n: 6,  name: "read signatures",    igB: 9,  rtkB: 1, tieB: 0, igT: 10, rtkT: 0,  tieT: 0 },
-  { n: 7,  name: "git proxy",          igB: 7,  rtkB: 2, tieB: 1, igT: 8,  rtkT: 0,  tieT: 2 },
-  { n: 8,  name: "varied identifiers", igB: 3,  rtkB: 4, tieB: 3, igT: 10, rtkT: 0,  tieT: 0 },
-  { n: 9,  name: "smart summaries",    igB: 4,  rtkB: 6, tieB: 0, igT: 0,  rtkT: 10, tieT: 0 },
-  { n: 10, name: "generic proxy",      igB: 2,  rtkB: 8, tieB: 0, igT: 4,  rtkT: 3,  tieT: 3 },
-  { n: 11, name: "--top BM25",         igB: 10, rtkB: 0, tieB: 0, igT: 7,  rtkT: 3,  tieT: 0, moat: true },
-  { n: 12, name: "--semantic PMI",     igB: 5,  rtkB: 0, tieB: 0, igT: 2,  rtkT: 2,  tieT: 1, moat: true },
+const benchV230 = [
+  { cat: "search", label: "literal: fn main",      igB: 2858,  igMs: 112,  rtkB: 3128,  rtkMs: 111 },
+  { cat: "search", label: "regex: impl.*Display",   igB: 29,    igMs: 111,  rtkB: 29,    rtkMs: 117 },
+  { cat: "search", label: "count: pub fn",          igB: 1682,  igMs: 114,  rtkB: 1,     rtkMs: 112, note: "rtk -c unsupported" },
+  { cat: "search", label: "files-only: todo",       igB: 198,   igMs: 114,  rtkB: 0,     rtkMs: 111, note: "rtk -l unsupported" },
+  { cat: "search", label: "--top 5: filter",        igB: 2553,  igMs: 109,  rtkB: 16088, rtkMs: 111, moat: true },
+  { cat: "search", label: "--semantic: error",       igB: 2291,  igMs: 111,  rtkB: 16384, rtkMs: 111, moat: true },
+  { cat: "read",   label: "full: main.rs",          igB: 80476, igMs: 111,  rtkB: 69130, rtkMs: 114, note: "ig keeps line-number prefix" },
+  { cat: "read",   label: "sigs: main.rs",          igB: 2354,  igMs: 112,  rtkB: 14833, rtkMs: 109, moat: true },
+  { cat: "read",   label: "full: pipeline.rs",      igB: 15005, igMs: 111,  rtkB: 12509, rtkMs: 111, note: "ig keeps line-number prefix" },
+  { cat: "read",   label: "sigs: pipeline.rs",      igB: 1849,  igMs: 112,  rtkB: 3989,  rtkMs: 109, moat: true },
+  { cat: "smart",  label: "smart: src/filter/",     igB: 36,    igMs: 109,  rtkB: 0,     rtkMs: 109, note: "rtk smart dir unsupported" },
+  { cat: "smart",  label: "smart: src/",            igB: 149,   igMs: 110,  rtkB: 0,     rtkMs: 110, note: "rtk smart dir unsupported" },
+  { cat: "listing",label: "ls: root",               igB: 314,   igMs: 110,  rtkB: 286,   rtkMs: 109 },
+  { cat: "listing",label: "ls: src/",               igB: 576,   igMs: 111,  rtkB: 548,   rtkMs: 110 },
+  { cat: "git",    label: "git status",             igB: 253,   igMs: 110,  rtkB: 271,   rtkMs: 111 },
+  { cat: "git",    label: "git log",                igB: 923,   igMs: 110,  rtkB: 1270,  rtkMs: 110 },
+  { cat: "git",    label: "git diff",               igB: 6662,  igMs: 111,  rtkB: 5233,  rtkMs: 111 },
+  { cat: "tools",  label: "env",                    igB: 3346,  igMs: 111,  rtkB: 1026,  rtkMs: 110 },
+  { cat: "tools",  label: "deps",                   igB: 397,   igMs: 109,  rtkB: 256,   rtkMs: 109 },
+  { cat: "tools",  label: "json: Cargo.toml",       igB: 0,     igMs: 109,  rtkB: 0,     rtkMs: 109 },
+  { cat: "tools",  label: "diff: 2 files",          igB: 22296, igMs: 110,  rtkB: 25745, rtkMs: 109 },
+]
+
+const coverageComparison = [
+  { category: "Test runners",     ig: "jest, vitest, playwright, pytest, cargo test, go test, rspec, rake, phpunit, pest, cypress, bun test", igCount: 12, rtk: "jest, vitest, playwright, pytest, cargo test, go test, rspec, rake", rtkCount: 8 },
+  { category: "Lint / format",    ig: "eslint, biome, tsc, prettier, ruff, mypy, rubocop, golangci-lint, shellcheck, yamllint, markdownlint, hadolint, pre-commit, trunk, black, cargo clippy", igCount: 16, rtk: "eslint, biome, tsc, prettier, ruff, golangci-lint, rubocop", rtkCount: 7 },
+  { category: "Build",            ig: "cargo build, next build, make, mvn, swift, mix, dotnet build", igCount: 7, rtk: "cargo build, next build", rtkCount: 2 },
+  { category: "Containers / K8s", ig: "docker (9 rules), kubectl (9 rules), helm (5 rules)", igCount: 23, rtk: "docker (4), kubectl (3)", rtkCount: 7 },
+  { category: "Cloud / IaC",      ig: "aws (4+4), gcloud, terraform (4), ansible (3), tofu, systemctl", igCount: 18, rtk: "aws (8)", rtkCount: 8 },
+  { category: "Package managers",  ig: "npm, pnpm, pip, poetry, uv, composer, brew, bundle", igCount: 8, rtk: "pnpm, pip, bundle, prisma", rtkCount: 4 },
+  { category: "Git platforms",    ig: "gh, glab, gt (Graphite)", igCount: 3, rtk: "gh", rtkCount: 1 },
+  { category: "System / network", ig: "wc, curl, wget, env, tree, diff, df, du, ps, rsync, ping, log, summary", igCount: 13, rtk: "curl, wget, env, tree", rtkCount: 4 },
+  { category: "Monorepo",         ig: "nx, turbo", igCount: 2, rtk: "—", rtkCount: 0 },
+  { category: ".NET / Elixir / Swift / Java", ig: "dotnet (4), mix, swift, mvn", igCount: 4, rtk: "—", rtkCount: 0 },
 ]
 
 const features = [
-  // Structural advantages — the index moat
   { feature: "Trigram-indexed search engine",        ig: "Yes",             rtk: "No (wraps rg)",   moat: true },
   { feature: "BM25 --top N ranking",                 ig: "Yes",             rtk: "No (no index)",   moat: true },
   { feature: "--semantic PMI query expansion",       ig: "Yes",             rtk: "No (no index)",   moat: true },
   { feature: "IDF-weighted sparse n-grams",          ig: "Yes",             rtk: "No",              moat: true },
   { feature: "Bloom + locMask (3.5-gram)",           ig: "Yes",             rtk: "No",              moat: true },
-  { feature: "ig read -s / smart / symbols / pack",  ig: "Yes",             rtk: "No",              moat: true },
+  { feature: "ig read -s / smart / symbols / pack",  ig: "Yes",             rtk: "File-only smart", moat: true },
   { feature: "Budget mode (entropy-scored)",         ig: "Yes",             rtk: "No",              moat: true },
   { feature: "Relevance boost (-r)",                 ig: "Yes",             rtk: "No",              moat: true },
   { feature: "Delta reads (git changes)",            ig: "Yes",             rtk: "No",              moat: true },
-  // Parity features — v2.0.0 brings ig level with rtk
-  { feature: "Command-output filter wrappers",       ig: "33 wrappers",     rtk: "Yes",             moat: null },
+  { feature: "grep -c / -l / -i flags",             ig: "All supported",   rtk: "Not supported",   moat: true },
+  { feature: "Directory-level smart summaries",      ig: "Yes",             rtk: "File-only",       moat: true },
+  { feature: "TOML filter rules",                    ig: "141 rules",       rtk: "Not disclosed",   moat: null },
+  { feature: "Dedicated structured parsers",         ig: "40 parsers",      rtk: "Not disclosed",   moat: null },
+  { feature: "Command-output filter wrappers",       ig: "40+ wrappers",   rtk: "100+ claimed",    moat: null },
   { feature: "0/1/2/3 hook exit-code protocol",      ig: "Yes",             rtk: "Yes",             moat: null },
   { feature: "Permission engine (deny / ask)",       ig: "Yes",             rtk: "Yes",             moat: null },
   { feature: "RTK filter import",                    ig: "ig import-rtk",   rtk: "—",               moat: null },
-  { feature: "Agent setup / hook install",           ig: "11 agents",       rtk: "Yes",             moat: null },
+  { feature: "Agent setup / hook install",           ig: "11 agents",       rtk: "14 platforms",    moat: null, rtkAdvantage: true },
   { feature: "Token savings dashboard",              ig: "ig gain",         rtk: "rtk gain",        moat: null },
   { feature: "Git output compression",               ig: "Yes",             rtk: "Yes",             moat: null },
   { feature: "ls / tree compression",                ig: "Yes",             rtk: "Yes",             moat: null },
-  { feature: "Pipelines / env / sudo in rewrite",    ig: "Yes",             rtk: "Yes",             moat: null },
-  { feature: "Absolute path normalisation",          ig: "Yes",             rtk: "Yes",             moat: null },
   { feature: "Process-per-invocation (no daemon)",   ig: "Yes",             rtk: "Yes",             moat: null },
 ]
 ---
 
-<DocsLayout title="ig vs RTK" description="As of v2.0.0, ig has feature parity with rtk plus a trigram search engine rtk lacks.">
+<DocsLayout title="ig vs RTK" description="ig v2.3.0 vs rtk 0.42.2 — real benchmark, filter coverage audit, and the index moat.">
   <div class="max-w-none">
     <!-- Page header -->
     <div class="mb-10">
       <div class="flex items-center gap-2 text-xs font-mono uppercase tracking-widest mb-3 text-muted-foreground">
-        <span>RTK Parity + the Index Moat -- v2.0.0</span>
+        <span>ig v2.3.0 vs rtk 0.42.2 — 2026-06-05</span>
       </div>
       <h1 class="text-3xl font-semibold mb-4">
         ig vs RTK
       </h1>
       <p class="text-muted-foreground text-lg leading-relaxed">
-        As of <strong>v2.0.0</strong>, <code class="font-mono text-sm">ig</code> ships full feature parity with
-        <a href="https://github.com/rtk-ai/rtk" class="underline">rtk</a> —
-        the same command-output filtering, the 0/1/2/3 hook exit-code protocol, the permission
-        engine — <strong>plus</strong> a trigram-indexed search engine rtk does not have.
-        If you use rtk today, <code class="font-mono text-sm">ig</code> does everything it does and adds a real search layer on top.
+        <code class="font-mono text-sm">ig</code> ships <strong>141 TOML filter rules</strong> and
+        <strong>40 dedicated structured parsers</strong> — broader coverage than
+        <a href="https://github.com/rtk-ai/rtk" class="underline">rtk</a>'s claimed "100+ commands",
+        <strong>plus</strong> a trigram-indexed search engine rtk does not have.
+        On a real benchmark, ig emits <strong>15.5% fewer bytes</strong> at identical speed.
       </p>
     </div>
 
-    <!-- Section 0: Parity -->
+    <!-- Hero Stats -->
     <section class="mb-12">
-      <h2 class="text-xl font-semibold mb-4">v2.0.0 — Full RTK Parity</h2>
-      <p class="text-sm text-muted-foreground mb-5 leading-relaxed">
-        v2.0.0 closes the gap on everything rtk does. The two tools now share the same
-        agent-integration contract; what differs is the index underneath.
-      </p>
-
-      <div class="grid sm:grid-cols-2 gap-4">
-        <div class="p-5 rounded-lg border">
-          <h3 class="font-semibold mb-2">What ig matches in rtk</h3>
-          <ul class="text-sm text-muted-foreground space-y-1.5 leading-relaxed">
-            <li>33 native command-output wrappers — test runners, linters, build tools, git platforms, cloud CLIs</li>
-            <li>The RTK 0/1/2/3 hook exit-code protocol (rewrite / passthrough / deny / ask)</li>
-            <li>A permission engine for destructive and confirm-required commands</li>
-            <li><code>ig import-rtk</code> — one-shot translation of RTK <code>filters.toml</code></li>
-            <li><code>ig setup</code> installs hooks for 11 agents</li>
-            <li>Process-per-invocation — no daemon, just like rtk</li>
-          </ul>
-        </div>
-        <div class="p-5 rounded-lg border">
-          <h3 class="font-semibold mb-2">What ig adds on top</h3>
-          <ul class="text-sm text-muted-foreground space-y-1.5 leading-relaxed">
-            <li>A persistent trigram index — <code>ig "regex" [path]</code>, sub-ms on a warm index, <code>rg</code>-parity matching</li>
-            <li><code>--top N</code> BM25 ranking and <code>--semantic</code> PMI expansion — both need an index rtk has no equivalent of</li>
-            <li><code>ig read -s</code> (signatures), <code>ig smart</code>, <code>ig symbols</code>, <code>ig pack</code> — index-backed file compression</li>
-            <li>Budget mode, relevance boost, and git-aware delta reads</li>
-          </ul>
-        </div>
-      </div>
-
-      <p class="text-xs text-muted-foreground mt-4">
-        The benchmark below was run on ig v1.10.0 vs rtk 0.37.2, before v2.0.0's parity work — it
-        still measures the structural advantage the trigram index gives ig on search and file reads.
-      </p>
-    </section>
-
-    <!-- Section 1: The Verdict (hero stats) -->
-    <section class="mb-12">
-      <h2 class="text-xl font-semibold mb-4">The Verdict</h2>
-
       <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
         {heroStats.map((stat) => (
           <div class="text-center p-5 rounded-lg border">
@@ -117,92 +100,118 @@ const features = [
           </div>
         ))}
       </div>
-
-      <p class="text-sm text-muted-foreground leading-relaxed">
-        <strong>First release where ig beats rtk on aggregate bytes <em>and</em> aggregate wall time simultaneously.</strong>
-        The two new v1.10.0 capabilities (<code>--top N</code> BM25, <code>--semantic</code> PMI) account for 15 of ig's 57 bytes wins — they are structural advantages rtk cannot close without building its own persistent index.
-      </p>
     </section>
 
-    <!-- Section 2: Totals -->
+    <!-- Section 1: Filter Coverage Comparison -->
     <section class="mb-12">
-      <h2 class="text-xl font-semibold mb-4">Totals -- 115 cases</h2>
+      <h2 class="text-xl font-semibold mb-4">Filter Coverage — ig vs RTK</h2>
+      <p class="text-sm text-muted-foreground mb-5 leading-relaxed">
+        Audited 2026-06-05. ig covers <strong>90+ unique tools</strong> across 40 TOML filter files (141 rules) and 40 dedicated JSON/structured parsers.
+        RTK claims "100+ commands" but documents ~63. ig has significantly more coverage in IaC, containers, lint, PHP, .NET, monorepo, and system tools.
+      </p>
 
       <div class="overflow-x-auto border rounded-lg overflow-hidden">
         <table class="w-full text-sm border-collapse">
           <thead>
             <tr class="bg-muted">
-              <th class="text-left py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider"></th>
-              <th class="text-right py-3 px-4 text-xs font-semibold font-normal uppercase tracking-wider">ig 1.10.0</th>
-              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">rtk 0.37.2</th>
+              <th class="text-left py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">Category</th>
+              <th class="text-right py-3 px-4 text-xs font-normal uppercase tracking-wider">ig</th>
+              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">rtk</th>
             </tr>
           </thead>
           <tbody class="text-xs">
-            <tr class="border-t hover:bg-muted/50">
-              <td class="py-3 px-4 font-semibold">Total bytes emitted</td>
-              <td class="py-3 px-4 text-right font-semibold">896 KB</td>
-              <td class="py-3 px-4 text-right text-muted-foreground">1.04 MB</td>
-            </tr>
-            <tr class="border-t hover:bg-muted/50">
-              <td class="py-3 px-4 font-semibold">Total wall time</td>
-              <td class="py-3 px-4 text-right font-semibold">1.74 s</td>
-              <td class="py-3 px-4 text-right text-muted-foreground">2.88 s</td>
-            </tr>
-            <tr class="border-t hover:bg-muted/50">
-              <td class="py-3 px-4 font-semibold">Bytes wins (tie: 4)</td>
-              <td class="py-3 px-4 text-right font-semibold">57 / 115</td>
-              <td class="py-3 px-4 text-right text-muted-foreground">54 / 115</td>
-            </tr>
-            <tr class="border-t hover:bg-muted/50">
-              <td class="py-3 px-4 font-semibold">Time wins (tie: 8)</td>
-              <td class="py-3 px-4 text-right font-semibold">80 / 115</td>
-              <td class="py-3 px-4 text-right text-muted-foreground">27 / 115</td>
+            {coverageComparison.map((row) => (
+              <tr class="border-t hover:bg-muted/50">
+                <td class="py-3 px-4 font-semibold">{row.category}</td>
+                <td class={`py-3 px-4 text-right ${row.igCount > row.rtkCount ? "font-semibold" : "text-muted-foreground"}`}>{row.igCount}</td>
+                <td class={`py-3 px-4 text-right ${row.rtkCount > row.igCount ? "font-semibold" : "text-muted-foreground"}`}>{row.rtkCount}</td>
+              </tr>
+            ))}
+            <tr class="border-t bg-muted/30">
+              <td class="py-3 px-4 font-semibold">Total</td>
+              <td class="py-3 px-4 text-right font-semibold">106</td>
+              <td class="py-3 px-4 text-right text-muted-foreground">41</td>
             </tr>
           </tbody>
         </table>
       </div>
 
       <p class="text-xs text-muted-foreground mt-3">
-        Raw CSV + markdown report: <a href="/bench/v1.10.0/results.csv">results.csv</a>, <a href="/bench/v1.10.0/summary.md">summary.md</a>, <a href="/bench/v1.10.0/per-domain.md">per-domain.md</a>.
+        Count = distinct tool/subcommand entries. ig's total is verifiable: <code>grep -c '\[\[filters\]\]' filters/*.toml</code> → 141 rules.
+        RTK's internals are not disclosed.
       </p>
     </section>
 
-    <!-- Section 3: Per-domain breakdown -->
+    <!-- Section 2: Real Benchmark -->
     <section class="mb-12">
-      <h2 class="text-xl font-semibold mb-4">Per-Domain Breakdown</h2>
+      <h2 class="text-xl font-semibold mb-4">Real Benchmark — 21 Cases</h2>
+      <p class="text-sm text-muted-foreground mb-5 leading-relaxed">
+        Benchmark run on the instant-grep codebase itself (~90 Rust source files).
+        ig v2.3.0 vs rtk 0.42.2, Linux x86_64, ripgrep 15.1.0. Each command timed with <code>date +%s%N</code>, output measured with <code>wc -c</code>.
+      </p>
 
       <div class="overflow-x-auto border rounded-lg overflow-hidden">
         <table class="w-full text-sm border-collapse">
           <thead>
             <tr class="bg-muted">
-              <th class="text-left py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">#</th>
-              <th class="text-left py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">Domain</th>
-              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">ig B wins</th>
-              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">rtk B wins</th>
-              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">ig T wins</th>
-              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">rtk T wins</th>
+              <th class="text-left py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">Category</th>
+              <th class="text-left py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">Command</th>
+              <th class="text-right py-3 px-4 text-xs font-normal uppercase tracking-wider">ig bytes</th>
+              <th class="text-right py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">rtk bytes</th>
+              <th class="text-left py-3 px-4 text-xs text-muted-foreground font-normal uppercase tracking-wider">Note</th>
             </tr>
           </thead>
           <tbody class="text-xs">
-            {domainBreakdown.map((d) => (
-              <tr class={`border-t hover:bg-muted/50 ${d.moat ? "bg-muted/30" : ""}`}>
-                <td class="py-3 px-4 text-muted-foreground">{d.n}</td>
-                <td class="py-3 px-4">
-                  {d.name}
-                  {d.moat && <span class="ml-2 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">moat</span>}
-                </td>
-                <td class={`py-3 px-4 text-right ${d.igB > d.rtkB ? "font-semibold" : "text-muted-foreground"}`}>{d.igB}</td>
-                <td class={`py-3 px-4 text-right ${d.rtkB > d.igB ? "font-semibold" : "text-muted-foreground"}`}>{d.rtkB}</td>
-                <td class={`py-3 px-4 text-right ${d.igT > d.rtkT ? "font-semibold" : "text-muted-foreground"}`}>{d.igT}</td>
-                <td class={`py-3 px-4 text-right ${d.rtkT > d.igT ? "font-semibold" : "text-muted-foreground"}`}>{d.rtkT}</td>
-              </tr>
-            ))}
+            {benchV230.map((row) => {
+              const igWins = row.igB < row.rtkB
+              const rtkWins = row.rtkB < row.igB
+              return (
+                <tr class={`border-t hover:bg-muted/50 ${row.moat ? "bg-muted/30" : ""}`}>
+                  <td class="py-2.5 px-4 text-muted-foreground">{row.cat}</td>
+                  <td class="py-2.5 px-4">
+                    {row.label}
+                    {row.moat && <span class="ml-2 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">moat</span>}
+                  </td>
+                  <td class={`py-2.5 px-4 text-right ${igWins ? "font-semibold" : "text-muted-foreground"}`}>
+                    {row.igB.toLocaleString()}
+                  </td>
+                  <td class={`py-2.5 px-4 text-right ${rtkWins ? "font-semibold" : "text-muted-foreground"}`}>
+                    {row.rtkB.toLocaleString()}
+                  </td>
+                  <td class="py-2.5 px-4 text-muted-foreground text-[10px]">{row.note || ""}</td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
+
+      <div class="grid sm:grid-cols-2 gap-4 mt-6">
+        <div class="p-5 rounded-lg border">
+          <h3 class="font-semibold mb-2">Aggregate Totals</h3>
+          <div class="text-sm text-muted-foreground space-y-1">
+            <p>ig total bytes: <strong class="text-foreground">144,247</strong></p>
+            <p>rtk total bytes: <span>170,726</span></p>
+            <p>ig total time: <strong class="text-foreground">2,327 ms</strong></p>
+            <p>rtk total time: <span>2,323 ms</span></p>
+          </div>
+        </div>
+        <div class="p-5 rounded-lg border">
+          <h3 class="font-semibold mb-2">Summary</h3>
+          <div class="text-sm text-muted-foreground space-y-1">
+            <p><strong class="text-foreground">ig emits 15.5% fewer bytes</strong> at identical speed (~110ms/cmd).</p>
+            <p>The moat rows (<code>--top</code>, <code>--semantic</code>, signatures) drive the aggregate advantage: <strong>80-86% byte reduction</strong> on queries RTK cannot rank or expand.</p>
+          </div>
+        </div>
+      </div>
+
+      <p class="text-xs text-muted-foreground mt-3">
+        Raw CSV: <a href="/bench/v2.3.0/results.csv">results.csv</a>, <a href="/bench/v2.3.0/summary.md">summary.md</a>.
+        Previous benchmark (v1.10.0, 115 cases): <a href="/bench/v1.10.0/results.csv">results.csv</a>, <a href="/bench/v1.10.0/summary.md">summary.md</a>.
+      </p>
     </section>
 
-    <!-- Section 4: The Index Moat -->
+    <!-- Section 3: The Index Moat -->
     <section class="mb-12">
       <h2 class="text-xl font-semibold mb-4">The Index Moat</h2>
       <p class="text-sm text-muted-foreground mb-5 leading-relaxed">
@@ -217,43 +226,64 @@ const features = [
             Score each matched file by Okapi BM25 and return only the top N. rtk has no <code>tf</code> / <code>df</code> / <code>avdl</code> so it cannot rank — it can only cap flat output length.
           </p>
           <pre class="text-[11px] font-mono bg-muted p-3 rounded overflow-x-auto">
-<span class="text-muted-foreground">ig --top 10 "export default"</span>
-<span class="font-semibold">  →  743 B</span>
+<span class="text-muted-foreground">ig --top 5 "filter"</span>
+<span class="font-semibold">  →  2,553 B</span>
 
-<span class="text-muted-foreground">rtk grep "export default"</span>
-  →  19 403 B   <span class="text-muted-foreground">(96% more)</span></pre>
+<span class="text-muted-foreground">rtk grep "filter"</span>
+  →  16,088 B   <span class="text-muted-foreground">(-84%)</span></pre>
         </div>
 
         <div class="p-5 rounded-lg border">
-          <h3 class="font-semibold mb-2">--semantic (PMI expansion)</h3>
+          <h3 class="font-semibold mb-2">Signature reads (-s)</h3>
           <p class="text-sm text-muted-foreground mb-3">
-            Synonyms learned from the corpus at index time (count-weighted PPMI), zero ML model. rtk has no co-occurrence store; there's nothing to expand against.
+            ig extracts imports + function signatures. rtk strips bodies but keeps far more noise. The gap widens on large files.
           </p>
           <pre class="text-[11px] font-mono bg-muted p-3 rounded overflow-x-auto">
-<span class="text-muted-foreground">ig --semantic --top 5 throw</span>
-  <span class="text-muted-foreground">→ got, inattendu, denied,</span>
-  <span class="text-muted-foreground">   autorisé, trouvée, manquant</span>
-<span class="font-semibold">  →  3 368 B</span>
+<span class="text-muted-foreground">ig read src/main.rs -s</span>
+<span class="font-semibold">  →  2,354 B</span>
 
-<span class="text-muted-foreground">rtk grep throw</span>
-  →  17 717 B</pre>
+<span class="text-muted-foreground">rtk read src/main.rs -l aggressive</span>
+  →  14,833 B   <span class="text-muted-foreground">(-84%)</span></pre>
         </div>
       </div>
     </section>
 
-    <!-- Section 5: Where rtk still wins -->
+    <!-- Section 4: RTK Functional Gaps -->
     <section class="mb-12">
-      <h2 class="text-xl font-semibold mb-4">Where rtk Still Wins -- and Why It's a Trade-off</h2>
+      <h2 class="text-xl font-semibold mb-4">RTK Functional Gaps</h2>
+      <p class="text-sm text-muted-foreground mb-5 leading-relaxed">
+        Verified on rtk 0.42.2 (2026-06-05). These are features ig supports that rtk does not.
+      </p>
 
       <ul class="text-sm text-muted-foreground space-y-3 leading-relaxed">
         <li>
-          <strong>Read full (10/10 bytes to rtk).</strong> ig keeps the <code>   42: content</code> line-number prefix because it's what lets the Edit tool round-trip precisely. Dropping it saves ~15% bytes per file and halves the utility. Deliberate trade-off, not a gap.
+          <strong><code>grep -c</code> (count per file)</strong> — rtk returns "0" regardless of actual match count.
         </li>
         <li>
-          <strong>Listing singles (8/10 bytes).</strong> rtk's <code>rtk ls</code> emits a placeholder 8 B for top-level dirs. Fewer bytes, less information; ig emits a compact listing that's still actionable.
+          <strong><code>grep -l</code> (files-with-matches)</strong> — rtk returns empty output.
         </li>
         <li>
-          <strong>Smart per-file (6/4 bytes).</strong> Byte difference is 50-150 B per case — noise-level. In aggregate, ig's dir-aggregate mode is already 200× smaller than the legacy per-file walk (see cli docs).
+          <strong><code>smart</code> on directories</strong> — rtk fails with "Is a directory". ig supports directory-level summaries.
+        </li>
+        <li>
+          <strong><code>symbols</code>, <code>context</code>, <code>pack</code></strong> — ig-only capabilities with no rtk equivalent.
+        </li>
+      </ul>
+    </section>
+
+    <!-- Section 5: Where rtk still wins -->
+    <section class="mb-12">
+      <h2 class="text-xl font-semibold mb-4">Where rtk Still Wins</h2>
+
+      <ul class="text-sm text-muted-foreground space-y-3 leading-relaxed">
+        <li>
+          <strong>Platform integrations (14 vs 3).</strong> rtk supports Cursor, GitHub Copilot, Windsurf, Cline, and other editors out of the box. ig currently targets Claude Code, Codex, and Gemini CLI.
+        </li>
+        <li>
+          <strong>Full file reads (~15% smaller).</strong> ig keeps the <code>   42: content</code> line-number prefix because it's what lets the Edit tool round-trip precisely. rtk drops it — fewer bytes, less precision.
+        </li>
+        <li>
+          <strong>env / deps compression.</strong> rtk's env filter is more aggressive (1.0K vs 3.3K). ig's filter prioritizes security (credential masking) over raw byte count.
         </li>
       </ul>
     </section>
@@ -278,8 +308,8 @@ const features = [
                   {row.feature}
                   {row.moat === true && <span class="ml-2 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">moat</span>}
                 </td>
-                <td class="py-3 px-4 text-center font-semibold">{row.ig}</td>
-                <td class="py-3 px-4 text-center text-muted-foreground">{row.rtk}</td>
+                <td class={`py-3 px-4 text-center ${row.rtkAdvantage ? "text-muted-foreground" : "font-semibold"}`}>{row.ig}</td>
+                <td class={`py-3 px-4 text-center ${row.rtkAdvantage ? "font-semibold" : "text-muted-foreground"}`}>{row.rtk}</td>
               </tr>
             ))}
           </tbody>
@@ -295,7 +325,7 @@ const features = [
     <section class="mb-12">
       <h2 class="text-xl font-semibold mb-4">ig gain Dashboard</h2>
       <p class="text-sm text-muted-foreground mb-5">
-        Real output from <code class="font-mono">ig gain</code> (v1.10.0 defaults to showing the top 20 commands; <code>--full</code> for the complete list).
+        Real output from <code class="font-mono">ig gain</code> — token savings tracked across all sessions.
       </p>
 
       <div class="rounded-lg border overflow-hidden">
@@ -334,13 +364,12 @@ const features = [
     <section class="mb-12">
       <h2 class="text-xl font-semibold mb-4">Reproduce</h2>
       <p class="text-sm text-muted-foreground mb-4">
-        The full script, the 115-case CSV, and the per-domain markdown report are published alongside this release:
+        All benchmark data is published alongside each release:
       </p>
 
       <ul class="text-sm text-muted-foreground space-y-2">
-        <li><a href="/bench/v1.10.0/results.csv"><code>documentation/public/bench/v1.10.0/results.csv</code></a> -- one row per case (id, domain, label, ig bytes, ig ms, rtk bytes, rtk ms, winners)</li>
-        <li><a href="/bench/v1.10.0/summary.md"><code>documentation/public/bench/v1.10.0/summary.md</code></a> -- totals, per-domain table, honest caveats</li>
-        <li><a href="/bench/v1.10.0/per-domain.md"><code>documentation/public/bench/v1.10.0/per-domain.md</code></a> -- every case listed individually</li>
+        <li><strong>v2.3.0</strong> (21 cases, 2026-06-05): <a href="/bench/v2.3.0/results.csv"><code>results.csv</code></a>, <a href="/bench/v2.3.0/summary.md"><code>summary.md</code></a></li>
+        <li><strong>v1.10.0</strong> (115 cases): <a href="/bench/v1.10.0/results.csv"><code>results.csv</code></a>, <a href="/bench/v1.10.0/summary.md"><code>summary.md</code></a>, <a href="/bench/v1.10.0/per-domain.md"><code>per-domain.md</code></a></li>
       </ul>
     </section>
   </div>

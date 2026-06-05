@@ -1,4 +1,18 @@
 [[filters]]
+name = "kubectl-get"
+match = "^kubectl get"
+strip_ansi = true
+truncate_at = 200
+max_lines = 50
+
+[[filters]]
+name = "kubectl-logs"
+match = "^kubectl logs"
+strip_ansi = true
+tail = 50
+truncate_at = 200
+
+[[filters]]
 name = "kubectl-describe"
 match = "^kubectl describe"
 strip_ansi = true
@@ -34,3 +48,17 @@ match = "^kubectl top"
 strip_ansi = true
 truncate_at = 120
 max_lines = 30
+
+[[filters]]
+name = "kubectl-exec"
+match = "^kubectl exec"
+strip_ansi = true
+truncate_at = 200
+max_lines = 60
+
+[[filters]]
+name = "kubectl-port-forward"
+match = "^kubectl port-forward"
+strip_ansi = true
+keep_lines = "(Forwarding|Handling|error|Error)"
+max_lines = 20

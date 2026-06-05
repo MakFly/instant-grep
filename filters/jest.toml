@@ -1,6 +1,6 @@
 [[filters]]
 name = "jest"
-match = "^(jest|npx jest|bunx jest|bun test)"
+match = "^(jest|npx jest|bunx jest)"
 strip_ansi = true
 dedup_consecutive = true
 # Keep only failures + final summary; drop PASS / ✓ passing lines so the
