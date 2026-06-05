@@ -12,9 +12,8 @@ use std::path::Path;
 
 use super::super::{
     AgentInstaller, ConfigResult, IG_MANAGED_BEGIN, IG_MANAGED_END, InstallContext, InstallReport,
-    ShowItem, ShowReport, configure_claude_hooks_full,
-    configure_claude_md, configure_claude_rules_ig_md, configure_claude_settings,
-    results_to_report, sha256_of,
+    ShowItem, ShowReport, configure_claude_hooks_full, configure_claude_md,
+    configure_claude_rules_ig_md, configure_claude_settings, results_to_report, sha256_of,
 };
 
 pub struct Claude;
