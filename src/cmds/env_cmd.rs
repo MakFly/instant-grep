@@ -71,8 +71,7 @@ pub fn run(args: &[String]) -> Result<i32> {
     // Drop noise vars (unless user explicitly filtered)
     if pattern.is_none() {
         vars.retain(|(key, _)| {
-            !DROP_VARS.contains(&key.as_str())
-                && !DROP_PREFIXES.iter().any(|p| key.starts_with(p))
+            !DROP_VARS.contains(&key.as_str()) && !DROP_PREFIXES.iter().any(|p| key.starts_with(p))
         });
     }
 

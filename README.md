@@ -39,14 +39,15 @@ Drop-in replacement for `grep`, `cat`, `ls`, `find`, `git status/log/diff` — b
 
 ### vs `rtk` and other agent compressors
 
-`rtk` shells to `ripgrep` on every invocation and post-processes the output. `ig` is the only token compressor that ships its own **persistent on-disk index**, which unlocks two things `rtk` cannot replicate without re-implementing one: **`--top N` BM25 ranking** (10/10 byte wins on the 115-case benchmark) and **`--semantic` PMI expansion** (synonyms learned from your own codebase, no ML model). On total bytes + total wall time, `ig` wins both axes simultaneously (896 KB / 1.74 s vs 1.04 MB / 2.88 s).
+`rtk` shells to `ripgrep` on every invocation and post-processes the output. `ig` is the only token compressor that ships its own **persistent on-disk index**, which unlocks two things `rtk` cannot replicate without re-implementing one: **`--top N` BM25 ranking** and **`--semantic` PMI expansion** (synonyms learned from your own codebase, no ML model). On a 21-case benchmark (v2.4.0 vs rtk 0.42.2), ig emits **15.5% fewer total bytes** at identical speed, with **84% fewer bytes** on signature reads and ranked queries.
 
 ### RTK compatibility
 
-As of v2.0.0 `ig` ships feature parity with `rtk`: native Rust wrappers for
-test runners, linters, build/package managers, git platforms, and cloud CLIs
-(33 new subcommands), the RTK 0/1/2/3 hook exit-code protocol, and a permission
-engine. Migrating from RTK:
+As of v2.4.0 `ig` ships **broader coverage than rtk**: 40 dedicated structured
+parsers, 141 TOML filter rules across 40 files, covering 90+ unique tools —
+test runners, linters, build/package managers, git platforms, cloud CLIs, IaC,
+containers, and system tools. Plus the RTK 0/1/2/3 hook exit-code protocol and
+a permission engine. Migrating from RTK:
 
 - `ig import-rtk` — translate your RTK `filters.toml` (user + project) into
   ig's filter format in one shot (also via `ig setup --import-rtk`).
@@ -58,7 +59,7 @@ engine. Migrating from RTK:
 compiles in no endpoint, so it is a hard no-op. `IG_TELEMETRY_DISABLED=1` is a
 permanent kill switch.
 
-New v2.0.0 subcommands, grouped:
+Dedicated subcommands (40 structured parsers), grouped:
 
 - **Test runners**: `vitest` `jest` `playwright` `pytest` `cargo-test`
   `go-test` `rspec` `rake`
@@ -67,8 +68,13 @@ New v2.0.0 subcommands, grouped:
 - **Build / pkg**: `next` `prisma` `pnpm` `npm` `pip`
 - **Git platforms**: `gh` `glab` `gt`
 - **Cloud / data**: `aws` `kubectl` `psql` `curl` `wget`
-- **System**: `log` `summary` `tree` `wc`
-- **Meta**: `hook-audit` `telemetry` `import-rtk`
+- **System**: `log` `summary` `tree` `wc` `docker` `env` `diff`
+- **Meta**: `hook-audit` `telemetry` `import-rtk` `err` `test` `json` `deps`
+
+TOML filter pipeline (141 rules across 40 files) adds coverage for:
+Terraform, Ansible, Helm, OpenTofu, .NET, NX, Turbo, PHPUnit, Pest, Cypress,
+Composer, Brew, Poetry, UV, shellcheck, yamllint, markdownlint, hadolint,
+pre-commit, trunk, Make, Maven, Swift, Elixir/Mix, PlatformIO, and more.
 
 Every wrapper honors `-u/--ultra-compact`, propagates the wrapped tool's exit
 code, and falls back to raw passthrough when its output can't be parsed.
@@ -105,7 +111,7 @@ ig ───── ~/.cache/ig/  (process-per-invocation, mmap'd on every search
 
 ---
 
-**One binary. ~5MB. Zero runtime dependencies.** `ig` replaces `grep`, `cat`, `ls`, `tree`, `find`, and `git status/log/diff` with token-optimized alternatives — built for AI coding agents (Claude Code, Codex, OpenCode, Cursor).
+**One binary. ~9 MB. Zero runtime dependencies.** `ig` replaces `grep`, `cat`, `ls`, `tree`, `find`, and `git status/log/diff` with token-optimized alternatives — built for AI coding agents (Claude Code, Codex, OpenCode, Cursor).
 
 ```
 $ ig "async fn.*Result" src/ --stats
@@ -126,10 +132,11 @@ Index: yes
 | **ig vs ripgrep 14.1.1 — wall time** (v1.11.0, 5 patterns on iautos/apps 18 GB) | **2.2× to 7.8× faster** (median 2.6× faster) |
 | **ig vs ripgrep — match parity** | **5/5 patterns identical** (file count + total matches byte-for-byte) |
 | **Single-query latency** (warm, mmap'd index, iautos/apps) | **2.4–8.1 ms** depending on pattern |
-| **ig vs rtk total bytes** (v1.10.0, 115 cases on a 347K-file monorepo) | **896 KB vs 1.04 MB** (ig wins) |
-| **ig vs rtk total time** (same 115 cases) | **1.74 s vs 2.88 s** (ig 40% faster) |
-| **BM25 `--top N` vs rtk** | **10/10 bytes wins**, 7/10 time wins (rtk has no index) |
-| **`--semantic` PMI vs rtk** | **5/5 bytes wins** — synonyms learned from your repo |
+| **ig vs rtk total bytes** (v2.4.0, 21 cases) | **144 KB vs 171 KB** (ig −15.5%) |
+| **ig vs rtk signature reads** | **2.3 KB vs 14.8 KB** (ig −84%) |
+| **ig vs rtk `--top 5`** | **2.5 KB vs 16 KB** (ig −84%, rtk cannot rank) |
+| **ig vs rtk `--semantic`** | **2.3 KB vs 16.4 KB** (ig −86%, rtk has no index) |
+| **Filter coverage** | **141 rules / 40 files + 40 parsers** (rtk: "100+" claimed, 63 documented) |
 | **Token savings** | **93.5% average** across 100 benchmarked commands |
 | **ig files --compact** | 176K → 149B (**-99.9%**) on a 3K-file project |
 | **git status** | 422 bytes → 25 bytes (**-94%**) |
@@ -138,9 +145,9 @@ Index: yes
 | **Symbols extracted** | **4,834** from a Laravel project, **7,702** from a monorepo |
 | **Context reduction** | 12,841 bytes → 3,828 bytes per turn (**-70%**) |
 | **Agent setup** | 8 agents configured in **one command** |
-| **Rust tests** | **438 tests** (389 bin + 49 goldens) |
+| **Rust tests** | **557 unit + 49 golden** tests, 0 failures |
 | **Integration tests** | **63/65 pass** (2 voluntary skips, 0 failures) |
-| **Commands rewritten** | **91 bins** across 42 TOML filters (v1.9.0) |
+| **Filter coverage** | **141 rules** across 40 TOML files + 40 dedicated parsers (v2.4.0) |
 
 ### ig vs ripgrep 14.1.1 (v1.11.0, iautos/apps 18 GB, warm cache, hyperfine -N)
 
@@ -278,7 +285,7 @@ ig discover                   # find missed optimization opportunities
 | Deny rules (`rm -rf /`, `git reset --hard`) | ✅ | ✅ |
 | Ask rules (`git push --force`) | ✅ | ✅ |
 | Dedup consecutive identical output lines | ✅ | ✅ |
-| Rewritten command categories | **91** | 72 |
+| Rewritten command categories | **141+** | 72 |
 
 All features are quote-aware: `|`/`;`/`&&` inside `"…"` or `'…'` are preserved literally.
 
@@ -640,46 +647,67 @@ Since v1.7.0, ig is a **complete standalone solution** for AI agent token optimi
 | ls (5 listings) | 4.3K | 758B | **-83%** |
 | **Total (100 commands)** | **3.7 MB** | **241K** | **-93.5%** |
 
-### ig vs rtk — full benchmark (v1.10.0)
+### ig vs rtk — benchmark (v2.4.0)
 
-**115 cases across 12 domains**, run on the `iautos` SaaS monorepo (347 843 files raw, 3 146 after ig's default excludes). Methodology: 2 warm-up passes + **median of 3** wall-time runs per case. Bytes are deterministic (one measurement). Full raw data in `documentation/public/bench/v1.10.0/`.
+**21 cases across 6 categories**, run on the instant-grep codebase (~90 Rust source files). ig v2.4.0 vs rtk 0.42.2, Linux x86_64, ripgrep 15.1.0. Full raw data in `documentation/public/bench/v2.3.0/`.
 
-| Headline | ig 1.10.0 | rtk 0.37.2 |
+| Headline | ig 2.4.0 | rtk 0.42.2 |
 |---|---:|---:|
-| **Total bytes emitted** | **896 KB** | 1.04 MB |
-| **Total wall time** | **1.74 s** | 2.88 s |
-| **Bytes wins** | **57 / 115** | 54 / 115 *(tie 4)* |
-| **Time wins** | **80 / 115** | 27 / 115 *(tie 8)* |
+| **Total bytes emitted** | **144 KB** | 171 KB |
+| **Total wall time** | **2.3 s** | 2.3 s |
+| **Signature reads** | **2.3 KB** | 14.8 KB (**ig −84%**) |
+| **`--top 5` ranking** | **2.5 KB** | 16.1 KB (**ig −84%**) |
+| **`--semantic` expansion** | **2.3 KB** | 16.4 KB (**ig −86%**) |
 
-**ig wins on aggregate bytes and wall time simultaneously for the first time.**
+#### Filter coverage comparison (audited 2026-06-05)
 
-#### Per-domain breakdown
+| Category | ig | rtk |
+|---|---:|---:|
+| Test runners | **12** | 8 |
+| Lint / format | **16** | 7 |
+| Build | **7** | 2 |
+| Containers / K8s | **23** | 7 |
+| Cloud / IaC | **18** | 8 |
+| Package managers | **8** | 4 |
+| Git platforms | **3** | 1 |
+| System / network | **13** | 4 |
+| Monorepo (NX, Turbo) | **2** | 0 |
+| .NET / Elixir / Swift / Java | **4** | 0 |
+| **Total** | **106** | **41** |
 
-| # | Domain | ig bytes wins | rtk bytes wins | ig time wins | rtk time wins |
-|---|---|---:|---:|---:|---:|
-| 1 | literal search | 5 | 5 | **9** | 1 |
-| 2 | regex search | 3 | **7** | **6** | 4 |
-| 3 | flag variants | **7** | 3 | **9** | 1 |
-| 4 | listing | 2 | **8** | **7** | 3 |
-| 5 | read full | 0 | **10** | **8** | 0 |
-| 6 | read signatures | **9** | 1 | **10** | 0 |
-| 7 | git proxy | **7** | 2 | **8** | 0 |
-| 8 | varied identifiers | 3 | 4 | **10** | 0 |
-| 9 | smart summaries | 4 | **6** | 0 | **10** |
-| 10 | generic proxy | 2 | **8** | 4 | 3 |
-| 11 | **`--top` BM25** | **10** | 0 | **7** | 3 |
-| 12 | **`--semantic` PMI** | **5** | 0 | 2 | 2 |
+ig: 141 TOML rules + 40 dedicated structured parsers. RTK: "100+" claimed, 63 documented.
 
-#### Where rtk still wins — and why it's a trade-off, not a bug
+#### RTK functional gaps (confirmed on v0.42.2)
 
-- **Read full (10/10 bytes to rtk)** — ig keeps the `   42: content` line-number prefix because it's what lets the Edit tool round-trip precisely. Dropping it saves ~15 % bytes per file and halves the utility. Deliberate.
-- **Listing / smart dir singles** — rtk's `rtk ls` emits a placeholder 8 B for top-level dirs. Fewer bytes, less information; we emit a compact listing that's still actionable.
+- `rtk grep -c` (count per file) — returns "0" regardless of matches
+- `rtk grep -l` (files-with-matches) — returns empty output
+- `rtk smart` on directories — fails with "Is a directory"
+- No equivalents for `ig symbols`, `ig context`, `ig pack`
+
+#### Where rtk still wins — and why it's a trade-off
+
+- **Read full (~15% smaller)** — ig keeps the `   42: content` line-number prefix because it's what lets the Edit tool round-trip precisely. Deliberate.
+- **Platform integrations (14 vs 3)** — rtk supports Cursor, Copilot, Windsurf, Cline, Aider, and more. ig targets Claude Code, Codex, and Gemini CLI.
 
 #### Where ig is categorically ahead — rtk cannot match without a persistent index
 
-- **`--top N` BM25 ranking** — 10 / 10 bytes wins. Example: `ig --top 10 "export default"` = 743 B; `rtk grep "export default"` = 19 403 B — same query, **−96 %**. rtk has no `tf` / `df` / `avdl` so it cannot rank; it can only flat-compress.
-- **`--semantic` PMI expansion** — 5 / 5 bytes wins. Example: `ig --semantic --top 5 throw` = 3 368 B with synonyms learned from the repo; `rtk grep throw` = 17 717 B of literal matches. Building a cooccurrence matrix would require rtk to ship its own index layer.
-- **Sub-ms mmap'd index** — `ig` answers queries at p50 ≈ 0.7 ms by mmap'ing `lexicon.bin` + `postings.bin`; rtk shells to ripgrep on every invocation, so its floor is whatever `rg`'s file-walk costs.
+- **`--top N` BM25 ranking** — `ig --top 5 "filter"` = 2 553 B; `rtk grep "filter"` = 16 088 B. **−84 %**. rtk has no `tf` / `df` / `avdl` so it cannot rank.
+- **`--semantic` PMI expansion** — `ig --semantic --top 5 "error"` = 2 291 B; `rtk grep "error"` = 16 384 B. **−86 %**.
+- **Signature reads** — `ig read -s main.rs` = 2 354 B; `rtk read -l aggressive main.rs` = 14 833 B. **−84 %**. ig extracts imports + fn signatures; rtk strips bodies less aggressively.
+- **Sub-ms mmap'd index** — `ig` answers queries at p50 ≈ 0.7 ms by mmap'ing `lexicon.bin` + `postings.bin`; rtk shells to ripgrep on every invocation.
+
+<details>
+<summary>Historical benchmark: v1.10.0 (115 cases on iautos monorepo)</summary>
+
+| Headline | ig 1.10.0 | rtk 0.37.2 |
+|---|---:|---:|
+| Total bytes emitted | **896 KB** | 1.04 MB |
+| Total wall time | **1.74 s** | 2.88 s |
+| Bytes wins | **57 / 115** | 54 / 115 |
+| Time wins | **80 / 115** | 27 / 115 |
+
+Full raw data: `documentation/public/bench/v1.10.0/`.
+</details>
 
 ### ig v1.4.0 vs ripgrep
 
@@ -738,8 +766,8 @@ The optimal strategy: `ig symbols | grep KEYWORD` for definitions, `ig -l "KEYWO
 ```
 ┌────────────────────────┐
 │ ~/.local/bin/ig        │   ~5.6 MB self-contained Rust binary, in $PATH
-│ (one binary, the only  │   codesigned with stable identifier dev.makfly.ig
-│  thing the user sees)  │   on macOS so TCC doesn't re-prompt on every update.
+│ (one binary, the only  │   ~9 MB, codesigned with stable identifier
+│  thing the user sees)  │   dev.makfly.ig on macOS.
 └───────────┬────────────┘
             │ argv → in-process subcommand dispatch
             ▼
@@ -944,7 +972,7 @@ No. The default binary contains zero network code on the search path. The option
 
 ### Which AI agents are supported?
 
-`ig setup` configures **7 agents** out of the box: Claude Code, Codex CLI, OpenCode, Cursor, Windsurf, Cline, and Gemini CLI. Each gets its rule file written + (when applicable) a PreToolUse hook installed to auto-rewrite `grep` / `cat` / `find` / `git` calls. 100 % idempotent.
+`ig setup` configures **7 agents** out of the box: Claude Code, Codex CLI, OpenCode, Cursor, Windsurf, Cline, and Gemini CLI. 40 dedicated structured parsers + 141 TOML filter rules cover 90+ unique tools. Each gets its rule file written + (when applicable) a PreToolUse hook installed to auto-rewrite `grep` / `cat` / `find` / `git` calls. 100 % idempotent.
 
 ### Linux, macOS, Windows?
 
