@@ -3,7 +3,7 @@
 //! Wires:
 //! - `~/.claude/CLAUDE.md` (managed-block with search-tools section)
 //! - `~/.claude/rules/tools/ig.md` (deep-dive rule file, fully owned)
-//! - `~/.claude/settings.json` (`Bash(ig *)` permission, env vars, hooks)
+//! - `~/.claude/settings.json` (`Bash(ig *)` permission, hooks)
 //! - `~/.claude/hooks/{ig-guard,format,subagent-context}.sh`
 //! - `~/.claude/agents/explorer.md`
 
@@ -12,7 +12,7 @@ use std::path::Path;
 
 use super::super::{
     AgentInstaller, ConfigResult, IG_MANAGED_BEGIN, IG_MANAGED_END, InstallContext, InstallReport,
-    ShowItem, ShowReport, configure_claude_env_vars, configure_claude_hooks_full,
+    ShowItem, ShowReport, configure_claude_hooks_full,
     configure_claude_md, configure_claude_rules_ig_md, configure_claude_settings,
     results_to_report, sha256_of,
 };
@@ -81,7 +81,6 @@ impl AgentInstaller for Claude {
         }
         if !ctx.no_patch {
             all.extend(configure_claude_hooks_full(&claude_dir, ctx.dry_run));
-            all.extend(configure_claude_env_vars(&claude_dir, ctx.dry_run));
         }
 
         results_to_report(NAME, all)

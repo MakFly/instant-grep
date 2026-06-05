@@ -21,7 +21,7 @@ impl AgentInstaller for Kilocode {
         NAME
     }
     fn detect(&self, home: &Path) -> bool {
-        home.join(".kilo").is_dir() || std::path::PathBuf::from(".kilo").is_dir()
+        home.join(".kilo").is_dir() || super::super::which_exists("kilo")
     }
     fn install(&self, home: &Path, ctx: &InstallContext) -> InstallReport {
         let mut r = InstallReport {

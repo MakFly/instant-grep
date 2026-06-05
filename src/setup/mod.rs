@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::hooks::copilot;
+use crate::hooks::rules;
 
 pub mod agents;
 pub mod import_rtk;
@@ -200,7 +200,7 @@ pub fn run_per_agent(
 
     if !any_match {
         return Err(format!(
-            "unknown agent: '{}' (valid: all, claude, codex, cursor, copilot, gemini, opencode, windsurf, cline, hermes, kilocode, antigravity)",
+            "unknown agent: '{}' (valid: all, claude, codex, cursor, gemini, opencode, windsurf, cline, hermes, kilocode, antigravity)",
             agent_filter
         ));
     }
@@ -540,7 +540,6 @@ impl AgentSetup for ClaudeCodeAgent {
         actions.push(configure_claude_md(&claude_dir));
         actions.push(configure_claude_rules_ig_md(&claude_dir));
         actions.extend(configure_claude_hooks_full(&claude_dir, dry_run));
-        actions.extend(configure_claude_env_vars(&claude_dir, dry_run));
         actions
     }
 }
@@ -604,24 +603,6 @@ impl AgentSetup for CursorAgent {
     }
 }
 
-// ─── GitHub Copilot ───────────────────────────────────────────────────────────
-
-struct CopilotAgent;
-
-impl AgentSetup for CopilotAgent {
-    fn name(&self) -> &str {
-        "GitHub Copilot"
-    }
-
-    fn is_present(&self, home: &Path) -> bool {
-        home.join(".github").is_dir() || PathBuf::from(".github").is_dir()
-    }
-
-    fn configure(&self, home: &Path, dry_run: bool) -> Vec<ConfigResult> {
-        configure_copilot(home, dry_run)
-    }
-}
-
 // ─── Windsurf ─────────────────────────────────────────────────────────────────
 
 struct WindsurfAgent;
@@ -632,7 +613,7 @@ impl AgentSetup for WindsurfAgent {
     }
 
     fn is_present(&self, home: &Path) -> bool {
-        home.join(".windsurf").is_dir() || PathBuf::from(".windsurf").is_dir()
+        home.join(".windsurf").is_dir() || which_exists("windsurf")
     }
 
     fn configure(&self, home: &Path, dry_run: bool) -> Vec<ConfigResult> {
@@ -650,7 +631,7 @@ impl AgentSetup for ClineAgent {
     }
 
     fn is_present(&self, home: &Path) -> bool {
-        home.join(".cline").is_dir() || PathBuf::from(".cline").is_dir()
+        home.join(".cline").is_dir()
     }
 
     fn configure(&self, home: &Path, dry_run: bool) -> Vec<ConfigResult> {
@@ -740,7 +721,7 @@ impl AgentSetup for KiloAgent {
     }
 
     fn is_present(&self, home: &Path) -> bool {
-        home.join(".kilo").is_dir() || PathBuf::from(".kilo").is_dir()
+        home.join(".kilo").is_dir() || which_exists("kilo")
     }
 
     fn configure(&self, home: &Path, dry_run: bool) -> Vec<ConfigResult> {
@@ -994,72 +975,6 @@ pub(crate) fn configure_claude_hooks_full(claude_dir: &Path, dry_run: bool) -> V
     results
 }
 
-// ─── Claude Code — env vars ───────────────────────────────────────────────────
-
-pub(crate) fn configure_claude_env_vars(claude_dir: &Path, dry_run: bool) -> Vec<ConfigResult> {
-    let mut results = Vec::new();
-    let settings_path = claude_dir.join("settings.json");
-
-    let content = fs::read_to_string(&settings_path).unwrap_or_else(|_| "{}".to_string());
-    let mut parsed: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(_) => {
-            results.push(ConfigResult::Error(
-                "Could not parse settings.json for env vars".to_string(),
-            ));
-            return results;
-        }
-    };
-
-    if parsed.get("env").is_none() {
-        parsed["env"] = serde_json::json!({});
-    }
-
-    let env = parsed["env"].as_object_mut().unwrap();
-    let mut changed = false;
-
-    if !env.contains_key("CLAUDE_CODE_EFFORT_LEVEL") {
-        env.insert(
-            "CLAUDE_CODE_EFFORT_LEVEL".to_string(),
-            serde_json::json!("medium"),
-        );
-        results.push(ConfigResult::Configured(
-            "Set CLAUDE_CODE_EFFORT_LEVEL=medium".to_string(),
-        ));
-        changed = true;
-    } else {
-        results.push(ConfigResult::AlreadyDone(
-            "CLAUDE_CODE_EFFORT_LEVEL already set".to_string(),
-        ));
-    }
-
-    if !env.contains_key("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE") {
-        env.insert(
-            "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE".to_string(),
-            serde_json::json!("70"),
-        );
-        results.push(ConfigResult::Configured(
-            "Set CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=70".to_string(),
-        ));
-        changed = true;
-    } else {
-        results.push(ConfigResult::AlreadyDone(
-            "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE already set".to_string(),
-        ));
-    }
-
-    if changed && !dry_run {
-        let formatted = serde_json::to_string_pretty(&parsed).unwrap_or_default();
-        if fs::write(&settings_path, format!("{}\n", formatted)).is_err() {
-            results.push(ConfigResult::Error(
-                "Could not write settings.json".to_string(),
-            ));
-        }
-    }
-
-    results
-}
-
 // ─── Claude Code — explorer agent ────────────────────────────────────────────
 
 pub(crate) fn install_explorer_agent(claude_dir: &Path, dry_run: bool) -> ConfigResult {
@@ -1190,36 +1105,6 @@ pub(crate) fn configure_cursor(home: &Path, dry_run: bool) -> Vec<ConfigResult> 
     }
 }
 
-// ─── Copilot ────────────────────────────────────────────────────────────────
-
-pub(crate) fn configure_copilot(home: &Path, dry_run: bool) -> Vec<ConfigResult> {
-    let config_path = home.join(".github/copilot-instructions.md");
-    let project_path = PathBuf::from(".github/copilot-instructions.md");
-
-    // Use project-local if .github/ exists, otherwise user-level
-    let target = if PathBuf::from(".github").is_dir() {
-        &project_path
-    } else {
-        &config_path
-    };
-
-    if target.exists() {
-        return vec![ConfigResult::AlreadyDone(format!(
-            "{} already exists",
-            target.display()
-        ))];
-    }
-
-    let content = copilot::copilot_instructions();
-    match write_if_not_dry(target, content.as_bytes(), dry_run) {
-        Ok(_) => vec![ConfigResult::Configured(format!(
-            "Created {}",
-            target.display()
-        ))],
-        Err(e) => vec![ConfigResult::Error(e)],
-    }
-}
-
 // ─── Windsurf ───────────────────────────────────────────────────────────────
 
 pub(crate) fn configure_windsurf(_home: &Path, dry_run: bool) -> Vec<ConfigResult> {
@@ -1231,7 +1116,7 @@ pub(crate) fn configure_windsurf(_home: &Path, dry_run: bool) -> Vec<ConfigResul
         )];
     }
 
-    let content = copilot::windsurf_rules();
+    let content = rules::windsurf_rules();
     match write_if_not_dry(&target, content.as_bytes(), dry_run) {
         Ok(_) => vec![ConfigResult::Configured(
             "Created .windsurfrules".to_string(),
@@ -1251,7 +1136,7 @@ pub(crate) fn configure_cline(_home: &Path, dry_run: bool) -> Vec<ConfigResult> 
         )];
     }
 
-    let content = copilot::cline_rules();
+    let content = rules::cline_rules();
     match write_if_not_dry(&target, content.as_bytes(), dry_run) {
         Ok(_) => vec![ConfigResult::Configured("Created .clinerules".to_string())],
         Err(e) => vec![ConfigResult::Error(e)],
@@ -1660,7 +1545,6 @@ pub fn run_setup_with_options(dry_run: bool, quiet: bool) {
         &CodexAgent,
         &OpenCodeAgent,
         &CursorAgent,
-        &CopilotAgent,
         &WindsurfAgent,
         &ClineAgent,
         &GeminiAgent,
@@ -2434,64 +2318,6 @@ mod tests {
             configured.is_empty(),
             "second run should produce no Configured results"
         );
-    }
-
-    #[test]
-    fn test_configure_claude_env_vars_sets_keys() {
-        let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("settings.json"), "{}").unwrap();
-        let results = configure_claude_env_vars(dir.path(), false);
-        let configured: Vec<_> = results
-            .iter()
-            .filter_map(|r| {
-                if let ConfigResult::Configured(m) = r {
-                    Some(m.as_str())
-                } else {
-                    None
-                }
-            })
-            .collect();
-        assert!(
-            configured
-                .iter()
-                .any(|m| m.contains("CLAUDE_CODE_EFFORT_LEVEL"))
-        );
-        assert!(
-            configured
-                .iter()
-                .any(|m| m.contains("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"))
-        );
-
-        let content = fs::read_to_string(dir.path().join("settings.json")).unwrap();
-        assert!(content.contains("CLAUDE_CODE_EFFORT_LEVEL"));
-        assert!(content.contains("medium"));
-        assert!(content.contains("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"));
-        assert!(content.contains("70"));
-    }
-
-    #[test]
-    fn test_configure_claude_env_vars_idempotent() {
-        let dir = TempDir::new().unwrap();
-        let settings =
-            r#"{"env":{"CLAUDE_CODE_EFFORT_LEVEL":"high","CLAUDE_AUTOCOMPACT_PCT_OVERRIDE":"80"}}"#;
-        fs::write(dir.path().join("settings.json"), settings).unwrap();
-
-        let results = configure_claude_env_vars(dir.path(), false);
-        let already: Vec<_> = results
-            .iter()
-            .filter(|r| matches!(r, ConfigResult::AlreadyDone(_)))
-            .collect();
-        assert_eq!(already.len(), 2);
-    }
-
-    #[test]
-    fn test_configure_claude_env_vars_dry_run() {
-        let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("settings.json"), "{}").unwrap();
-        configure_claude_env_vars(dir.path(), true);
-        // File should remain unchanged
-        let content = fs::read_to_string(dir.path().join("settings.json")).unwrap();
-        assert_eq!(content, "{}");
     }
 
     #[test]

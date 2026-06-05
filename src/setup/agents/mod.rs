@@ -13,7 +13,6 @@ pub mod antigravity;
 pub mod claude;
 pub mod cline;
 pub mod codex;
-pub mod copilot;
 pub mod cursor;
 pub mod gemini;
 pub mod hermes;
@@ -29,7 +28,6 @@ pub fn all() -> Vec<Box<dyn AgentInstaller>> {
         Box::new(claude::Claude),
         Box::new(codex::Codex),
         Box::new(cursor::Cursor),
-        Box::new(copilot::Copilot),
         Box::new(gemini::Gemini),
         Box::new(opencode::OpenCode),
         Box::new(windsurf::Windsurf),

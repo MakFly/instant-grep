@@ -19,7 +19,7 @@ impl AgentInstaller for Windsurf {
         NAME
     }
     fn detect(&self, home: &Path) -> bool {
-        home.join(".windsurf").is_dir() || PathBuf::from(".windsurf").is_dir()
+        home.join(".windsurf").is_dir() || super::super::which_exists("windsurf")
     }
     fn install(&self, home: &Path, ctx: &InstallContext) -> InstallReport {
         if ctx.hook_only {

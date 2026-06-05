@@ -27,11 +27,6 @@ const IG_HOOK_MARKERS: &[&str] = &[
 
 const IG_HOOK_FILES: &[&str] = &["ig-guard.sh", "session-start.sh", "format.sh"];
 
-const IG_ENV_VARS: &[&str] = &[
-    "CLAUDE_CODE_EFFORT_LEVEL",
-    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
-];
-
 const IG_PERMISSION: &str = "Bash(ig *)";
 
 // ─── Result type ────────────────────────────────────────────────────────────
@@ -287,30 +282,6 @@ fn clean_settings_json(parsed: &mut serde_json::Value) -> bool {
         hooks.retain(|_k, v| v.as_array().is_none_or(|a| !a.is_empty()));
     }
 
-    // Remove ig env vars
-    if let Some(env) = parsed.get_mut("env").and_then(|e| e.as_object_mut()) {
-        for var in IG_ENV_VARS {
-            if env.remove(*var).is_some() {
-                changed = true;
-            }
-        }
-        // Remove env object if empty
-        if env.is_empty() {
-            // Can't remove here, mark for outer cleanup
-        }
-    }
-    // Clean up empty env object
-    if parsed
-        .get("env")
-        .and_then(|e| e.as_object())
-        .is_some_and(|o| o.is_empty())
-    {
-        if let Some(obj) = parsed.as_object_mut() {
-            obj.remove("env");
-        }
-        changed = true;
-    }
-
     changed
 }
 
@@ -556,35 +527,6 @@ mod tests {
     }
 
     #[test]
-    fn test_clean_settings_json_removes_env_vars() {
-        let json = r#"{
-            "env": {
-                "CLAUDE_CODE_EFFORT_LEVEL": "medium",
-                "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "70",
-                "MY_CUSTOM_VAR": "keep"
-            }
-        }"#;
-        let mut parsed: serde_json::Value = serde_json::from_str(json).unwrap();
-        assert!(clean_settings_json(&mut parsed));
-
-        let env = parsed["env"].as_object().unwrap();
-        assert_eq!(env.len(), 1);
-        assert!(env.contains_key("MY_CUSTOM_VAR"));
-    }
-
-    #[test]
-    fn test_clean_settings_json_removes_empty_env() {
-        let json = r#"{
-            "env": {
-                "CLAUDE_CODE_EFFORT_LEVEL": "medium"
-            }
-        }"#;
-        let mut parsed: serde_json::Value = serde_json::from_str(json).unwrap();
-        assert!(clean_settings_json(&mut parsed));
-        assert!(parsed.get("env").is_none());
-    }
-
-    #[test]
     fn test_clean_settings_json_no_changes() {
         let json = r#"{"permissions":{"allow":["Bash(git *)"]}}"#;
         let mut parsed: serde_json::Value = serde_json::from_str(json).unwrap();
@@ -616,7 +558,7 @@ mod tests {
                         ]
                     }]
                 },
-                "env": {"CLAUDE_CODE_EFFORT_LEVEL": "medium"}
+                "env": {"MY_CUSTOM_VAR": "keep"}
             }"#,
         )
         .unwrap();

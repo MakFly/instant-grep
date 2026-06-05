@@ -19,7 +19,7 @@ impl AgentInstaller for Cline {
         NAME
     }
     fn detect(&self, home: &Path) -> bool {
-        home.join(".cline").is_dir() || PathBuf::from(".cline").is_dir()
+        home.join(".cline").is_dir()
     }
     fn install(&self, home: &Path, ctx: &InstallContext) -> InstallReport {
         if ctx.hook_only {

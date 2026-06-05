@@ -2,7 +2,7 @@
 
 **A trigram-indexed `ripgrep` alternative for AI agents — sub-millisecond regex code search in Rust, with 93.5% token savings on `grep` / `cat` / `git` output.**
 
-Drop-in replacement for `grep`, `cat`, `ls`, `find`, `git status/log/diff` — built for Claude Code, Codex, Cursor, OpenCode, Copilot, Windsurf, Cline, and Gemini CLI.
+Drop-in replacement for `grep`, `cat`, `ls`, `find`, `git status/log/diff` — built for Claude Code, Codex, Cursor, OpenCode, Windsurf, Cline, and Gemini CLI.
 
 <p align="center">
   <a href="#why-instant-grep">Why ig?</a> &middot;
@@ -590,18 +590,16 @@ ig setup --dry-run                # preview without writing
 
 | Agent | What it configures |
 |-------|--------------------|
-| **Claude Code** | 3 hook scripts + 8 hook registrations + permissions + env vars + CLAUDE.md |
+| **Claude Code** | 3 hook scripts + 8 hook registrations + permissions + CLAUDE.md |
 | **Codex CLI** | AGENTS.md with search instructions |
 | **OpenCode** | AGENTS.md + opencode.json instructions array |
 | **Cursor** | `~/.cursor/rules/ig-search.mdc` (alwaysApply) |
-| **GitHub Copilot** | `copilot-instructions.md` with search instructions |
 | **Windsurf** | `.windsurfrules` with search instructions |
 | **Cline** | `.clinerules` with search instructions |
 | **Gemini CLI** | Manual instructions (print-only) |
 
 **Claude Code hooks installed:**
 - `ig-guard.sh` — command rewriting + blocks `rg`/`grep -r`/`find` in favor of ig
-- `session-start.sh` — version change detection + token savings summary
 - `format.sh` — auto-format on file writes
 - Grep tool blocker, npm/npx blocker, destructive git blocker, secret detection, .env warning
 
@@ -946,7 +944,7 @@ No. The default binary contains zero network code on the search path. The option
 
 ### Which AI agents are supported?
 
-`ig setup` configures **8 agents** out of the box: Claude Code, Codex CLI, OpenCode, Cursor, GitHub Copilot, Windsurf, Cline, and Gemini CLI. Each gets its rule file written + (when applicable) a PreToolUse hook installed to auto-rewrite `grep` / `cat` / `find` / `git` calls. 100 % idempotent.
+`ig setup` configures **7 agents** out of the box: Claude Code, Codex CLI, OpenCode, Cursor, Windsurf, Cline, and Gemini CLI. Each gets its rule file written + (when applicable) a PreToolUse hook installed to auto-rewrite `grep` / `cat` / `find` / `git` calls. 100 % idempotent.
 
 ### Linux, macOS, Windows?
 

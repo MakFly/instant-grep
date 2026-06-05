@@ -1,22 +1,4 @@
-//! Hook content generators for additional AI tools (Copilot, Windsurf, Cline).
-
-/// Generate Copilot instructions content for .github/copilot-instructions.md
-pub fn copilot_instructions() -> String {
-    "# ig — Token-optimized CLI\n\n\
-     Use `ig` for all code search and file operations:\n\
-     - `ig \"pattern\" [path]` — search (trigram-indexed, sub-ms)\n\
-     - `ig read <file>` — read file with compression\n\
-     - `ig read -s <file>` — signatures only\n\
-     - `ig read -a <file>` — aggressive compression\n\
-     - `ig ls [path]` — compact directory listing\n\
-     - `ig git status/log/diff` — compressed git output\n\
-     - `ig run <command>` — run any command with output compression\n\
-     - `ig test` — auto-detect and run tests with compact output\n\
-     - `ig deps` — show project dependencies\n\
-     - `ig err <command>` — show only errors/warnings\n\n\
-     Never use raw `cat`, `grep`, `find`, `ls -la`, or `tree` — use ig equivalents.\n"
-        .to_string()
-}
+//! Rule content generators for AI tools (Windsurf, Cline).
 
 /// Generate Windsurf rules content for .windsurfrules
 pub fn windsurf_rules() -> String {
