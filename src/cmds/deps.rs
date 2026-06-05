@@ -47,6 +47,37 @@ pub fn run(_args: &[String]) -> Result<i32> {
     Ok(0)
 }
 
+const MAX_DEPS_SHOWN: usize = 10;
+
+fn print_truncated_list(label: &str, items: &[(String, String)]) {
+    let formatted: Vec<String> = items.iter().map(|(k, v)| format!("{k} ({v})")).collect();
+    if formatted.len() <= MAX_DEPS_SHOWN {
+        println!("  {} ({}): {}", label, items.len(), formatted.join(", "));
+    } else {
+        println!(
+            "  {} ({}): {}, +{} more",
+            label,
+            items.len(),
+            formatted[..MAX_DEPS_SHOWN].join(", "),
+            items.len() - MAX_DEPS_SHOWN
+        );
+    }
+}
+
+fn print_truncated_strings(label: &str, items: &[String]) {
+    if items.len() <= MAX_DEPS_SHOWN {
+        println!("  {} ({}): {}", label, items.len(), items.join(", "));
+    } else {
+        println!(
+            "  {} ({}): {}, +{} more",
+            label,
+            items.len(),
+            items[..MAX_DEPS_SHOWN].join(", "),
+            items.len() - MAX_DEPS_SHOWN
+        );
+    }
+}
+
 fn print_cargo_deps(path: &Path) -> Result<()> {
     let content = std::fs::read_to_string(path)?;
     println!("Rust (Cargo.toml):");
@@ -55,16 +86,10 @@ fn print_cargo_deps(path: &Path) -> Result<()> {
     let dev_deps = extract_toml_section(&content, "[dev-dependencies]");
 
     if !deps.is_empty() {
-        let formatted: Vec<String> = deps.iter().map(|(k, v)| format!("{k} ({v})")).collect();
-        println!("  Dependencies ({}): {}", deps.len(), formatted.join(", "));
+        print_truncated_list("Dependencies", &deps);
     }
     if !dev_deps.is_empty() {
-        let formatted: Vec<String> = dev_deps.iter().map(|(k, v)| format!("{k} ({v})")).collect();
-        println!(
-            "  Dev Dependencies ({}): {}",
-            dev_deps.len(),
-            formatted.join(", ")
-        );
+        print_truncated_list("Dev Dependencies", &dev_deps);
     }
     println!();
     Ok(())
@@ -121,22 +146,18 @@ fn print_node_deps(path: &Path) -> Result<()> {
     println!("Node.js (package.json):");
 
     if let Some(deps) = json.get("dependencies").and_then(|d| d.as_object()) {
-        let formatted: Vec<String> = deps
+        let items: Vec<(String, String)> = deps
             .iter()
-            .map(|(k, v)| format!("{k} ({})", v.as_str().unwrap_or("*")))
+            .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("*").to_string()))
             .collect();
-        println!("  Dependencies ({}): {}", deps.len(), formatted.join(", "));
+        print_truncated_list("Dependencies", &items);
     }
     if let Some(deps) = json.get("devDependencies").and_then(|d| d.as_object()) {
-        let formatted: Vec<String> = deps
+        let items: Vec<(String, String)> = deps
             .iter()
-            .map(|(k, v)| format!("{k} ({})", v.as_str().unwrap_or("*")))
+            .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("*").to_string()))
             .collect();
-        println!(
-            "  Dev Dependencies ({}): {}",
-            deps.len(),
-            formatted.join(", ")
-        );
+        print_truncated_list("Dev Dependencies", &items);
     }
     println!();
     Ok(())
@@ -168,7 +189,7 @@ fn print_go_deps(path: &Path) -> Result<()> {
     }
 
     if !deps.is_empty() {
-        println!("  Dependencies ({}): {}", deps.len(), deps.join(", "));
+        print_truncated_strings("Dependencies", &deps);
     }
     println!();
     Ok(())
@@ -185,7 +206,7 @@ fn print_requirements_deps(path: &Path) -> Result<()> {
         .collect();
 
     if !deps.is_empty() {
-        println!("  Dependencies ({}): {}", deps.len(), deps.join(", "));
+        print_truncated_strings("Dependencies", &deps);
     }
     println!();
     Ok(())
@@ -235,7 +256,7 @@ fn print_pyproject_deps(path: &Path) -> Result<()> {
     }
 
     if !deps.is_empty() {
-        println!("  Dependencies ({}): {}", deps.len(), deps.join(", "));
+        print_truncated_strings("Dependencies", &deps);
     }
     println!();
     Ok(())
@@ -261,7 +282,7 @@ fn print_gemfile_deps(path: &Path) -> Result<()> {
         .collect();
 
     if !deps.is_empty() {
-        println!("  Dependencies ({}): {}", deps.len(), deps.join(", "));
+        print_truncated_strings("Dependencies", &deps);
     }
     println!();
     Ok(())
@@ -274,22 +295,18 @@ fn print_composer_deps(path: &Path) -> Result<()> {
     println!("PHP (composer.json):");
 
     if let Some(deps) = json.get("require").and_then(|d| d.as_object()) {
-        let formatted: Vec<String> = deps
+        let items: Vec<(String, String)> = deps
             .iter()
-            .map(|(k, v)| format!("{k} ({})", v.as_str().unwrap_or("*")))
+            .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("*").to_string()))
             .collect();
-        println!("  Dependencies ({}): {}", deps.len(), formatted.join(", "));
+        print_truncated_list("Dependencies", &items);
     }
     if let Some(deps) = json.get("require-dev").and_then(|d| d.as_object()) {
-        let formatted: Vec<String> = deps
+        let items: Vec<(String, String)> = deps
             .iter()
-            .map(|(k, v)| format!("{k} ({})", v.as_str().unwrap_or("*")))
+            .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("*").to_string()))
             .collect();
-        println!(
-            "  Dev Dependencies ({}): {}",
-            deps.len(),
-            formatted.join(", ")
-        );
+        print_truncated_list("Dev Dependencies", &items);
     }
     println!();
     Ok(())

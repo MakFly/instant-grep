@@ -251,19 +251,49 @@ fn git_diff(args: &[String]) {
         .concat(),
     );
 
-    // If the full diff is small enough, show it entirely
-    let output = if native_full.len() < 8000 {
-        format!("{}\n{}", stat.trim_end(), native_full)
+    // Compact diff: stat + only file headers and +/- lines (strip context)
+    let mut compact = String::new();
+    compact.push_str(stat.trim_end());
+    compact.push_str("\n\n--- Changes ---\n");
+
+    let mut current_file = String::new();
+    let mut additions = 0usize;
+    let mut deletions = 0usize;
+
+    for line in native_full.lines() {
+        if line.starts_with("diff --git ") {
+            if !current_file.is_empty() && (additions > 0 || deletions > 0) {
+                compact.push_str(&format!("  +{} -{}\n", additions, deletions));
+            }
+            current_file = line
+                .rsplit_once(" b/")
+                .map(|(_, f)| f.to_string())
+                .unwrap_or_default();
+            compact.push_str(&format!("\n{}\n", current_file));
+            additions = 0;
+            deletions = 0;
+        } else if line.starts_with("@@ ") {
+            compact.push_str(&format!("  {}\n", line));
+        } else if line.starts_with('+') && !line.starts_with("+++") {
+            compact.push_str(&format!("  {}\n", line));
+            additions += 1;
+        } else if line.starts_with('-') && !line.starts_with("---") {
+            compact.push_str(&format!("  {}\n", line));
+            deletions += 1;
+        }
+    }
+    if !current_file.is_empty() && (additions > 0 || deletions > 0) {
+        compact.push_str(&format!("  +{} -{}\n", additions, deletions));
+    }
+
+    const MAX_BYTES: usize = 8000;
+    let output = if compact.len() <= MAX_BYTES {
+        compact
     } else {
-        // Large diff: show stat + truncated diff
-        let lines: Vec<&str> = native_full.lines().collect();
-        let truncated: String = lines.iter().take(200).map(|l| format!("{}\n", l)).collect();
-        format!(
-            "{}\n{}\n... truncated ({} lines total, showing first 200)\n",
-            stat.trim_end(),
-            truncated.trim_end(),
-            lines.len()
-        )
+        let mut truncated = compact[..MAX_BYTES].to_string();
+        let total_lines = native_full.lines().count();
+        truncated.push_str(&format!("\n... truncated ({} lines total)\n", total_lines));
+        truncated
     };
 
     print!("{}", output);

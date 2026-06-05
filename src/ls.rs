@@ -81,29 +81,6 @@ pub fn format_ls(result: &LsResult) -> String {
         }
     }
 
-    // Summary
-    let parts: Vec<String> = [
-        if result.total_files > 0 {
-            Some(format!("{} files", result.total_files))
-        } else {
-            None
-        },
-        if result.total_dirs > 0 {
-            Some(format!("{} dirs", result.total_dirs))
-        } else {
-            None
-        },
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-
-    // Skip footer when listing is tiny: a 4-entry dir doesn't need a summary.
-    let total_entries = result.total_dirs + result.total_files;
-    if !parts.is_empty() && total_entries > 8 {
-        output.push_str(&format!("\n{}\n", parts.join(", ")));
-    }
-
     output
 }
 
@@ -163,6 +140,5 @@ mod tests {
         let output = format_ls(&result);
         assert!(output.contains("d0/"));
         assert!(output.contains("f0.md  1.0K"));
-        assert!(output.contains("6 files, 6 dirs"));
     }
 }
