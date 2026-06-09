@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-pub const INDEX_VERSION: u32 = 13;
+pub const INDEX_VERSION: u32 = 14;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexMetadata {
@@ -28,6 +28,10 @@ pub struct IndexMetadata {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct IndexedFile {
     pub path: String,
+    /// Modification time in **nanoseconds** since the Unix epoch (not seconds).
+    /// Nanosecond resolution is required so the staleness check survives APFS
+    /// sub-second mtimes — two saves within the same wall-clock second
+    /// (formatter run, multi-file IDE save) now produce distinct values.
     pub mtime: u64,
     pub size: u64,
 }

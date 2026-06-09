@@ -4,6 +4,16 @@ use std::path::Path;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Modification time in **nanoseconds** since the Unix epoch.
+///
+/// Stored at nanosecond resolution (not seconds) so the staleness check
+/// survives APFS sub-second mtimes: two saves within the same wall-clock
+/// second now produce distinct values, and a stale index is detected.
+/// `as_nanos()` is u128; nanoseconds since 1970 fit in u64 until year 2554.
+fn mtime_nanos(modified: SystemTime) -> Option<u64> {
+    Some(modified.duration_since(UNIX_EPOCH).ok()?.as_nanos() as u64)
+}
+
 use ahash::{AHashMap, AHashSet};
 use anyhow::{Context, Result};
 use rayon::prelude::*;
@@ -302,12 +312,7 @@ fn full_rebuild(
                 for window in bytes.windows(2) {
                     bigram_hashes.insert(ngram::hash_bigram(window[0], window[1]));
                 }
-                let mtime = fs::metadata(path)
-                    .and_then(|m| m.modified())
-                    .ok()?
-                    .duration_since(UNIX_EPOCH)
-                    .ok()?
-                    .as_secs();
+                let mtime = mtime_nanos(fs::metadata(path).and_then(|m| m.modified()).ok()?)?;
                 let rel_path = path.strip_prefix(root).ok()?.to_string_lossy().to_string();
 
                 // Extract pre-computed filedata (line offsets, symbols, summaries)
@@ -511,12 +516,7 @@ fn detect_changed_files(
         let full_path = root.join(&file.path);
         match fs::metadata(&full_path) {
             Ok(m) => {
-                let current_mtime = m
-                    .modified()
-                    .ok()?
-                    .duration_since(UNIX_EPOCH)
-                    .ok()?
-                    .as_secs();
+                let current_mtime = mtime_nanos(m.modified().ok()?)?;
                 if current_mtime != file.mtime || m.len() != file.size {
                     changed.push(file.path.clone());
                 }
@@ -619,8 +619,7 @@ fn incremental_overlay(
                     let mtime = fs::metadata(&full_path)
                         .and_then(|m| m.modified())
                         .ok()
-                        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                        .map(|d| d.as_secs())
+                        .and_then(mtime_nanos)
                         .unwrap_or(0);
                     changed_file_data.push((rel_path.clone(), bytes.len() as u64, mtime, ngrams));
                 }
