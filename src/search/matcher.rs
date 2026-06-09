@@ -63,9 +63,20 @@ pub fn match_file(
         };
     }
 
-    // ── count_only: count matches, no line_starts needed ──
+    // ── count_only: count matching LINES (rg -c parity), no line_starts needed ──
+    // After each match, jump to the start of the next line so multiple hits on
+    // one line count once. `rg -c` counts lines, not occurrences — agents and
+    // scripts that compare against rg expect identical numbers.
     if config.count_only {
-        let match_count = regex.find_iter(content).count();
+        let mut match_count = 0usize;
+        let mut at = 0usize;
+        while let Some(m) = regex.find_at(content, at) {
+            match_count += 1;
+            match memchr::memchr(b'\n', &content[m.end()..]) {
+                Some(nl) => at = m.end() + nl + 1,
+                None => break,
+            }
+        }
         return if match_count > 0 {
             Ok(Some(FileMatches {
                 path: rel_path.to_string(),

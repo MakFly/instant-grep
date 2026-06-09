@@ -30,7 +30,7 @@ pub struct Cli {
     #[arg(short = 'C', long, global = true)]
     pub context: Option<usize>,
 
-    /// Only print count of matches per file
+    /// Only print count of matching lines per file (rg -c parity)
     #[arg(short = 'c', long, global = true)]
     pub count: bool,
 
