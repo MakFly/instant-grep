@@ -40,6 +40,13 @@ pub fn build_index(
     let root = root.canonicalize().context("canonicalize root")?;
     let ig = ig_dir(&root);
 
+    // Serialize concurrent builders (two `ig index`, or a search-triggered
+    // rebuild racing an explicit one). Held for the whole build — including
+    // overlay/compaction — and released on drop, error paths included. A
+    // waiter that acquires after the winner finds a fresh index and returns
+    // through the up-to-date path.
+    let _build_lock = crate::index::lock::IndexLock::acquire(&ig)?;
+
     let existing_meta = load_existing_metadata(&ig);
     let current_git_commit = get_git_head(&root);
 

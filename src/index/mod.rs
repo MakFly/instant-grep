@@ -1,4 +1,5 @@
 pub mod filedata;
+pub mod lock;
 pub mod merge;
 pub mod metadata;
 pub mod ngram;

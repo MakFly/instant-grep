@@ -36,20 +36,27 @@ pub fn encode_u32(value: u32, buf: &mut Vec<u8>) {
 /// posting-list decode (millions of calls per query) and the compiler
 /// can only specialize away the variable byte-count branch when the
 /// caller's loop is fully inlined.
+///
+/// Returns `None` when the varint is truncated (slice ends mid-value) or
+/// malformed (more than 5 bytes for a u32). The input comes from on-disk
+/// index files that may be corrupt; with `panic = "abort"` an unchecked
+/// `data[*pos]` here would kill the whole process on a torn postings.bin.
 #[inline(always)]
-pub fn decode_u32(data: &[u8], pos: &mut usize) -> u32 {
+pub fn decode_u32(data: &[u8], pos: &mut usize) -> Option<u32> {
     let mut result: u32 = 0;
     let mut shift = 0;
     loop {
-        let byte = data[*pos];
+        let byte = *data.get(*pos)?;
         *pos += 1;
         result |= ((byte & 0x7F) as u32) << shift;
         if byte & 0x80 != 0 {
-            break;
+            return Some(result);
         }
         shift += 7;
+        if shift > 28 {
+            return None;
+        }
     }
-    result
 }
 
 /// Encode a sorted slice of DocIds as delta + VByte.
@@ -137,15 +144,21 @@ pub fn decode_posting_list(data: &[u8], offset: usize, byte_len: usize) -> Vec<D
     let end = offset + byte_len;
     let mut pos = offset;
 
-    let count = decode_u32(data, &mut pos) as usize;
-    let mut result = Vec::with_capacity(count);
+    let Some(count) = decode_u32(data, &mut pos) else {
+        return Vec::new();
+    };
+    // Capacity hint capped by what the payload could physically hold (≥1
+    // byte per delta) — a corrupt count must not become an allocation bomb.
+    let mut result = Vec::with_capacity((count as usize).min(end.saturating_sub(pos) + 1));
 
     let mut prev: u32 = 0;
     for _ in 0..count {
         if pos >= end {
             break;
         }
-        let delta = decode_u32(data, &mut pos);
+        let Some(delta) = decode_u32(data, &mut pos) else {
+            break;
+        };
         prev += delta;
         result.push(prev);
     }
@@ -176,15 +189,22 @@ fn decode_posting_entries_legacy(data: &[u8], offset: usize, byte_len: usize) ->
 }
 
 fn decode_posting_entries_payload(data: &[u8], pos: &mut usize, end: usize) -> Vec<PostingEntry> {
-    let count = decode_u32(data, pos) as usize;
-    let mut result = Vec::with_capacity(count);
+    let Some(count) = decode_u32(data, pos) else {
+        return Vec::new();
+    };
+    let count = count as usize;
+    // Each entry takes ≥3 payload bytes (delta + 2 masks): cap the hint so a
+    // corrupt count can't trigger a giant allocation.
+    let mut result = Vec::with_capacity(count.min(end.saturating_sub(*pos) / 3 + 1));
 
     let mut prev: u32 = 0;
     for _ in 0..count {
         if *pos >= end {
             break;
         }
-        let delta = decode_u32(data, pos);
+        let Some(delta) = decode_u32(data, pos) else {
+            break;
+        };
         prev += delta;
         if *pos + 2 > end {
             break;
@@ -214,7 +234,9 @@ fn decode_posting_entries_skip(data: &[u8], offset: usize, byte_len: usize) -> V
     let Some(header) = SkipHeader::parse(data, offset, byte_len) else {
         return Vec::new();
     };
-    let mut result = Vec::with_capacity(header.doc_count);
+    // doc_count is read from disk: cap the hint by payload size (≥3 B/entry).
+    let payload_cap = header.end.saturating_sub(header.payload_start) / 3 + 1;
+    let mut result = Vec::with_capacity(header.doc_count.min(payload_cap));
     for idx in 0..header.block_count {
         let meta = block_meta_from(data, header, idx);
         let mut pos = header.payload_start + meta.payload_offset as usize;
@@ -233,12 +255,12 @@ pub fn posting_entry_count(data: &[u8], offset: usize, byte_len: usize) -> usize
     match data[pos] {
         POSTINGS_SIMPLE => {
             pos += 1;
-            decode_u32(data, &mut pos) as usize
+            decode_u32(data, &mut pos).unwrap_or(0) as usize
         }
         POSTINGS_SKIP => SkipHeader::parse(data, offset, byte_len)
             .map(|header| header.doc_count)
             .unwrap_or(0),
-        _ => decode_u32(data, &mut pos) as usize,
+        _ => decode_u32(data, &mut pos).unwrap_or(0) as usize,
     }
 }
 
@@ -273,8 +295,8 @@ impl SkipHeader {
             return None;
         }
         let mut pos = offset + 1;
-        let doc_count = decode_u32(data, &mut pos) as usize;
-        let block_count = decode_u32(data, &mut pos) as usize;
+        let doc_count = decode_u32(data, &mut pos)? as usize;
+        let block_count = decode_u32(data, &mut pos)? as usize;
         let metadata_start = pos;
         let payload_start = metadata_start.checked_add(block_count.checked_mul(SKIP_META_SIZE)?)?;
         if payload_start > end {
@@ -338,7 +360,9 @@ fn decode_block_payload(
         if *pos >= end {
             break;
         }
-        let delta = decode_u32(data, pos);
+        let Some(delta) = decode_u32(data, pos) else {
+            break;
+        };
         prev += delta;
         if *pos + 2 > end {
             break;
@@ -516,7 +540,7 @@ impl<'a> PostingIterator<'a> {
         let end = offset + byte_len;
         let mut pos = offset;
         let count = if byte_len > 0 && pos < end {
-            decode_u32(data, &mut pos)
+            decode_u32(data, &mut pos).unwrap_or(0)
         } else {
             0
         };
@@ -540,7 +564,10 @@ impl<'a> PostingIterator<'a> {
             return;
         }
         self.remaining -= 1;
-        let delta = decode_u32(self.data, &mut self.pos);
+        let Some(delta) = decode_u32(self.data, &mut self.pos) else {
+            self.val = None;
+            return;
+        };
         self.prev += delta;
         self.val = Some(self.prev);
     }
@@ -588,7 +615,7 @@ mod tests {
             encode_u32(val, &mut buf);
             let mut pos = 0;
             let decoded = decode_u32(&buf, &mut pos);
-            assert_eq!(decoded, val, "failed for {val}");
+            assert_eq!(decoded, Some(val), "failed for {val}");
             assert_eq!(pos, buf.len(), "didn't consume all bytes for {val}");
         }
     }
@@ -622,6 +649,45 @@ mod tests {
         buf.clear();
         encode_u32(u32::MAX, &mut buf);
         assert_eq!(buf.len(), 5);
+    }
+
+    #[test]
+    fn corrupt_input_never_panics() {
+        // Truncated varint: continuation bit says "more bytes" but the slice ends.
+        let truncated = [0x00u8]; // bit 7 clear → expects another byte
+        let mut pos = 0;
+        assert_eq!(decode_u32(&truncated, &mut pos), None);
+
+        // Malformed: 6+ continuation bytes for a u32.
+        let overlong = [0x00u8; 8];
+        let mut pos = 0;
+        assert_eq!(decode_u32(&overlong, &mut pos), None);
+
+        // Posting entries with a count promising more data than exists, on
+        // every layout byte marker: must return (possibly partial) results,
+        // never panic, never OOM.
+        for marker in [POSTINGS_SIMPLE, POSTINGS_SKIP, 0x42u8] {
+            let mut corrupt = vec![marker];
+            corrupt.extend_from_slice(&[0x7F, 0x7F, 0x7F, 0x7F]); // huge truncated varints
+            let _ = decode_posting_entries(&corrupt, 0, corrupt.len());
+            let _ = posting_entry_count(&corrupt, 0, corrupt.len());
+        }
+
+        // Valid encoding, then truncate at every possible length: no panic.
+        let entries: Vec<PostingEntry> = (0..200u32)
+            .map(|i| PostingEntry {
+                doc_id: i * 7,
+                next_mask: 0b10,
+                loc_mask: 0b01,
+                zone_mask: i,
+            })
+            .collect();
+        let encoded = encode_posting_entries(&entries);
+        for len in 0..encoded.len() {
+            let _ = decode_posting_entries(&encoded[..len], 0, len);
+            let mut skipper = PostingEntrySkipper::new(&encoded[..len], 0, len);
+            let _ = skipper.advance_to_masked(50, 0, 0, 0);
+        }
     }
 
     #[test]

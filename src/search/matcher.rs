@@ -2,7 +2,6 @@ use std::ops::Range;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use memmap2::Mmap;
 use regex::bytes::Regex;
 
 /// Configuration for search behavior.
@@ -39,12 +38,13 @@ pub fn match_file(
     config: &SearchConfig,
 ) -> Result<Option<FileMatches>> {
     let full_path = root.join(rel_path);
-    let file =
-        std::fs::File::open(&full_path).with_context(|| format!("open {}", full_path.display()))?;
-
-    let mmap =
-        unsafe { Mmap::map(&file).with_context(|| format!("mmap {}", full_path.display()))? };
-    let content = &*mmap;
+    // Plain read, not mmap: candidate files are small (the index only lists
+    // files ≤ max_file_size, 1 MB by default) and an mmap'd source file that
+    // another process truncates mid-read raises SIGBUS — fatal and unreportable
+    // with `panic = "abort"`. A heap copy is immune to concurrent truncation.
+    let content =
+        std::fs::read(&full_path).with_context(|| format!("read {}", full_path.display()))?;
+    let content = content.as_slice();
 
     if content.is_empty() {
         return Ok(None);
