@@ -37,6 +37,16 @@ const KEEP_PER_TOKEN: usize = 10;
 const FILE_NAME: &str = "cooccurrence.bin";
 /// Cap total distinct tokens learned to keep RAM bounded on huge repos.
 const MAX_TOKENS: usize = 200_000;
+/// Skip lines with more tokens than this. Minified JS, JSON one-liners and
+/// SQL dumps produce single lines with 10⁴–10⁵ tokens; the intra-line pair
+/// loop is O(n²), so one such line alone allocates billions of pair entries
+/// (observed: >9 GB RSS on a real project). Those lines carry no PMI signal.
+const MAX_LINE_TOKENS: usize = 128;
+/// Hard cap on distinct pairs. MAX_TOKENS bounds the vocabulary but pairs
+/// grow quadratically with it; past this point new pairs are dropped and
+/// only existing ones keep counting. 2M entries ≈ 50 MB — the RAM ceiling
+/// of the whole builder.
+const MAX_PAIRS: usize = 2_000_000;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct CooccurrenceIndex {
@@ -107,6 +117,10 @@ impl CooccurrenceBuilder {
             if buf.is_empty() {
                 continue;
             }
+            if buf.len() > MAX_LINE_TOKENS {
+                // Minified / generated line — no semantic signal, O(n²) cost.
+                continue;
+            }
             let ids: Vec<u32> = buf.iter().filter_map(|t| self.intern_cap(t)).collect();
 
             // Count token occurrences + pairs with buffered window.
@@ -115,30 +129,14 @@ impl CooccurrenceBuilder {
                 self.total_tokens += 1;
                 for prev_line in &window {
                     for &prev_id in prev_line {
-                        if prev_id == id {
-                            continue;
-                        }
-                        let key = if prev_id < id {
-                            (prev_id, id)
-                        } else {
-                            (id, prev_id)
-                        };
-                        *self.pairs.entry(key).or_default() += 1;
+                        self.bump_pair(prev_id, id);
                     }
                 }
             }
             // Count intra-line pairs too
             for i in 0..ids.len() {
                 for j in (i + 1)..ids.len() {
-                    if ids[i] == ids[j] {
-                        continue;
-                    }
-                    let key = if ids[i] < ids[j] {
-                        (ids[i], ids[j])
-                    } else {
-                        (ids[j], ids[i])
-                    };
-                    *self.pairs.entry(key).or_default() += 1;
+                    self.bump_pair(ids[i], ids[j]);
                 }
             }
 
@@ -146,6 +144,20 @@ impl CooccurrenceBuilder {
             if window.len() > WINDOW {
                 window.remove(0);
             }
+        }
+    }
+
+    fn bump_pair(&mut self, a: u32, b: u32) {
+        if a == b {
+            return;
+        }
+        let key = if a < b { (a, b) } else { (b, a) };
+        if self.pairs.len() >= MAX_PAIRS {
+            if let Some(count) = self.pairs.get_mut(&key) {
+                *count += 1;
+            }
+        } else {
+            *self.pairs.entry(key).or_default() += 1;
         }
     }
 
