@@ -280,7 +280,7 @@ pub fn merge_segments_streaming(
     postings_writer.flush()?;
     drop(postings_writer);
     entries_writer.flush()?;
-    fs::rename(&postings_tmp, postings_path).context("publish postings.bin")?;
+    crate::util::publish_durable(&postings_tmp, postings_path)?;
 
     Ok(StreamingMergeResult {
         entries_path,
@@ -322,7 +322,7 @@ fn merge_single_segment_streaming(
     postings_writer.flush()?;
     drop(postings_writer);
     entries_writer.flush()?;
-    fs::rename(&postings_tmp, postings_path).context("publish postings.bin")?;
+    crate::util::publish_durable(&postings_tmp, postings_path)?;
 
     Ok(StreamingMergeResult {
         entries_path,
@@ -480,7 +480,7 @@ pub fn build_lexicon_mmap_from_file(
     // Atomic publish: rename tmp into place. On macOS the kernel keeps the
     // pre-rename inode alive for any pre-existing reader mmap, so the daemon's
     // stale view stays consistent until it re-opens via reload_if_changed.
-    fs::rename(&lexicon_tmp, lexicon_path).context("publish lexicon.bin")?;
+    crate::util::publish_durable(&lexicon_tmp, lexicon_path)?;
     Ok(())
 }
 

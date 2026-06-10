@@ -295,25 +295,21 @@ pub fn build_overlay(
     let encoded = bincode::serialize(&overlay_meta).context("serialize overlay_meta")?;
     fs::write(ig_dir.join("overlay_meta.bin.tmp"), &encoded).context("write overlay_meta.bin")?;
 
-    // Publish atomically. `overlay_meta.bin` is renamed last because readers use
-    // its mtime as the reload signal.
-    fs::rename(ig_dir.join("overlay.bin.tmp"), ig_dir.join("overlay.bin"))
-        .context("publish overlay.bin")?;
-    fs::rename(
-        ig_dir.join("overlay_lex.bin.tmp"),
-        ig_dir.join("overlay_lex.bin"),
-    )
-    .context("publish overlay_lex.bin")?;
-    fs::rename(
-        ig_dir.join("tombstones.bin.tmp"),
-        ig_dir.join("tombstones.bin"),
-    )
-    .context("publish tombstones.bin")?;
-    fs::rename(
-        ig_dir.join("overlay_meta.bin.tmp"),
-        ig_dir.join("overlay_meta.bin"),
-    )
-    .context("publish overlay_meta.bin")?;
+    // Publish atomically + durably. `overlay_meta.bin` is renamed last because
+    // readers use its mtime as the reload signal.
+    crate::util::publish_durable(&ig_dir.join("overlay.bin.tmp"), &ig_dir.join("overlay.bin"))?;
+    crate::util::publish_durable(
+        &ig_dir.join("overlay_lex.bin.tmp"),
+        &ig_dir.join("overlay_lex.bin"),
+    )?;
+    crate::util::publish_durable(
+        &ig_dir.join("tombstones.bin.tmp"),
+        &ig_dir.join("tombstones.bin"),
+    )?;
+    crate::util::publish_durable(
+        &ig_dir.join("overlay_meta.bin.tmp"),
+        &ig_dir.join("overlay_meta.bin"),
+    )?;
 
     Ok(overlay_meta)
 }

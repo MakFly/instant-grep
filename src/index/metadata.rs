@@ -45,7 +45,7 @@ impl IndexMetadata {
         // a torn metadata.bin during a rebuild — and from holding a stale mmap-
         // backed view via in-place truncate (see fix(v1.17.2) H1 hardening).
         std::fs::write(&bin_tmp, &encoded).context("write metadata.bin.tmp")?;
-        std::fs::rename(&bin_tmp, &bin_path).context("publish metadata.bin")?;
+        crate::util::publish_durable(&bin_tmp, &bin_path)?;
 
         if std::env::var("IG_DEBUG").is_ok() {
             let json_path = ig_dir.join("metadata.json");

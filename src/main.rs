@@ -166,7 +166,7 @@ fn main() -> Result<()> {
     match cli.command {
         // Explicit subcommands
         Some(Commands::Search { pattern, paths }) => {
-            do_search(&SearchOpts {
+            exit_like_rg(do_search(&SearchOpts {
                 pattern: &pattern,
                 paths: &paths,
                 ignore_case,
@@ -188,7 +188,7 @@ fn main() -> Result<()> {
                 top,
                 semantic,
                 run_opts,
-            })?;
+            }));
         }
 
         Some(Commands::Index { path }) => {
@@ -1181,7 +1181,7 @@ fn main() -> Result<()> {
         // No subcommand — shortcut mode: `ig "pattern" [path]`
         None => {
             if let Some(pattern) = cli.pattern {
-                do_search(&SearchOpts {
+                exit_like_rg(do_search(&SearchOpts {
                     pattern: &pattern,
                     paths: &cli.paths,
                     ignore_case,
@@ -1203,7 +1203,7 @@ fn main() -> Result<()> {
                     top,
                     semantic,
                     run_opts,
-                })?;
+                }));
             } else {
                 // No pattern, no subcommand — show help
                 use clap::CommandFactory;
@@ -1265,9 +1265,25 @@ fn prepare_pattern(pattern: &str, word_regexp: bool, fixed_strings: bool) -> Str
     p
 }
 
+/// Map a search outcome onto rg's exit-code contract: 0 = matches found
+/// (falls through), 1 = no matches, 2 = error. Agents and scripts that
+/// branch on `$?` expect rg semantics from a drop-in replacement.
+fn exit_like_rg(outcome: Result<bool>) {
+    match outcome {
+        Ok(true) => {}
+        Ok(false) => std::process::exit(1),
+        Err(e) => {
+            eprintln!("Error: {e:#}");
+            std::process::exit(2);
+        }
+    }
+}
+
 /// Core search logic shared between `ig "pattern"` and `ig search "pattern"`.
+/// Returns whether at least one match was found, so main can mirror rg's
+/// exit-code contract: 0 = matches, 1 = no matches, 2 = error.
 #[allow(clippy::too_many_arguments)]
-fn do_search(opts: &SearchOpts) -> Result<()> {
+fn do_search(opts: &SearchOpts) -> Result<bool> {
     // Reject empty patterns — they match everything and waste tokens
     if opts.pattern.is_empty() {
         anyhow::bail!("empty pattern — provide a search term");
@@ -1361,7 +1377,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
             }
         }
         tracking::log_usage(search_command_label(opts));
-        return Ok(());
+        return Ok(!results.is_empty());
     }
 
     let index_exists = IndexMetadata::exists(&ig);
@@ -1412,15 +1428,19 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
         } else if !index_exists {
             let _ = spawn_background_index_build(&root);
         } else {
+            // Invalid/stale index: never repaired inline on the search hot
+            // path (explicit `ig index` gives visible errors), but fan out the
+            // same detached rebuild as the missing-index case so agents are
+            // not stuck on brute-force until someone runs `ig index` by hand.
             eprintln!(
-                "warning: existing index at {} is invalid or stale; run `ig index {}` to rebuild",
+                "warning: existing index at {} is invalid or stale; rebuilding in background",
                 ig.display(),
-                root.display()
             );
+            let _ = spawn_background_index_build(&root);
         }
 
         tracking::log_usage(search_command_label(opts));
-        return Ok(());
+        return Ok(!results.is_empty());
     }
 
     let (mut results, search_stats) = indexed::search_indexed(
@@ -1456,7 +1476,7 @@ fn do_search(opts: &SearchOpts) -> Result<()> {
 
     tracking::log_usage(search_command_label(opts));
 
-    Ok(())
+    Ok(!results.is_empty())
 }
 
 /// Compact output for --compact mode: header + truncated matches per file.

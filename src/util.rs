@@ -1,6 +1,27 @@
 use std::path::{Path, PathBuf};
 
+use anyhow::{Context, Result};
+
 const BINARY_CHECK_LEN: usize = 8192;
+
+/// Durably publish `tmp` at `dest`: fsync the file contents, rename, then
+/// fsync the parent directory so the rename itself survives a crash or power
+/// loss. Without the syncs, `rename` alone can publish a file whose data
+/// never reached disk — the next process then loads a torn artifact.
+pub fn publish_durable(tmp: &Path, dest: &Path) -> Result<()> {
+    let file = std::fs::File::open(tmp).with_context(|| format!("open {}", tmp.display()))?;
+    file.sync_all()
+        .with_context(|| format!("fsync {}", tmp.display()))?;
+    drop(file);
+    std::fs::rename(tmp, dest).with_context(|| format!("publish {}", dest.display()))?;
+    if let Some(dir) = dest.parent() {
+        // Best-effort: directory fsync is not supported on every platform.
+        if let Ok(d) = std::fs::File::open(dir) {
+            let _ = d.sync_all();
+        }
+    }
+    Ok(())
+}
 
 /// Check if file content looks like binary (contains null bytes in first 8KB).
 pub fn is_binary(data: &[u8]) -> bool {

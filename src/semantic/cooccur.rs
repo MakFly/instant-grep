@@ -69,9 +69,10 @@ impl CooccurrenceIndex {
 
     pub fn save(&self, ig_dir: &Path) -> Result<()> {
         let path = ig_dir.join(FILE_NAME);
+        let tmp = ig_dir.join(format!("{FILE_NAME}.tmp"));
         let data = bincode::serialize(self).context("serialise cooccurrence")?;
-        std::fs::write(&path, data).with_context(|| format!("write {}", path.display()))?;
-        Ok(())
+        std::fs::write(&tmp, data).with_context(|| format!("write {}", tmp.display()))?;
+        crate::util::publish_durable(&tmp, &path)
     }
 
     pub fn load(ig_dir: &Path) -> Option<Self> {
