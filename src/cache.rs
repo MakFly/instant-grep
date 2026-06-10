@@ -657,7 +657,9 @@ pub fn ensure_layout() -> Result<()> {
                 .ok()
                 .and_then(|s| s.trim().parse::<i32>().ok())
                 .filter(|pid| *pid > 1)
-                .map(|pid| unsafe { libc::kill(pid, 0) } == 0)
+                // SAFETY: kill(pid, 0) sends no signal — it only reports
+                // whether the process exists. A syscall, no memory access.
+                .map(|pid| (unsafe { libc::kill(pid, 0) }) == 0)
                 .unwrap_or(false);
             if !holder_alive {
                 let _ = fs::remove_file(&lock_path);

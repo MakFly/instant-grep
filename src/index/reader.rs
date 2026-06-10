@@ -67,6 +67,11 @@ impl IndexReader {
         let postings_meta = std::fs::metadata(&postings_path).context("stat postings.bin")?;
         validate_artifact_sizes(&metadata, lexicon_meta.len(), postings_meta.len())?;
 
+        // SAFETY: both artifacts are only ever replaced via tmp+rename (new
+        // inode), never truncated or rewritten in place, so a live mapping
+        // keeps reading the old inode safely. Sizes were validated above; the
+        // decode layer additionally bounds-checks every access (corrupt data
+        // degrades to empty results, not UB).
         let lexicon_file = File::open(&lexicon_path).context("open lexicon.bin")?;
         let lexicon = unsafe { Mmap::map(&lexicon_file).context("mmap lexicon.bin")? };
 
@@ -78,6 +83,9 @@ impl IndexReader {
         // lexicon through disk before a query can fail or fall back.
         #[cfg(unix)]
         {
+            // SAFETY: the pointer/length pair comes from a live Mmap; madvise
+            // only registers a kernel hint and never dereferences. A failure
+            // (e.g. alignment-strict platform) is ignored — it's advisory.
             unsafe {
                 // Postings are accessed randomly via offset lookups — disable readahead
                 libc::madvise(

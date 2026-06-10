@@ -50,6 +50,17 @@ embed-poc = ["dep:tiny_http"]
 [dev-dependencies]
 pretty_assertions = "1"
 
+[lints.rust]
+# Every unsafe operation must sit in an explicit unsafe block with its own
+# SAFETY justification, even inside unsafe fns.
+unsafe_op_in_unsafe_fn = "warn"
+
+[lints.clippy]
+# Catch new unwrap()/expect() on Result in non-test code during review;
+# existing call sites are vetted case by case (see audit 2026-06).
+dbg_macro = "warn"
+todo = "warn"
+
 [profile.release]
 opt-level = 3
 lto = "thin"

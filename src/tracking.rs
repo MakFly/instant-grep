@@ -97,14 +97,18 @@ pub fn log_savings(entry: &TrackEntry) {
     let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) else {
         return;
     };
-    // Acquire exclusive lock to prevent concurrent write corruption
-    unsafe {
-        libc::flock(file.as_raw_fd(), libc::LOCK_EX);
+    // Acquire exclusive lock to prevent concurrent write corruption.
+    // SAFETY: flock() on a valid owned fd; a syscall, no memory access.
+    let locked = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0;
+    if !locked && std::env::var("IG_DEBUG").is_ok() {
+        eprintln!("tracking: flock failed — appending without lock (best-effort)");
     }
     let _ = file.write_all(line.as_bytes());
-    // Release lock
-    unsafe {
-        libc::flock(file.as_raw_fd(), libc::LOCK_UN);
+    if locked {
+        // SAFETY: same fd, releasing the lock taken above.
+        unsafe {
+            libc::flock(file.as_raw_fd(), libc::LOCK_UN);
+        }
     }
 
     // Dual-write: ALSO record into the SQLite tracking DB. Errors are

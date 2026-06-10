@@ -225,6 +225,7 @@ pub(crate) fn cleanup_legacy_daemon() {
         if plist.exists() {
             // Best-effort: get uid for `bootout gui/<uid>` and fall back to
             // legacy `unload` if `bootout` isn't available.
+            // SAFETY: getuid() is a syscall that cannot fail or touch memory.
             let uid = unsafe { libc::getuid() };
             let _ = std::process::Command::new("launchctl")
                 .args(["bootout", &format!("gui/{}/com.ig.daemon.global", uid)])

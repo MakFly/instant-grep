@@ -59,6 +59,9 @@ impl OverlayReader {
             return Ok(None);
         }
 
+        // SAFETY: overlay artifacts are only ever replaced via tmp+rename
+        // (new inode), never truncated in place; the decode layer bounds-
+        // checks every access, so corrupt data degrades instead of UB.
         let lex_file = File::open(&lex_path).context("open overlay_lex.bin")?;
         let lexicon = unsafe { Mmap::map(&lex_file).context("mmap overlay_lex.bin")? };
 

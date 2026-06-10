@@ -95,10 +95,19 @@ pub fn extract_symbols_with_boundaries(content: &str, ext: &str) -> Vec<Precompu
         Err(_) => return Vec::new(),
     };
 
+    // Generated/minified files can match the symbol regex on tens of
+    // thousands of lines; every signature is an owned String held in RAM for
+    // the whole build (filedata is not covered by the SPIMI postings budget).
+    // No human-written file has anywhere near this many symbols.
+    const MAX_SYMBOLS_PER_FILE: usize = 512;
+
     let lines: Vec<&str> = content.lines().collect();
     let mut symbols = Vec::new();
 
     for (i, line) in lines.iter().enumerate() {
+        if symbols.len() >= MAX_SYMBOLS_PER_FILE {
+            break;
+        }
         if sym_regex.is_match(line) {
             let line_num = (i + 1) as u32;
             let signature = line.trim().to_string();
