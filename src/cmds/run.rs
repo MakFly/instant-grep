@@ -155,8 +155,8 @@ fn route_to_dedicated(args: &[String]) -> Result<Option<i32>> {
         let mut child = Command::new(&ig_bin);
         child.arg(&ig_sub);
         for a in &args[1..] {
-            // Drop the `go test` token when we routed to `go_test`.
-            if ig_sub == "go_test" && a == "test" {
+            // Drop the `go test` token when we routed to `go-test`.
+            if ig_sub == "go-test" && a == "test" {
                 continue;
             }
             child.arg(a);
@@ -208,21 +208,19 @@ fn route_to_dedicated(args: &[String]) -> Result<Option<i32>> {
 /// back to the TOML filter pipeline.
 fn pr4_subcommand_for(basename: &str, args: &[String]) -> Option<String> {
     if !PR4_DEDICATED_TOOLS.contains(&basename) {
-        // `cargo test ...` routes to ig cargo_test; `cargo build ...` to ig cargo_build.
-        if basename == "cargo" {
-            if args.get(1).map(|s| s.as_str()) == Some("test") {
-                return Some("cargo_test".to_string());
-            }
-            if args.get(1).map(|s| s.as_str()) == Some("build") {
-                return Some("cargo_build".to_string());
-            }
+        // `cargo test ...` routes to ig cargo-test (clap kebab-case name —
+        // `cargo_test` is NOT a subcommand and would fall through to the
+        // search-pattern positional). `cargo build` has no dedicated
+        // subcommand; it falls back to the TOML filter pipeline.
+        if basename == "cargo" && args.get(1).map(|s| s.as_str()) == Some("test") {
+            return Some("cargo-test".to_string());
         }
         return None;
     }
     if basename == "go" {
         // Only route `go test` — not `go build`/`go run`/...
         if args.get(1).map(|s| s.as_str()) == Some("test") {
-            return Some("go_test".to_string());
+            return Some("go-test".to_string());
         }
         return None;
     }
@@ -274,6 +272,18 @@ mod tests {
     }
 
     #[test]
+    fn cargo_build_is_not_routed() {
+        // No dedicated `ig` subcommand exists for cargo build — it must fall
+        // back to the TOML filter pipeline instead of a phantom re-exec.
+        let args = vec![
+            "cargo".to_string(),
+            "build".to_string(),
+            "--release".to_string(),
+        ];
+        assert_eq!(pr4_subcommand_for("cargo", &args), None);
+    }
+
+    #[test]
     fn basename_preserves_plain_name() {
         let args = vec!["pytest".to_string(), "-v".to_string()];
         assert_eq!(basename_normalized(&args), "pytest -v");
@@ -299,7 +309,7 @@ mod tests {
         let args = vec!["cargo".to_string(), "test".to_string()];
         assert_eq!(
             pr4_subcommand_for("cargo", &args).as_deref(),
-            Some("cargo_test")
+            Some("cargo-test")
         );
         let args2 = vec!["cargo".to_string(), "check".to_string()];
         assert_eq!(pr4_subcommand_for("cargo", &args2), None);
@@ -308,7 +318,7 @@ mod tests {
     #[test]
     fn pr4_routes_go_test_only_on_test_verb() {
         let args = vec!["go".to_string(), "test".to_string(), "./...".to_string()];
-        assert_eq!(pr4_subcommand_for("go", &args).as_deref(), Some("go_test"));
+        assert_eq!(pr4_subcommand_for("go", &args).as_deref(), Some("go-test"));
         let args2 = vec!["go".to_string(), "build".to_string()];
         assert_eq!(pr4_subcommand_for("go", &args2), None);
     }
